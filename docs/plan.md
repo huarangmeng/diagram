@@ -1,0 +1,266 @@
+# KMP Diagram —— 多语法图表渲染框架 实施计划
+
+## 1. 项目目标
+
+构建一个 Kotlin Multiplatform + Compose Multiplatform 的图表渲染框架，
+**严格兼容** Mermaid（`.mmd`）、PlantUML（`.puml`）、Graphviz DOT（`.dot`）三大语法；
+**自研解析 + 自研布局算法**，使用 Compose Canvas 渲染，并支持导出 PNG / SVG。
+目标平台：Android / iOS / Desktop(JVM) / Web(JS, Wasm)。
+
+不在范围：可视化拖拽编辑器、双向编辑、协同。
+
+---
+
+## 2. 顶层架构
+
+采用经典编译器三段式 + 渲染管线：
+
+```
+源文本 ──► [Lexer] ──► Tokens ──► [Parser] ──► 通用 IR (DiagramModel)
+                                                    │
+                                                    ▼
+                                       [Layout Engine] (按图类型选择算法)
+                                                    │
+                                                    ▼
+                                          LaidOutDiagram (含坐标)
+                                                    │
+                       ┌────────────────────────────┼───────────────────────────┐
+                       ▼                            ▼                           ▼
+                Compose Canvas Renderer     SVG Exporter (commonMain)   PNG Exporter (expect/actual)
+```
+
+### 模块（Gradle 子模块）划分
+
+```
+:diagram-core           // 通用 IR、几何、颜色、字体、主题、Style token
+:diagram-layout         // 布局算法集合（分层、力导向、正交、树、放射、环形等）
+:diagram-render // Compose Canvas 渲染器、交互（缩放/拖拽/选中）
+:diagram-export         // SVG（commonMain）+ PNG/JPEG（expect/actual）统一在一个模块
+:diagram-mermaid        // Mermaid 18 种图的 lexer/parser/IR 映射
+:diagram-plantuml       // PlantUML 19 种图的 lexer/parser/IR 映射
+:diagram-dot            // Graphviz DOT 的 lexer/parser/IR 映射
+:diagram-api            // 顶层门面 API：Diagram.from(text) / DiagramView()
+:composeApp             // Demo & 样例 gallery
+```
+
+每个语法子模块只依赖 `:diagram-core`；渲染器只依赖 `:diagram-core`；
+`:diagram-api` 把它们粘合起来：根据首行/魔术关键字分发到对应解析器。
+
+### 顶层公开 API（草案）
+
+```kotlin
+// 解析
+val model: DiagramModel = Diagram.parse(source)               // 自动识别语法
+val model = MermaidParser.parse(text)                         // 显式
+
+// 布局
+val laidOut = model.layout(LayoutOptions(theme = Theme.Light))
+
+// Compose 渲染
+@Composable
+fun App() {
+    DiagramView(
+        source = mermaidText,
+        modifier = Modifier.fillMaxSize(),
+        interaction = DiagramInteraction(zoom = true, pan = true),
+        theme = DiagramTheme.Default,
+    )
+}
+
+// 导出
+laidOut.toSvg(): String
+laidOut.toPng(width = 1920, scale = 2f): ByteArray
+```
+
+---
+
+## 3. 通用 IR 设计（`:diagram-core`）
+
+把三家语法的差异在解析阶段消化掉，下游统一处理。
+顶层类型按 "图族" 分组，每族一种 IR：
+
+| IR 类型 | 覆盖来源 |
+|---|---|
+| `GraphIR`（节点+有/无向边+子图） | Mermaid flowchart, classDiagram, stateDiagram, erDiagram, requirementDiagram, architectureDiagram, c4, block; PlantUML class/usecase/component/state/object/deployment/erd/network/archimate/c4; DOT digraph/graph/cluster |
+| `SequenceIR`（参与者+消息时间轴） | Mermaid sequenceDiagram; PlantUML sequence |
+| `TimeSeriesIR`（任务+时间区间） | Mermaid gantt, timeline; PlantUML gantt, timing |
+| `TreeIR`（根+多层子节点） | Mermaid mindmap; PlantUML mindmap, wbs |
+| `JourneyIR`（阶段+步骤+得分） | Mermaid journey |
+| `PieIR` / `GaugeIR` | Mermaid pie, gauge |
+| `KanbanIR` | Mermaid kanban |
+| `XYChartIR` | Mermaid xyChart |
+| `SankeyIR` | Mermaid sankey |
+| `GitGraphIR` | Mermaid gitGraph |
+| `ActivityIR` | PlantUML activity（特殊：链式控制流） |
+| `WireframeIR` | PlantUML wireframe（盒模型） |
+| `StructIR` | PlantUML json / yaml / ditaa |
+
+每个 IR 都实现 `DiagramModel`：
+
+```kotlin
+sealed interface DiagramModel {
+    val title: String?
+    val sourceLanguage: SourceLanguage   // MERMAID / PLANTUML / DOT
+    val styleHints: StyleHints           // 主题、方向、字号等
+}
+```
+
+公共原子：`NodeId`、`Node`、`Edge(from,to,style,label)`、`Cluster`、
+`PortAnchor`（端口对接位置）、`LabelBox`、`Geom(point/rect/path)`。
+
+---
+
+## 4. 解析器策略
+
+每个语法采用相同骨架：
+
+1. **Lexer**：基于位置的字符流 + 状态机，输出 `Token(kind, lexeme, span)`。
+   - Mermaid 是行驱动；PlantUML 是行驱动 + `@startxxx/@endxxx` 块；DOT 是 C 风格 token。
+2. **Parser**：递归下降；每种图类型一个 sub-parser。
+3. **Diagnostics**：保留 span，错误以 `ParseError(line, col, msg)` 累积返回。
+4. **AST → IR Lowering**：把语法树折叠成上面定义的 `DiagramModel`。
+
+为保证 "严格兼容"，每个子解析器配一份 **黄金语料库**：
+从官方仓库 / 文档站收集 50-200 条样本，作为 parser 回归测试输入。
+
+---
+
+## 5. 布局算法集（`:diagram-layout`）
+
+每个算法以 `Layout` 接口暴露：
+
+```kotlin
+interface Layout<I : DiagramModel, O : LaidOutDiagram> {
+    fun layout(model: I, options: LayoutOptions): O
+}
+```
+
+规划要实现的算法（按需要它们的图类型反推）：
+
+| 算法 | 服务的图 |
+|---|---|
+| **Sugiyama 分层布局**（DAG → 层 → 交叉最小化 → 坐标分配） | flowchart, classDiagram, stateDiagram, erDiagram, activity, component, deployment, requirementDiagram, architectureDiagram, c4, DOT digraph, gitGraph |
+| **力导向 (Fruchterman-Reingold / Barnes-Hut)** | usecase, network, object, archimate, 任意 `graph` 无向 |
+| **正交布局 + 直角折线路由** | block, wireframe, ditaa |
+| **树式布局 (Reingold-Tilford)** | mindmap, wbs, tree |
+| **放射 / 环形布局** | mindmap 备选, journey 环形模式 |
+| **时间轴线性布局** | gantt, timing, timeline, sequenceDiagram(纵向时间) |
+| **径向桑基** | sankey |
+| **网格 + 容量装箱** | kanban, pie, gauge, xyChart 笛卡尔坐标 |
+| **结构嵌套布局** | json, yaml, c4 容器嵌套 |
+
+公共子模块：
+
+- 边路由：直线 / 折线（曼哈顿） / 三次贝塞尔 / 正交 A*（块布局用）。
+- 标签避让：贪心 + 简化的 force-based label placement。
+- 集群（subgraph）矩形包络 & 嵌套布局。
+
+---
+
+## 6. Compose 渲染层（`:diagram-render`）
+
+核心 Composable：
+
+```kotlin
+@Composable
+fun DiagramView(
+    model: LaidOutDiagram,
+    modifier: Modifier = Modifier,
+    theme: DiagramTheme = DiagramTheme.Default,
+    interaction: DiagramInteraction = DiagramInteraction(),
+    onNodeClick: ((NodeId) -> Unit)? = null,
+)
+```
+
+实现要点：
+- 用单一 `Canvas` + `drawScope`；所有图元抽象为 `DrawCommand`（`DrawRect`, `DrawPath`, `DrawText`, `DrawArrow`, `DrawIcon`）。
+- 文本测量统一通过 `rememberTextMeasurer()`，并在 **布局阶段** 就用同一 measurer 测过尺寸（避免布局/渲染字号不一致）。
+- 交互：`Modifier.pointerInput` 实现 pan/zoom；命中检测基于 IR + 几何空间索引（quadtree）。
+- 动画：节点淡入、布局过渡用 `Animatable`。
+- 主题：`DiagramTheme(color, font, stroke, arrowHead, nodeShapeOverride)`，并提供 Mermaid 默认主题、暗色、Material You 三套。
+
+---
+
+## 7. 导出层（`:diagram-export` 单模块）
+
+SVG 与位图共用同一份 "已布局图 → DrawCommand 流" 中间层，统一收在 `:diagram-export`。
+
+### SVG（纯 commonMain）
+- `LaidOutDiagram.toSvg(): String` 遍历 `DrawCommand` 写 XML 字符串。
+- 字体：嵌入字体名 + fallback；可选嵌入 base64 字体。
+
+### PNG / JPEG（expect/actual）
+- `expect fun LaidOutDiagram.toPng(width: Int, scale: Float = 1f): ByteArray`
+- `expect fun LaidOutDiagram.toJpeg(width: Int, quality: Int = 90, scale: Float = 1f): ByteArray`
+- JVM：`java.awt.image.BufferedImage` + 自绘 `DrawCommand`（不依赖 Batik）。
+- Android：`android.graphics.Canvas` + `Bitmap.compress`。
+- iOS：`CoreGraphics` (`CGContext`) + `UIImage` / `UIImageJPEGRepresentation`。
+- JS / Wasm：`OffscreenCanvas` + `toBlob`。
+
+每个平台只写一个 `PlatformCanvas` 适配器消费 `DrawCommand`，SVG 与位图共享渲染逻辑。
+
+---
+
+## 8. 测试策略
+
+- **解析器**：黄金语料 + AST 快照测试（`commonTest`，跨平台跑）。
+- **布局**：确定性种子 + 坐标快照（容差比较）。
+- **渲染**：截图回归测试，JVM 用 Roborazzi/自研像素 diff；其它平台靠 SVG 快照。
+- **集成**：`source → svg` 端到端字符串快照，最易维护。
+- **跨平台**：commonTest 跑解析/布局/SVG；androidUnitTest + jvmTest + iosTest 跑导出。
+
+---
+
+## 9. 分阶段交付
+
+### Phase 0 — 地基
+建立模块结构、`:diagram-core` IR、`DrawCommand`、SVG 导出骨架、demo gallery 框架。
+
+### Phase 1 — Mermaid 主力图（Sugiyama 体系）
+flowchart → sequenceDiagram → classDiagram → stateDiagram → erDiagram。
+需要：行驱动 lexer、Sugiyama 布局、时间轴布局、贝塞尔/折线路由、Compose 渲染基础交互。
+**里程碑：能渲染 mermaid 官方文档一半以上的示例。**
+
+### Phase 2 — Mermaid 数据/时间/树类
+gantt、timeline、pie、gauge、journey、mindmap、xyChart、sankey、kanban、gitGraph。
+需要：时间轴 / 树 / 桑基 / 网格等布局，xyChart 坐标系。
+
+### Phase 3 — Mermaid 进阶结构图
+requirementDiagram、architectureDiagram、c4、block。
+正交布局 + A* 直角路由，集群嵌套增强。
+
+### Phase 4 — PlantUML 主体
+sequence、usecase、class、activity、component、state、object、deployment、erd。
+重点：`@startuml/@enduml` 块、skinparam 主题、PlantUML 特殊连线语法、activity 链式。
+
+### Phase 5 — PlantUML 扩展
+timing、wireframe、archimate、c4、gantt、mindmap、wbs、network、ditaa、json、yaml。
+许多复用 Phase 1-3 的布局算法 + 新的 lowering 规则。
+
+### Phase 6 — Graphviz DOT
+digraph / graph / cluster / 属性子集（rank、shape、style、color、label、port、HTML-like label）。
+需要更完整的 Sugiyama（rankdir、constraint、rank=same）。
+
+### Phase 7 — 导出与发布
+`toSvg()` 全图类型覆盖、`toPng()` 多平台落地、Maven Central 发布、文档站。
+
+---
+
+## 10. 关键风险与对策
+
+| 风险 | 对策 |
+|---|---|
+| 自研布局难以达到原生质量 | 每个 Phase 选 1 个主算法吃透；先质量再图类型；保留 `LayoutHint` 让用户微调 |
+| 严格兼容 → 边角语法暴量 | 黄金语料 + Diagnostics 累积式报错，未支持的语法精确报告位置而不是崩溃 |
+| 文本测量在四个平台不一致 | 全部走 Compose `TextMeasurer`，导出层用同样字号 + 度量缓存 |
+| Wasm/JS 包体积 | 解析器/布局保持纯 Kotlin、零反射；按图类型代码切分（用接口 + ServiceLoader 风格注册） |
+| HTML-like label / Markdown 标签 | 单独做一个 `RichLabel` 子模块，所有渲染器复用 |
+
+---
+
+## 11. 后续可选扩展（不在当前范围）
+
+- 增量布局 / 动画过渡（编辑后局部重排）
+- 主题市场 / DSL 扩展点
+- 服务端渲染（JVM headless → SVG/PNG 服务）
+- LSP / IDE 插件辅助

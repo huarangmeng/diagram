@@ -1,0 +1,152 @@
+# AGENTS.md
+
+> 给 AI agent 与新加入开发者的项目导航。**先读这一篇**，再去看 `docs/plan.md`。
+
+---
+
+## 1. 项目一句话
+
+KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / PlantUML / Graphviz DOT 三大语法，**自研解析 + 自研布局**，输出 Compose Canvas 渲染 + SVG / PNG 导出。
+
+不做：可视化拖拽编辑器、双向编辑、协同。
+
+目标平台：Android / iOS / Desktop(JVM) / Web(JS, Wasm)。
+
+---
+
+## 1.5 硬约束（红线，违反即驳回）
+
+> 完整规则与理由见 [`docs/rules.md`](./docs/rules.md)。下面是绝对不能碰的红线，agent / 开发者动手前必看。
+
+### MUST NOT
+1. **模块反向依赖**：`:diagram-mermaid|plantuml|dot` 不得依赖 `:diagram-layout|render|export`；`:diagram-layout` 不得依赖任何语法或渲染模块；`:diagram-render` / `:diagram-export` 不得依赖语法模块。
+2. **commonMain 引入平台 API**：JVM/Android/iOS/JS 专属 API 一律走 `expect/actual`。
+3. **解析器抛异常**：必须返回 `ParseResult(model?, diagnostics)`，遇到任何输入都不允许 throw（除非内部不变式被破坏的 assert）。
+4. **引入禁止依赖**：Batik、ELK、dagre.js、Graphviz native、Apache POI、SVG Salamander、任何 JS interop 来"借力"布局/渲染。
+5. **在渲染/导出阶段重新测量文本**：所有文本尺寸必须在布局阶段用共享 `TextMeasurer` 测好写入几何字段。
+6. **未经 ADR 改动公开 API / IR / DrawCommand**：`docs/api.md`、`docs/ir.md`、`docs/draw-command.md` 是契约文档，破坏性变更必须先在 `docs/adr/` 立 ADR。
+7. **跳过黄金语料 / 快照测试**：每个图类型实现必须配 `commonTest` 黄金语料；修 bug 必须先加复现样例。
+8. **改"关键决策"表**（§2）：决策由用户拍板，agent 不得自行推翻。
+
+### MUST
+1. 接到任务先读本文件 → `docs/plan.md` 找到对应 Phase / todo → 检查 SQL `todos` / `todo_deps` → 设 `in_progress` → 实现 → 跑测 → 设 `done`。
+2. 公开类型加 `@DiagramApi` + KDoc + 最小用法示例。
+3. 新增图类型 / 语法 / 布局算法严格按 [`docs/contributing.md`](./docs/contributing.md) 步骤走，并更新对应 `docs/syntax-compat/*.md`。
+4. 新增诊断码同步更新 [`docs/diagnostics.md`](./docs/diagnostics.md)。
+5. 任意 Phase 状态变化更新本文 §8 与 `docs/plan.md`。
+
+---
+
+## 2. 关键决策（不要再推翻，除非用户明说）
+
+| 主题 | 决策 |
+|---|---|
+| 形态 | 纯解析 + 渲染 SDK，不做可视化编辑器 |
+| 交付节奏 | 全量规划，分 8 个 Phase 推进（见 `docs/plan.md` §9） |
+| 布局算法 | **完全自研**，纯 KMP，不依赖 ELK/dagre 等 JS/Java 库 |
+| 渲染输出 | Compose Canvas + 导出 PNG + 导出 SVG（全套） |
+| 语法兼容度 | **严格兼容**，能直接跑官方 .mmd / .puml / .dot 文本 |
+
+---
+
+## 3. 文档索引
+
+入口先读：[`docs/README.md`](./docs/README.md)。下面是高频用到的：
+
+| 类别 | 文档 | 用途 |
+|---|---|---|
+| 路线 | [`docs/plan.md`](./docs/plan.md) | 8 Phase 路线图、模块切分、布局算法清单、风险表 |
+| 架构 | [`docs/architecture.md`](./docs/architecture.md) | 顶层数据流、模块边界、扩展点、不变式、性能目标 |
+| API | [`docs/api.md`](./docs/api.md) | 公开 API 契约（`Diagram.parse` / `DiagramView` / 导出） |
+| IR | [`docs/ir.md`](./docs/ir.md) | 通用 IR（`DiagramModel` 家族）字段语义 |
+| 渲染 | [`docs/draw-command.md`](./docs/draw-command.md) | Compose / SVG / PNG 共用的渲染指令集 |
+| 渲染 | [`docs/theme.md`](./docs/theme.md) | 主题、颜色、字体、形状、箭头 |
+| 渲染 | [`docs/coordinate-system.md`](./docs/coordinate-system.md) | 坐标 / 单位 / DPI / 文本基线 |
+| 布局 | [`docs/layout/README.md`](./docs/layout/README.md) | 布局接口与算法目录 |
+| 兼容 | [`docs/syntax-compat/mermaid.md`](./docs/syntax-compat/mermaid.md) | Mermaid 兼容矩阵 |
+| 兼容 | [`docs/syntax-compat/plantuml.md`](./docs/syntax-compat/plantuml.md) | PlantUML 兼容矩阵 |
+| 兼容 | [`docs/syntax-compat/dot.md`](./docs/syntax-compat/dot.md) | Graphviz DOT 兼容矩阵 |
+| 工程 | [`docs/rules.md`](./docs/rules.md) | **硬规则手册**（红线 / 严重等级 / 自动化钩子） |
+| 工程 | [`docs/testing.md`](./docs/testing.md) | 黄金语料、快照、跨平台测试 |
+| 工程 | [`docs/contributing.md`](./docs/contributing.md) | 新增图类型 / 语法 / 布局算法的步骤 |
+| 工程 | [`docs/diagnostics.md`](./docs/diagnostics.md) | 诊断码命名与已分配清单 |
+| 工程 | [`docs/release.md`](./docs/release.md) | 版本号、Maven 工件、发布流程 |
+| 决策 | [`docs/adr/`](./docs/adr/) | 架构决策记录（ADR） |
+| 模板 | [`README.md`](./README.md) | KMP 模板的原始构建说明（保留） |
+
+---
+
+## 4. 仓库结构（演进中）
+
+当前还是 Compose Multiplatform 模板，未拆模块。计划中的最终结构：
+
+```
+:diagram-core            // 通用 IR、几何、Theme、DrawCommand
+:diagram-layout          // 自研布局算法集合
+:diagram-render          // Compose Canvas 渲染 + 交互
+:diagram-export          // SVG（commonMain）+ PNG/JPEG（expect/actual）统一在一个模块
+:diagram-mermaid         // Mermaid lexer/parser/lowering
+:diagram-plantuml        // PlantUML lexer/parser/lowering
+:diagram-dot             // Graphviz DOT lexer/parser/lowering
+:diagram-api             // 顶层门面 Diagram.parse / DiagramView
+:composeApp              // Demo gallery（已有）
+```
+
+> agent 在写代码时如果模块还没建，先按 `docs/plan.md` §2 建模块再写实现。
+
+---
+
+## 5. 命令速查
+
+> ⚠️ 本仓库当前为 Compose Multiplatform 模板，下面命令在 `:composeApp` 上验证过，但 lint/test 任务尚未配置。新增模块后保持同样的 task 命名。
+
+```bash
+# 构建
+./gradlew :androidApp:assembleDebug              # Android（独立模块 :androidApp）
+./gradlew :composeApp:run                        # Desktop (JVM)
+./gradlew :composeApp:wasmJsBrowserDevelopmentRun  # Web (Wasm)
+
+# 测试（commonTest 跨平台跑）
+./gradlew allTests
+./gradlew :composeApp:jvmTest
+
+# iOS：用 Xcode 打开 iosApp/
+```
+
+---
+
+## 6. 代码规范
+
+1. **包名根**：`com.hrm.diagram`，子包按模块切：`com.hrm.diagram.core`、`...layout`、`...mermaid` 等。
+2. **commonMain 优先**：除非真正需要平台 API，否则一切代码进 `commonMain`。
+3. **expect/actual**：仅用于平台栅格化（PNG）、字体度量补充、文件 IO，禁止泛滥。
+4. **不引入大依赖**：解析器/布局/渲染只允许依赖 Compose、kotlinx.coroutines、kotlinx.serialization（如需）。**禁止** Batik、ELK Java、JS 互操作绕过自研约定。
+5. **数据类先行**：IR 全部 `data class` / `sealed`，不可变。状态变化在渲染层通过新 IR 实例驱动。
+6. **错误处理**：解析器返回 `ParseResult`（带 diagnostics 列表），不要抛异常；渲染层对未知节点降级为占位框。
+7. **测试**：每个语法子模块必须有 `commonTest` 黄金语料快照；每个布局算法必须有确定性种子的坐标快照。
+8. **公开 API 注释**：所有 `public` 类/函数加 KDoc，给出最小用法示例。
+9. **命名**：`*Parser`、`*Lexer`、`*Layout`、`*Renderer`、`*IR`；避免 `Util/Helper/Manager` 这类空泛后缀。
+
+---
+
+## 7. Agent 工作流
+
+接到任务时按这个顺序推进：
+
+1. 读 `AGENTS.md`（本文）确认全局约束。
+2. 读 `docs/plan.md` 找到任务对应的 Phase / todo。
+3. 检查 SQL 中 `todos` 表对应 todo 的 `status` 与 `todo_deps`，确认前置已 `done`。
+4. 把要动手的 todo 设为 `in_progress`。
+5. 实现 → 写测试 → 跑 `./gradlew allTests`。
+6. 完成后把 todo 设为 `done`，必要时新增 `docs/` 下的设计文档并更新本索引。
+7. 不要修改"关键决策"表里的内容；要改先和用户确认。
+
+---
+
+## 8. 当前进度
+
+- ✅ Phase -1：用户需求澄清、计划评审通过。
+- 🟡 Phase 0（未开工）：模块骨架 + IR + DrawCommand + SVG 骨架 + Demo gallery 框架。
+- ⬜ Phase 1 ~ 7：见 `docs/plan.md` §9。
+
+> 进度同步：每完成一个 Phase 更新本节，并在 `docs/plan.md` 对应 todo 状态打钩。
