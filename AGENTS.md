@@ -19,7 +19,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 > 完整规则与理由见 [`docs/rules.md`](./docs/rules.md)。下面是绝对不能碰的红线，agent / 开发者动手前必看。
 
 ### MUST NOT
-1. **模块反向依赖**：`:diagram-mermaid|plantuml|dot` 不得依赖 `:diagram-layout|render|export`；`:diagram-layout` 不得依赖任何语法或渲染模块；`:diagram-render` / `:diagram-export` 不得依赖语法模块。
+1. **模块反向依赖**：`:diagram-parser` 不得依赖 `:diagram-layout` 或 `:diagram-render`；`:diagram-layout` 不得依赖 `:diagram-parser` 或 `:diagram-render`；`:diagram-core` 不得依赖任何兄弟模块；`:diagram-render` 是唯一聚合三者的门面。`:diagram-parser` 内部的 `mermaid` / `plantuml` / `dot` 三个子包之间也不得互相 import。
 2. **commonMain 引入平台 API**：JVM/Android/iOS/JS 专属 API 一律走 `expect/actual`。
 3. **解析器抛异常**：必须返回 `ParseResult(model?, diagnostics)`，遇到任何输入都不允许 throw（除非内部不变式被破坏的 assert）。
 4. **引入禁止依赖**：Batik、ELK、dagre.js、Graphviz native、Apache POI、SVG Salamander、任何 JS interop 来"借力"布局/渲染。
@@ -27,6 +27,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 6. **未经 ADR 改动公开 API / IR / DrawCommand**：`docs/api.md`、`docs/ir.md`、`docs/draw-command.md` 是契约文档，破坏性变更必须先在 `docs/adr/` 立 ADR。
 7. **跳过黄金语料 / 快照测试**：每个图类型实现必须配 `commonTest` 黄金语料；修 bug 必须先加复现样例。
 8. **改"关键决策"表**（§2）：决策由用户拍板，agent 不得自行推翻。
+9. **破坏增量契约**：任何新 lexer / parser / IR / layout / render 必须满足 `docs/streaming.md` 规约（resumable lexer + 行/块增量 parser + IrPatch + pinned layout + 增量 DrawCommand）；不允许实现"只能一次性吃全文"的算法。性能预算见 `docs/rules.md §F2`。
 
 ### MUST
 1. 接到任务先读本文件 → `docs/plan.md` 找到对应 Phase / todo → 检查 SQL `todos` / `todo_deps` → 设 `in_progress` → 实现 → 跑测 → 设 `done`。
@@ -42,6 +43,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 | 主题 | 决策 |
 |---|---|
 | 形态 | 纯解析 + 渲染 SDK，不做可视化编辑器 |
+| 一等公民用例 | **LLM 流式增量**：append-only 文本流，整链路 resumable / incremental（详见 `docs/streaming.md`） |
 | 交付节奏 | 全量规划，分 8 个 Phase 推进（见 `docs/plan.md` §9） |
 | 布局算法 | **完全自研**，纯 KMP，不依赖 ELK/dagre 等 JS/Java 库 |
 | 渲染输出 | Compose Canvas + 导出 PNG + 导出 SVG（全套） |
@@ -81,14 +83,10 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 当前还是 Compose Multiplatform 模板，未拆模块。计划中的最终结构：
 
 ```
-:diagram-core            // 通用 IR、几何、Theme、DrawCommand
-:diagram-layout          // 自研布局算法集合
-:diagram-render          // Compose Canvas 渲染 + 交互
-:diagram-export          // SVG（commonMain）+ PNG/JPEG（expect/actual）统一在一个模块
-:diagram-mermaid         // Mermaid lexer/parser/lowering
-:diagram-plantuml        // PlantUML lexer/parser/lowering
-:diagram-dot             // Graphviz DOT lexer/parser/lowering
-:diagram-api             // 顶层门面 Diagram.parse / DiagramView
+:diagram-core      // 通用 IR、几何、Theme、DrawCommand、SVG 导出（commonMain）+ PNG/JPEG（expect/actual）
+:diagram-layout    // 自研布局算法集合
+:diagram-parser    // 三家语法 lexer/parser/lowering，子包隔离：parser.{mermaid,plantuml,dot}
+:diagram-render   // Compose Canvas 渲染、交互 + 顶层门面 Diagram.parse / DiagramView
 :composeApp              // Demo gallery（已有）
 ```
 
@@ -146,7 +144,10 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 ## 8. 当前进度
 
 - ✅ Phase -1：用户需求澄清、计划评审通过。
-- 🟡 Phase 0（未开工）：模块骨架 + IR + DrawCommand + SVG 骨架 + Demo gallery 框架。
+- ✅ Phase 0（已完成）：
+  - ✅ **4 个** KMP 子模块骨架已建（`:diagram-core` / `:diagram-layout` / `:diagram-parser` / `:diagram-render`），JVM target 全部编译通过；`:diagram-core:jvmTest` 烟雾测试通过。
+  - ✅ `:diagram-core` 落地：IR 14 个家族 + DrawCommand 指令集 + DiagramTheme(Default/Dark) + RandomSource + LayoutOptions + SVG 导出骨架（`SvgWriter` + `Snapshot` 工具，8 用例字符串快照通过）。
+  - ✅ `composeApp` Demo gallery 框架（左侧三语种 42 个内置样例分类列表 + 中间源码编辑区 + 右侧 DiagramView 占位 + 底部 Diagnostics 面板，jvmMain 编译通过）。
 - ⬜ Phase 1 ~ 7：见 `docs/plan.md` §9。
 
 > 进度同步：每完成一个 Phase 更新本节，并在 `docs/plan.md` 对应 todo 状态打钩。

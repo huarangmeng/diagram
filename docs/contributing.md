@@ -10,7 +10,7 @@
 以"在 Phase 2 加 Mermaid `pie`"为例：
 
 1. **IR**：`:diagram-core` 内确认/新增 `PieIR`（在 `core/ir/PieIR.kt`），更新 `docs/ir.md` §2 表格。
-2. **解析器**：`:diagram-mermaid` 内 `parsers/PieParser.kt`，挂到 `MermaidParser` 的 dispatch（按首行 `pie` 关键字）。
+2. **解析器**：`:diagram-parser` 内 `parsers/PieParser.kt`，挂到 `MermaidParser` 的 dispatch（按首行 `pie` 关键字）。
 3. **黄金语料**：`commonTest/resources/mermaid/pie/<case>.mmd` + `.expected.ir.txt`。
 4. **布局**：`:diagram-layout` 选 `grid-pack` 算法，必要时加专用算法（`PieLayout`）。
 5. **渲染**：若不需要新形状，复用现有 DrawCommand；否则在 `core/draw/Shapes.kt` 新增形状。
@@ -21,7 +21,7 @@
 ## 3. 新增一种语法（罕见）
 
 1. 起一个 `:diagram-<lang>` 模块，仅依赖 `:diagram-core`。
-2. 在 `:diagram-api` 的 `LanguageDispatcher` 注册识别规则。
+2. 在 `:diagram-render` 的 `LanguageDispatcher` 注册识别规则。
 3. 写 `<Lang>Lexer` + `<Lang>Parser`，每个图类型一个 sub-parser。
 4. 给每个图类型挂到现有 IR；不能挂的先在 `docs/ir.md` 提案新 IR 家族。
 5. 创建 `docs/syntax-compat/<lang>.md`。

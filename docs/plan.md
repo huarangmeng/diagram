@@ -9,6 +9,21 @@
 
 不在范围：可视化拖拽编辑器、双向编辑、协同。
 
+### 1.1 一等公民用例：LLM 流式增量
+
+> **关键横向需求**：本框架的核心使用场景是接收 LLM 流式输出的 Mermaid / PlantUML / DOT 文本，
+> 边接收边解析、布局、渲染。所有 Phase 的实现都必须满足 `docs/streaming.md` 中规约的：
+>
+> - **Append-only 流式 API**：`Diagram.session()` + `session.append(chunk)` + `session.finish()`。
+> - **Resumable Lexer**：保留 `LexerState`，从上次 safePoint 续跑。
+> - **增量 Parser**：行/块边界推进，partial AST 永远可读。
+> - **Append-only IR**：稳定 `NodeId`，patch 流而非全量替换。
+> - **Pinned + Append Layout**：已布局节点坐标钉住，新增节点局部追加。
+> - **DrawCommand 增量 + 视口剔除 + 测量缓存**：60fps 万节点。
+> - **性能预算**：每次 append < 16 ms；finish < 50 ms；内存 O(源长度)。
+>
+> 详见 `docs/streaming.md`。Phase 1 起每个语法/布局/渲染 PR 都要给出 streaming 切片测试。
+
 ---
 
 ## 2. 顶层架构
@@ -32,19 +47,18 @@
 ### 模块（Gradle 子模块）划分
 
 ```
-:diagram-core           // 通用 IR、几何、颜色、字体、主题、Style token
-:diagram-layout         // 布局算法集合（分层、力导向、正交、树、放射、环形等）
-:diagram-render // Compose Canvas 渲染器、交互（缩放/拖拽/选中）
-:diagram-export         // SVG（commonMain）+ PNG/JPEG（expect/actual）统一在一个模块
-:diagram-mermaid        // Mermaid 18 种图的 lexer/parser/IR 映射
-:diagram-plantuml       // PlantUML 19 种图的 lexer/parser/IR 映射
-:diagram-dot            // Graphviz DOT 的 lexer/parser/IR 映射
-:diagram-api            // 顶层门面 API：Diagram.from(text) / DiagramView()
-:composeApp             // Demo & 样例 gallery
+:diagram-core      // 通用 IR、几何、颜色、字体、主题、Style token、DrawCommand、SVG 导出（commonMain）+ PNG/JPEG（expect/actual）
+:diagram-layout    // 布局算法集合（分层、力导向、正交、树、放射、环形等）
+:diagram-parser    // 三家语法 lexer/parser/lowering，按子包隔离：parser.mermaid / parser.plantuml / parser.dot
+:diagram-render   // Compose Canvas 渲染、交互（缩放/拖拽/选中）+ 顶层门面 API（Diagram.parse / DiagramView）
+:composeApp        // Demo & 样例 gallery
 ```
 
-每个语法子模块只依赖 `:diagram-core`；渲染器只依赖 `:diagram-core`；
-`:diagram-api` 把它们粘合起来：根据首行/魔术关键字分发到对应解析器。
+依赖方向：`compose → parser → core`，`compose → layout → core`。
+- `:diagram-core` 不依赖任何模块，纯 KMP（无 Compose）。
+- `:diagram-layout` 仅依赖 `:diagram-core`；不知道任何语法。
+- `:diagram-parser` 仅依赖 `:diagram-core`；按子包隔离三家语法，互不可见。
+- `:diagram-render` 是唯一面向应用层的门面，把上述三者粘合并提供 `DiagramView`。
 
 ### 顶层公开 API（草案）
 
@@ -181,9 +195,9 @@ fun DiagramView(
 
 ---
 
-## 7. 导出层（`:diagram-export` 单模块）
+## 7. 导出层（合并入 `:diagram-core`）
 
-SVG 与位图共用同一份 "已布局图 → DrawCommand 流" 中间层，统一收在 `:diagram-export`。
+SVG 与位图共用同一份 "已布局图 → DrawCommand 流" 中间层，统一收在 `:diagram-core`（SVG 在 commonMain；PNG/JPEG 用 expect/actual）。
 
 ### SVG（纯 commonMain）
 - `LaidOutDiagram.toSvg(): String` 遍历 `DrawCommand` 写 XML 字符串。

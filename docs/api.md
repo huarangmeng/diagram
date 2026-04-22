@@ -2,7 +2,7 @@
 
 > 本文档定义对外稳定 API。任何破坏性变更必须经 ADR（`docs/adr/`）评审。
 
-## 1. 顶层入口（`:diagram-api`）
+## 1. 顶层入口（`:diagram-render`）
 
 ```kotlin
 object Diagram {
@@ -67,7 +67,7 @@ data class DiagramInteraction(
 )
 ```
 
-## 4. 导出（`:diagram-export`）
+## 4. 导出（`:diagram-core`）
 
 ```kotlin
 // 共用：commonMain

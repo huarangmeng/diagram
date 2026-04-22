@@ -15,11 +15,11 @@
 ## A. 架构与模块依赖
 
 ### A1 🔴 模块依赖方向不可反向
-- `:diagram-mermaid` / `:diagram-plantuml` / `:diagram-dot` 仅可依赖 `:diagram-core`。
+- `:diagram-core` 不得依赖任何兄弟模块。
 - `:diagram-layout` 仅可依赖 `:diagram-core`。
-- `:diagram-render` / `:diagram-export` 仅可依赖 `:diagram-core`。
-- `:diagram-api` 是唯一聚合点，依赖以上全部。
-- 反向（如语法依赖渲染、布局依赖语法）一律禁止。
+- `:diagram-parser` 仅可依赖 `:diagram-core`；其内部 `parser.mermaid` / `parser.plantuml` / `parser.dot` 三个子包互不可见。
+- `:diagram-render` 是唯一聚合点，依赖以上全部 + Compose。
+- 反向（如语法依赖渲染、布局依赖语法、core 依赖 parser）一律禁止。
 
 **理由**：保证 IR 是唯一耦合面，任何语法/算法/后端可独立替换。
 **检查**：人工 review；后续加 `dependency-analysis-gradle-plugin` 强校验。
@@ -95,7 +95,7 @@
 - 同时上抛 `RenderWarning`，不允许崩溃。
 
 ### D4 🟠 导出 SVG / PNG / JPEG 同模块
-- 都在 `:diagram-export`，SVG 在 commonMain，位图走 `expect/actual`。
+- 都在 `:diagram-core`，SVG 在 commonMain，位图走 `expect/actual`。
 
 ---
 
@@ -107,6 +107,32 @@
 
 ### E2 🔴 修 bug 先写复现样例
 - 没有"裸修"，bug fix PR 必须包含一个能复现 bug 的最小语料。
+
+---
+
+## F. 流式增量（贯穿全 Phase）
+
+### F1 🔴 增量契约必须满足
+- 任何新增 lexer 必须实现 `ResumableLexer`：保留 `LexerState` + 报告 `safePoint`，禁止隐式回退到流头部。
+- 任何新增 parser 必须按行/块边界推进，未闭合内容产 `Diagnostic.HINT` 而非 throw / 阻塞下游。
+- 任何 IR 变更必须可表达为 `IrPatch`（AddNode / AddEdge / AddCluster / AddDiagnostic / 同 chunk 内 UpdateAttr）；禁止"全量替换"语义。
+- 任何 layout 必须支持 `incremental = true`：已有节点坐标钉住，新节点局部追加；fallback 到全量布局必须显式 opt-in。
+- 任何新 DrawCommand 必须可被会话层增量追加；UI 端必须使用 quadtree 视口剔除 + 测量缓存。
+
+**理由**：LLM 流式是核心用例（见 `docs/streaming.md` §1），任何破坏增量性的实现都会让首屏 / 续帧时延失控。
+**检查**：每个图类型 PR 必须配套 `streaming` 切片测试（详见 E1 + `docs/streaming.md` §6）。
+
+### F2 🔴 性能预算不可破
+- `session.append(<= 100 char)` 端到端 < 16ms（60fps 不掉帧）。
+- `session.finish()` < 50ms。
+- 内存占用 O(已接收源长度)，禁止保留全量 token 流。
+- 万节点视口渲染 60fps（基于 quadtree culling）。
+
+**检查**：`:diagram-core:jvmTest` JMH bench + `:diagram-render` Macrobenchmark；CI 红线。
+
+### F3 🟠 NodeId 稳定派生
+- 显式 ID（源文本声明）优先；匿名节点统一用 `"$anon@<sourceOffset>"` 派生。
+- 同一源位置在重复 chunk 推进中必须得到同一 NodeId（布局复用前提）。
 
 ### E3 🟠 跨平台必跑
 - `./gradlew allTests` 必须通过；CI 上跑 JVM + JS + Wasm + Android unit + iOSSimulator。

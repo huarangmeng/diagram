@@ -34,3 +34,8 @@ plugins {
 
 include(":composeApp")
 include(":androidApp")
+
+include(":diagram-core")
+include(":diagram-layout")
+include(":diagram-parser")
+include(":diagram-render")

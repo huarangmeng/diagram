@@ -38,8 +38,8 @@ composeApp/src/commonTest/resources/
 ```bash
 ./gradlew allTests                     # 全部目标
 ./gradlew :diagram-core:jvmTest        # 单模块单平台
-./gradlew :diagram-mermaid:jsTest
-./gradlew :diagram-mermaid:wasmJsTest
+./gradlew :diagram-parser:jsTest
+./gradlew :diagram-parser:wasmJsTest
 ```
 
 ## 5. 性能基准（可选，Phase 7）

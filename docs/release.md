@@ -8,14 +8,11 @@
 ## 2. 工件
 | Maven 坐标（计划） | 模块 |
 |---|---|
-| `com.hrm.diagram:diagram-core` | `:diagram-core` |
+| `com.hrm.diagram:diagram-core` | `:diagram-core`（含 SVG / PNG / JPEG 导出） |
 | `com.hrm.diagram:diagram-layout` | `:diagram-layout` |
-| `com.hrm.diagram:diagram-render` | `:diagram-render` |
-| `com.hrm.diagram:diagram-export` | `:diagram-export` |
-| `com.hrm.diagram:diagram-mermaid` | `:diagram-mermaid` |
-| `com.hrm.diagram:diagram-plantuml` | `:diagram-plantuml` |
-| `com.hrm.diagram:diagram-dot` | `:diagram-dot` |
-| `com.hrm.diagram:diagram` | `:diagram-api`（聚合依赖） |
+| `com.hrm.diagram:diagram-parser` | `:diagram-parser`（Mermaid / PlantUML / DOT 三合一，按子包隔离） |
+| `com.hrm.diagram:diagram-render` | `:diagram-render`（Compose 渲染 + 顶层门面） |
+| `com.hrm.diagram:diagram` | 聚合 BOM/POM，依赖以上全部 |
 
 ## 3. 发布平台
 - Maven Central（JVM/Android/Multiplatform 元数据）。

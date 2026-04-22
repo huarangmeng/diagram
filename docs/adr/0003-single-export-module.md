@@ -1,20 +1,24 @@
-# 0003: 单一 :diagram-export 模块容纳 SVG / PNG / JPEG
+# 0003: 导出后端合并入 :diagram-core
 
-- 状态：Accepted
-- 日期：2026-04
-- 关联：用户反馈 + `plan.md` §2、§7
+- 状态：Accepted（修订）
+- 日期：2026-04（2026-XX 修订：再合并）
+- 关联：用户反馈"模块过多" + `plan.md` §2、§7
 
 ## 背景
-原计划拆 `:diagram-export-svg`（commonMain）和 `:diagram-export-image`（expect/actual）两个模块。
+最初规划 `:diagram-export-svg` + `:diagram-export-image` 两个模块；
+第一次修订合并为 `:diagram-export` 单模块。
+本次修订进一步把 `:diagram-export` 合并入 `:diagram-core`，将整体模块数从 8 → 4。
 
 ## 选项
-- A：拆成两个模块（依赖更细，但导出场景几乎总是同时需要）。
-- B：合并为一个 `:diagram-export`，内部按文件区分 commonMain / 平台源集。
+- A：拆三个模块（svg / image / core）。
+- B：拆 `:diagram-export` 与 `:diagram-core`。
+- C：导出能力下沉到 `:diagram-core` 内部 `export.svg` / `export.image` 子包。
 
 ## 决定
-选 B。
+选 C。
 
 ## 影响
-- Gradle 模块数量减少；用户依赖更简单（一个工件搞定全部导出）。
-- SVG 与 PNG/JPEG 共享 `DrawCommand → PlatformCanvas` 适配器，路径更短。
-- 不利点：用户即使只想要 SVG 也会拉进 expect/actual 平台代码（实际几乎可忽略）。
+- 模块数 8 → 4：`:diagram-core` / `:diagram-layout` / `:diagram-parser` / `:diagram-render`。
+- `:diagram-core` 体积略增，但导出与 `DrawCommand` 同模块、无跨模块 smart-cast 失效问题（见 AGENTS §1.5）。
+- 用户只需依赖 `:diagram-core` 即可获得 headless SVG/PNG 导出，无需额外工件。
+- 不利点：`:diagram-core` 不再是"零依赖纯 IR"，但仍保持零运行时第三方依赖（仅 stdlib + kotlinx）。

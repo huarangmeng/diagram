@@ -12,7 +12,7 @@
 源文本 (String)
   │
   ▼
-Diagram.parse(text)            // :diagram-api 入口，按首行/魔术关键字分发
+Diagram.parse(text)            // :diagram-render 入口，按首行/魔术关键字分发
   │
   ▼
 LanguageDispatcher
@@ -29,25 +29,21 @@ LayoutEngine.layout(model, options)
 RenderPlan.from(laidOut, theme)        // 生成 List<DrawCommand>
   │
   ├─► ComposeRenderer.draw(drawScope)   // :diagram-render
-  ├─► SvgWriter.write(): String         // :diagram-export
-  └─► PlatformCanvas.rasterize() → PNG  // :diagram-export expect/actual
+  ├─► SvgWriter.write(): String         // :diagram-core
+  └─► PlatformCanvas.rasterize() → PNG  // :diagram-core expect/actual
 ```
 
 ## 2. 模块边界
 
 | 模块 | 依赖（仅可依赖以下） | 职责 |
 |---|---|---|
-| `:diagram-core` | kotlin stdlib, kotlinx-* | IR、几何、Theme、DrawCommand、Diagnostics |
+| `:diagram-core` | kotlin stdlib, kotlinx-* | IR、几何、Theme、DrawCommand、Diagnostics、SVG / PNG / JPEG 导出 |
 | `:diagram-layout` | `:diagram-core` | 布局算法集合 |
-| `:diagram-render` | `:diagram-core`, Compose | DrawCommand → Canvas、交互 |
-| `:diagram-export` | `:diagram-core` | DrawCommand → SVG / PNG / JPEG |
-| `:diagram-mermaid` | `:diagram-core` | Mermaid 文本 → IR |
-| `:diagram-plantuml` | `:diagram-core` | PlantUML 文本 → IR |
-| `:diagram-dot` | `:diagram-core` | DOT 文本 → IR |
-| `:diagram-api` | 全部上述 | 顶层门面：自动分发、`DiagramView` |
-| `:composeApp` / `:androidApp` | `:diagram-api` | demo gallery |
+| `:diagram-parser` | `:diagram-core` | 三家语法（Mermaid / PlantUML / DOT）文本 → IR；按子包 `parser.{mermaid,plantuml,dot}` 隔离，子包之间不得互相 import |
+| `:diagram-render` | `:diagram-core`, `:diagram-layout`, `:diagram-parser`, Compose | DrawCommand → Canvas、交互 + 顶层门面 `Diagram.parse` / `DiagramView` |
+| `:composeApp` / `:androidApp` | `:diagram-render` | demo gallery |
 
-> 反向依赖**禁止**：例如 `:diagram-mermaid` 不能依赖渲染或布局；布局不能依赖任何语法模块。
+> 反向依赖**禁止**：例如 `:diagram-parser` 不能依赖布局或渲染；`:diagram-layout` 不能依赖语法；`:diagram-core` 不能依赖任何兄弟模块。`:diagram-parser` 内部 `mermaid` / `plantuml` / `dot` 三个子包互不可见。
 
 ## 3. 关键扩展点
 
@@ -64,7 +60,7 @@ RenderPlan.from(laidOut, theme)        // 生成 List<DrawCommand>
 - 在 `docs/layout/<algo>.md` 写设计 + 复杂度 + 适用图类型。
 
 ### 3.3 新增导出格式
-- 在 `:diagram-export` 增加 writer，消费 `List<DrawCommand>`，无需碰其它模块。
+- 在 `:diagram-core` 增加 writer，消费 `List<DrawCommand>`，无需碰其它模块。
 
 ## 4. 线程与并发
 - 解析、布局是 CPU 密集 → 在调用方用 `Dispatchers.Default` 包；库内部不自启协程。
