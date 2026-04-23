@@ -80,23 +80,26 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 
 ## 4. 仓库结构（演进中）
 
-当前还是 Compose Multiplatform 模板，未拆模块。计划中的最终结构：
+当前仓库已经完成核心模块拆分，现状如下：
 
 ```
 :diagram-core      // 通用 IR、几何、Theme、DrawCommand、SVG 导出（commonMain）+ PNG/JPEG（expect/actual）
 :diagram-layout    // 自研布局算法集合
 :diagram-parser    // 三家语法 lexer/parser/lowering，子包隔离：parser.{mermaid,plantuml,dot}
-:diagram-render   // Compose Canvas 渲染、交互 + 顶层门面 Diagram.parse / DiagramView
-:composeApp              // Demo gallery（已有）
+:diagram-render    // Compose Canvas 渲染、交互 + 顶层门面 Diagram.session / rememberDiagramSession / DiagramCanvas
+:diagram-bench     // 基准与性能实验（预留）
+:composeApp        // Demo gallery
+:androidApp        // Android 宿主壳
+:iosApp            // iOS 宿主壳（Xcode）
 ```
 
-> agent 在写代码时如果模块还没建，先按 `docs/plan.md` §2 建模块再写实现。
+> 仍处于演进期：模块骨架已建，但 Phase 1 之后的能力尚未全部补齐，仍以 `docs/plan.md` 为交付路线。
 
 ---
 
 ## 5. 命令速查
 
-> ⚠️ 本仓库当前为 Compose Multiplatform 模板，下面命令在 `:composeApp` 上验证过，但 lint/test 任务尚未配置。新增模块后保持同样的 task 命名。
+> 当前仓库已具备多模块构建与测试任务；仓库级 `./gradlew allTests` 已可作为基线回归命令。
 
 ```bash
 # 构建
@@ -148,6 +151,14 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
   - ✅ **4 个** KMP 子模块骨架已建（`:diagram-core` / `:diagram-layout` / `:diagram-parser` / `:diagram-render`），JVM target 全部编译通过；`:diagram-core:jvmTest` 烟雾测试通过。
   - ✅ `:diagram-core` 落地：IR 14 个家族 + DrawCommand 指令集 + DiagramTheme(Default/Dark) + RandomSource + LayoutOptions + SVG 导出骨架（`SvgWriter` + `Snapshot` 工具，8 用例字符串快照通过）。
   - ✅ `composeApp` Demo gallery 框架（左侧三语种 42 个内置样例分类列表 + 中间源码编辑区 + 右侧 DiagramView 占位 + 底部 Diagnostics 面板，jvmMain 编译通过）。
-- ⬜ Phase 1 ~ 7：见 `docs/plan.md` §9。
+- 🚧 Phase 1（进行中）：
+  - ✅ Mermaid 流式主链路已打通：`Diagram.session(...)`、`rememberDiagramSession(...)`、`MermaidSessionPipeline` 已落地，支持 append-only session 与 Compose `TextMeasurer` 接入。
+  - ✅ Mermaid **flowchart / sequenceDiagram / classDiagram / stateDiagram** 已有自研 lexer/parser + layout + render 子流水线，并配套 `commonTest`。
+  - ✅ `:diagram-layout` 已落地 Sugiyama、sequence、class、state 几类布局入口；`:diagram-render` 已有 `DiagramCanvas`、测量缓存、quadtree 等基础渲染设施。
+  - ⬜ Phase 1 里程碑尚未完成：`erDiagram` 仍未落地，距离“覆盖 Mermaid 官方示例一半以上”还有差距。
+- ⬜ Phase 2 ~ 7：规划仍有效，但绝大多数能力尚未实现；`composeApp` 中这些图型目前主要用于样例占位与后续验收清单。
+- ⚠️ 工程基线：
+  - ✅ 仓库级 `./gradlew allTests` 当前可通过，可作为后续开发的统一回归入口。
+  - ✅ `diagram-core` / `diagram-parser` / `diagram-layout` / `diagram-render` 已具备成体系的 `commonTest` 覆盖，说明核心图表链路已进入“可迭代开发”阶段，而非仅有骨架。
 
 > 进度同步：每完成一个 Phase 更新本节，并在 `docs/plan.md` 对应 todo 状态打钩。
