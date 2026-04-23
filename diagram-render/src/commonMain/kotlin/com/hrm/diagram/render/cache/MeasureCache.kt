@@ -18,8 +18,8 @@ import com.hrm.diagram.core.draw.FontSpec
  * cross-thread caching, wrap with a `Mutex`. We do not add the lock here to keep the hot path
  * allocation-free.
  */
-public class MeasureCache<V : Any>(
-    public val maxEntries: Int = DEFAULT_MAX_ENTRIES,
+internal class MeasureCache<V : Any>(
+    val maxEntries: Int = DEFAULT_MAX_ENTRIES,
 ) {
     init { require(maxEntries > 0) { "maxEntries must be positive, got $maxEntries" } }
 
@@ -27,18 +27,18 @@ public class MeasureCache<V : Any>(
     private var head: Node<V>? = null  // most-recently-used
     private var tail: Node<V>? = null  // least-recently-used
 
-    public val size: Int get() = map.size
+    val size: Int get() = map.size
 
     /** Counters useful in benchmarks and CI assertions. */
-    public var hits: Long = 0
+    var hits: Long = 0
         private set
-    public var misses: Long = 0
+    var misses: Long = 0
         private set
 
     /**
      * Look up the value for [key]. Returns `null` on miss; on hit, marks the entry as most-recently-used.
      */
-    public fun get(key: MeasureKey): V? {
+    fun get(key: MeasureKey): V? {
         val n = map[key] ?: return null.also { misses++ }
         moveToHead(n)
         hits++
@@ -46,7 +46,7 @@ public class MeasureCache<V : Any>(
     }
 
     /** Insert / overwrite. May evict the LRU entry. */
-    public fun put(key: MeasureKey, value: V) {
+    fun put(key: MeasureKey, value: V) {
         val existing = map[key]
         if (existing != null) {
             existing.value = value
@@ -65,7 +65,7 @@ public class MeasureCache<V : Any>(
      * Get-or-compute. The supplied [compute] runs only on a miss. The computed value is cached
      * and returned. This is the recommended API on the hot path.
      */
-    public inline fun getOrPut(key: MeasureKey, compute: (MeasureKey) -> V): V {
+    inline fun getOrPut(key: MeasureKey, compute: (MeasureKey) -> V): V {
         val cached = get(key)
         if (cached != null) return cached
         val v = compute(key)
@@ -73,7 +73,7 @@ public class MeasureCache<V : Any>(
         return v
     }
 
-    public fun clear() {
+    fun clear() {
         map.clear()
         head = null
         tail = null
@@ -118,8 +118,8 @@ public class MeasureCache<V : Any>(
         var next: Node<V>? = null,
     )
 
-    public companion object {
-        public const val DEFAULT_MAX_ENTRIES: Int = 512
+    companion object {
+        const val DEFAULT_MAX_ENTRIES: Int = 512
     }
 }
 
@@ -128,7 +128,7 @@ public class MeasureCache<V : Any>(
  * `(text, font, maxWidth)`. `text` is held as [String] (NOT [CharSequence]) so that hash/equals
  * are O(content) and predictable across CharSequence implementations.
  */
-public data class MeasureKey(
+internal data class MeasureKey(
     val text: String,
     val font: FontSpec,
     /** `null` means unconstrained width. */

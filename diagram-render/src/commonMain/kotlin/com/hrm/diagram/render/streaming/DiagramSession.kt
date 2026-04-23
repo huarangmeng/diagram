@@ -31,10 +31,10 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * **NOT thread-safe for concurrent producers** — wrap with a Mutex if you have multiple writers.
  */
-public class DiagramSession internal constructor(
-    public val language: SourceLanguage,
-    public val theme: DiagramTheme,
-    public val layoutOptions: LayoutOptions,
+class DiagramSession internal constructor(
+    val language: SourceLanguage,
+    val theme: DiagramTheme,
+    val layoutOptions: LayoutOptions,
     private val pipeline: SessionPipeline,
 ) {
     private val sourceBuffer = StringBuilder()
@@ -43,16 +43,16 @@ public class DiagramSession internal constructor(
     private var closed: Boolean = false
 
     /** Append-only accumulator of every chunk the caller has fed in. */
-    public val source: CharSequence get() = sourceBuffer
+    val source: CharSequence get() = sourceBuffer
 
     /** Latest snapshot, hot-updated after each [append] / [finish]. */
-    public val state: StateFlow<DiagramSnapshot> get() = _state.asStateFlow()
+    val state: StateFlow<DiagramSnapshot> get() = _state.asStateFlow()
 
     /**
      * Push the next chunk of source. Returns the patch produced by this advance.
      * Cost target: < 16ms for chunks up to ~100 chars (see `docs/streaming.md` §4).
      */
-    public fun append(chunk: CharSequence): SessionPatch {
+    fun append(chunk: CharSequence): SessionPatch {
         check(!closed) { "DiagramSession is closed" }
         val absoluteOffset = sourceBuffer.length
         sourceBuffer.append(chunk)
@@ -73,7 +73,7 @@ public class DiagramSession internal constructor(
      * blocks, run an optional layout finalize, and produce any remaining draw commands.
      * Cost target: < 50ms.
      */
-    public fun finish(): DiagramSnapshot {
+    fun finish(): DiagramSnapshot {
         check(!closed) { "DiagramSession is closed" }
         seq++
         val advance = pipeline.advance(
@@ -88,17 +88,17 @@ public class DiagramSession internal constructor(
     }
 
     /** Release internal caches. Subsequent calls to [append] / [finish] throw. */
-    public fun close() {
+    fun close() {
         closed = true
         pipeline.dispose()
     }
 
-    public companion object {
+    companion object {
         /**
          * Convenience factory: build a session with a stub pipeline (no real parsing yet).
          * Phase 1+ replaces the stub via the registered language pipelines under `:diagram-render`.
          */
-        public fun create(
+        fun create(
             language: SourceLanguage,
             theme: DiagramTheme = DiagramTheme.Default,
             layoutOptions: LayoutOptions = LayoutOptions(),
@@ -116,7 +116,7 @@ public class DiagramSession internal constructor(
  * - `drawCommands` is always a complete list (not just deltas) — UIs may rely on it for full repaint.
  * - `ir` is null only before the first non-empty chunk has produced any node.
  */
-public data class DiagramSnapshot(
+data class DiagramSnapshot(
     val ir: DiagramModel?,
     val laidOut: LaidOutDiagram?,
     val drawCommands: List<DrawCommand>,
@@ -125,8 +125,8 @@ public data class DiagramSnapshot(
     val isFinal: Boolean,
     val sourceLanguage: SourceLanguage,
 ) {
-    public companion object {
-        public fun empty(language: SourceLanguage): DiagramSnapshot = DiagramSnapshot(
+    companion object {
+        fun empty(language: SourceLanguage): DiagramSnapshot = DiagramSnapshot(
             ir = null,
             laidOut = null,
             drawCommands = emptyList(),
@@ -142,7 +142,7 @@ public data class DiagramSnapshot(
  * Diff between two consecutive [DiagramSnapshot]s. Useful for animation hooks and benchmarks
  * (e.g. assert that no chunk produces > N new draw commands).
  */
-public data class SessionPatch(
+data class SessionPatch(
     val seq: Long,
     val addedNodes: List<NodeId>,
     val addedEdges: List<Edge>,
@@ -150,12 +150,12 @@ public data class SessionPatch(
     val newDiagnostics: List<Diagnostic>,
     val isFinal: Boolean,
 ) {
-    public val isEmpty: Boolean
+    val isEmpty: Boolean
         get() = addedNodes.isEmpty() && addedEdges.isEmpty() &&
             addedDrawCommands.isEmpty() && newDiagnostics.isEmpty()
 
-    public companion object {
-        public fun empty(seq: Long, isFinal: Boolean = false): SessionPatch =
+    companion object {
+        fun empty(seq: Long, isFinal: Boolean = false): SessionPatch =
             SessionPatch(seq, emptyList(), emptyList(), emptyList(), emptyList(), isFinal)
     }
 }
@@ -164,7 +164,7 @@ public data class SessionPatch(
  * Output bundle returned by a single [SessionPipeline.advance] call.
  * The session owns wiring it into [DiagramSession.state]; the pipeline owns producing it.
  */
-public data class PipelineAdvance(
+data class PipelineAdvance(
     val snapshot: DiagramSnapshot,
     val patch: SessionPatch,
     /** Raw IR patches from the parser layer this round (exposed for tests / observers). */
@@ -181,8 +181,8 @@ public data class PipelineAdvance(
  * - Pinned layout coordinates when [LayoutOptions.incremental].
  * - Bounded per-call work; soft 16ms watchdog discipline.
  */
-public interface SessionPipeline {
-    public fun advance(
+interface SessionPipeline {
+    fun advance(
         previousSnapshot: DiagramSnapshot,
         chunk: CharSequence,
         absoluteOffset: Int,
@@ -190,7 +190,7 @@ public interface SessionPipeline {
         isFinal: Boolean,
     ): PipelineAdvance
 
-    public fun dispose() {}
+    fun dispose() {}
 }
 
 /**
@@ -198,7 +198,7 @@ public interface SessionPipeline {
  * - Wiring the Compose `StreamingDiagramView` before any real parser exists.
  * - Unit-testing the [DiagramSession] state machine in isolation.
  */
-public class StubSessionPipeline : SessionPipeline {
+class StubSessionPipeline : SessionPipeline {
     override fun advance(
         previousSnapshot: DiagramSnapshot,
         chunk: CharSequence,

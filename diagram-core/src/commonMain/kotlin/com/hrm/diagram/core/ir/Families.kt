@@ -238,3 +238,101 @@ data class StructIR(
     override val sourceLanguage: SourceLanguage,
     override val styleHints: StyleHints = StyleHints(),
 ) : DiagramModel
+
+/* ---------- Class diagram ---------- */
+
+enum class Visibility { PUBLIC, PRIVATE, PROTECTED, PACKAGE }
+enum class Classifier { Static, Abstract }
+data class ClassParam(val name: String, val type: String? = null)
+
+data class ClassMember(
+    val visibility: Visibility = Visibility.PACKAGE,
+    val name: String,
+    val type: String? = null,
+    val params: List<ClassParam> = emptyList(),
+    val isMethod: Boolean = false,
+    val isStatic: Boolean = false,
+    val isAbstract: Boolean = false,
+)
+
+data class ClassNode(
+    val id: com.hrm.diagram.core.ir.NodeId,
+    val name: String,
+    val generics: String? = null,
+    val stereotype: String? = null,
+    val members: List<ClassMember> = emptyList(),
+    val cssClass: String? = null,
+)
+
+enum class ClassRelationKind {
+    Inheritance, Composition, Aggregation, Association,
+    Dependency, Realization, Link, LinkDashed,
+}
+
+data class ClassRelation(
+    val from: com.hrm.diagram.core.ir.NodeId,
+    val to: com.hrm.diagram.core.ir.NodeId,
+    val kind: ClassRelationKind,
+    val fromCardinality: String? = null,
+    val toCardinality: String? = null,
+    val label: RichLabel = RichLabel.Empty,
+)
+
+data class ClassNamespace(val id: String, val members: List<com.hrm.diagram.core.ir.NodeId>)
+
+enum class NotePlacement { LeftOf, RightOf, TopOf, BottomOf, Standalone }
+
+data class ClassNote(
+    val text: RichLabel,
+    val targetClass: com.hrm.diagram.core.ir.NodeId? = null,
+    val placement: NotePlacement = NotePlacement.RightOf,
+)
+
+data class CssClassDef(val name: String, val style: String)
+
+/* ---------- State diagram ---------- */
+
+enum class StateKind { Simple, Initial, Final, Composite, Choice, Fork, Join, History, DeepHistory }
+
+data class StateNode(
+    val id: NodeId,
+    val name: String,
+    val description: String? = null,
+    val kind: StateKind = StateKind.Simple,
+    val children: List<NodeId> = emptyList(),
+)
+
+data class StateTransition(
+    val from: NodeId,
+    val to: NodeId,
+    val event: String? = null,
+    val guard: String? = null,
+    val action: String? = null,
+    val label: RichLabel = RichLabel.Empty,
+)
+
+data class StateNote(
+    val text: RichLabel,
+    val targetState: NodeId? = null,
+    val placement: NotePlacement = NotePlacement.RightOf,
+)
+
+data class StateIR(
+    val states: List<StateNode>,
+    val transitions: List<StateTransition>,
+    val notes: List<StateNote> = emptyList(),
+    override val title: String? = null,
+    override val sourceLanguage: SourceLanguage,
+    override val styleHints: StyleHints = StyleHints(),
+) : DiagramModel
+
+data class ClassIR(
+    val classes: List<ClassNode>,
+    val relations: List<ClassRelation> = emptyList(),
+    val namespaces: List<ClassNamespace> = emptyList(),
+    val notes: List<ClassNote> = emptyList(),
+    val cssClasses: List<CssClassDef> = emptyList(),
+    override val title: String? = null,
+    override val sourceLanguage: SourceLanguage,
+    override val styleHints: StyleHints = StyleHints(),
+) : DiagramModel

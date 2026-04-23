@@ -2,6 +2,8 @@ package com.hrm.diagram.render
 
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
+import com.hrm.diagram.core.text.HeuristicTextMeasurer
+import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.streaming.DiagramSession
 import com.hrm.diagram.render.streaming.SessionPipeline
@@ -15,7 +17,7 @@ import com.hrm.diagram.render.streaming.mermaid.MermaidSessionPipeline
  *
  * See `docs/api.md` for the full surface contract.
  */
-public object Diagram {
+object Diagram {
     /**
      * Open a streaming session — the primary use case for LLM-driven incremental rendering.
      * See `docs/streaming.md`.
@@ -24,15 +26,19 @@ public object Diagram {
      * - [SourceLanguage.MERMAID] → [MermaidSessionPipeline] (Phase 1 flowchart subset)
      * - PlantUML / DOT             → [StubSessionPipeline] (parsers land in later phases)
      */
-    public fun session(
+    fun session(
         language: SourceLanguage,
         theme: DiagramTheme = DiagramTheme.Default,
         layoutOptions: LayoutOptions = LayoutOptions(),
-        pipeline: SessionPipeline = defaultPipelineFor(language),
+        textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
+        pipeline: SessionPipeline = defaultPipelineFor(language, textMeasurer),
     ): DiagramSession = DiagramSession.create(language, theme, layoutOptions, pipeline)
 
-    private fun defaultPipelineFor(language: SourceLanguage): SessionPipeline = when (language) {
-        SourceLanguage.MERMAID -> MermaidSessionPipeline()
+    private fun defaultPipelineFor(
+        language: SourceLanguage,
+        textMeasurer: TextMeasurer,
+    ): SessionPipeline = when (language) {
+        SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = textMeasurer)
         SourceLanguage.PLANTUML, SourceLanguage.DOT -> StubSessionPipeline()
     }
 }

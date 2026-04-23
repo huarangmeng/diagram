@@ -19,29 +19,29 @@ import com.hrm.diagram.core.draw.Rect
  * This implementation is **append-only / clearable** (matches our streaming model — we never
  * remove individual draw commands; we either grow or `clear()` and rebuild).
  */
-public class Quadtree<T>(
-    public val bounds: Rect,
-    public val bucketSize: Int = 16,
-    public val maxDepth: Int = 8,
+internal class Quadtree<T>(
+    val bounds: Rect,
+    val bucketSize: Int = 16,
+    val maxDepth: Int = 8,
 ) {
     private val root: Node<T> = Node(bounds, depth = 0)
 
-    public val size: Int get() = root.totalSize()
+    val size: Int get() = root.totalSize()
 
-    public fun insert(rect: Rect, value: T) {
+    fun insert(rect: Rect, value: T) {
         require(intersects(bounds, rect)) {
             "rect $rect lies outside quadtree bounds $bounds"
         }
         root.insert(rect, value, bucketSize, maxDepth)
     }
 
-    public fun query(viewport: Rect): List<T> {
+    fun query(viewport: Rect): List<T> {
         val out = ArrayList<T>()
         root.query(viewport, out)
         return out
     }
 
-    public fun clear() {
+    fun clear() {
         root.clear()
     }
 
@@ -81,9 +81,9 @@ public class Quadtree<T>(
             val midX = (bounds.left + bounds.right) / 2f
             val midY = (bounds.top + bounds.bottom) / 2f
             val kids = arrayOf(
-                Node<T>(Rect.ltrb(bounds.left, bounds.top, midX, midY), depth + 1),
-                Node<T>(Rect.ltrb(midX, bounds.top, bounds.right, midY), depth + 1),
-                Node<T>(Rect.ltrb(bounds.left, midY, midX, bounds.bottom), depth + 1),
+                Node(Rect.ltrb(bounds.left, bounds.top, midX, midY), depth + 1),
+                Node(Rect.ltrb(midX, bounds.top, bounds.right, midY), depth + 1),
+                Node(Rect.ltrb(bounds.left, midY, midX, bounds.bottom), depth + 1),
                 Node<T>(Rect.ltrb(midX, midY, bounds.right, bounds.bottom), depth + 1),
             )
             children = kids

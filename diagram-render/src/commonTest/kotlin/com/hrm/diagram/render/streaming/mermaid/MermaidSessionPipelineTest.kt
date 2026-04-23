@@ -1,6 +1,8 @@
 package com.hrm.diagram.render.streaming.mermaid
 
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.SequenceIR
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.render.Diagram
 import com.hrm.diagram.render.streaming.DiagramSnapshot
@@ -71,6 +73,21 @@ class MermaidSessionPipelineTest {
         } finally { s.close() }
     }
 
+    @Test
+    fun shapes_and_edge_labels_stream_equivalent_and_pinned() {
+        val src = "flowchart TD\nA((start)) -->|init| B{auth?}\nB -->|ok| C(home)\n"
+        val oneShot = runSession(src, chunkSize = src.length)
+        val tiny = runSession(src, chunkSize = 1)
+        val irOne = oneShot.ir as GraphIR
+        val irTiny = tiny.ir as GraphIR
+        assertEquals(irOne.nodes.map { it.id to it.shape }, irTiny.nodes.map { it.id to it.shape })
+        assertEquals(irOne.edges.map { Triple(it.from, it.to, it.label) },
+            irTiny.edges.map { Triple(it.from, it.to, it.label) })
+        // Pinning: same node positions byte-for-byte.
+        assertEquals(oneShot.laidOut!!.nodePositions, tiny.laidOut!!.nodePositions)
+        assertTrue(oneShot.drawCommands.size >= irOne.nodes.size)
+    }
+
     private fun runSession(src: String, chunkSize: Int): DiagramSnapshot {
         val s = Diagram.session(language = SourceLanguage.MERMAID)
         try {
@@ -81,6 +98,108 @@ class MermaidSessionPipelineTest {
                 i = end
             }
             return s.finish()
+        } finally { s.close() }
+    }
+
+    @Test
+    fun final_reflow_yields_layered_layout() {
+        val s = Diagram.session(language = SourceLanguage.MERMAID)
+        try {
+            // Diamond shape A→B, A→C, B→D, C→D — Sugiyama must put B and C on the same y.
+            s.append("flowchart TD\nA --> B\nA --> C\nB --> D\nC --> D\n")
+            val snap = s.finish()
+            val laid = assertNotNull(snap.laidOut, "finish must produce a layout")
+            val ya = laid.nodePositions.getValue(NodeId("A")).top
+            val yb = laid.nodePositions.getValue(NodeId("B")).top
+            val yc = laid.nodePositions.getValue(NodeId("C")).top
+            val yd = laid.nodePositions.getValue(NodeId("D")).top
+            assertEquals(yb, yc, "B and C share a rank")
+            assertTrue(ya < yb, "A above B/C")
+            assertTrue(yb < yd, "D below B/C")
+        } finally { s.close() }
+    }
+
+    @Test
+    fun mermaid_sequence_smoke() {
+        val s = Diagram.session(language = SourceLanguage.MERMAID)
+        try {
+            s.append("sequenceDiagram\n")
+            s.append("Alice ->> Bob: hi\n")
+            s.append("Bob -->> Alice: bye\n")
+            val snap = s.finish()
+            val ir = assertNotNull(snap.ir as? SequenceIR, "ir must be SequenceIR")
+            assertEquals(2, ir.participants.size)
+            val laid = assertNotNull(snap.laidOut)
+            assertTrue(laid.nodePositions.size >= 2)
+            assertTrue(laid.edgeRoutes.size >= 2)
+            assertTrue(snap.drawCommands.size >= 4)
+        } finally { s.close() }
+    }
+
+    @Test
+    fun mode_dispatch_sequence_vs_flowchart() {
+        val flow = Diagram.session(language = SourceLanguage.MERMAID).also { s ->
+            s.append("flowchart TD\nA --> B\n")
+            s.finish()
+        }
+        val seq = Diagram.session(language = SourceLanguage.MERMAID).also { s ->
+            s.append("sequenceDiagram\nA ->> B\n")
+            s.finish()
+        }
+        try {
+            assertTrue(flow.state.value.ir is GraphIR)
+            assertTrue(seq.state.value.ir is SequenceIR)
+        } finally {
+            flow.close(); seq.close()
+        }
+    }
+
+    @Test
+    fun class_header_dispatches_to_class_sub_pipeline() {
+        val s = Diagram.session(language = SourceLanguage.MERMAID)
+        try {
+            s.append("classDiagram\nclass Foo\n")
+            val snap = s.finish()
+            assertTrue(snap.ir is com.hrm.diagram.core.ir.ClassIR, "expected ClassIR, got ${snap.ir?.let { it::class.simpleName }}")
+            assertTrue(snap.drawCommands.isNotEmpty())
+        } finally { s.close() }
+    }
+
+    @Test
+    fun class_and_sequence_isolated_sessions() {
+        val cls = Diagram.session(language = SourceLanguage.MERMAID).also { s ->
+            s.append("classDiagram\nA <|-- B\n")
+            s.finish()
+        }
+        val seq = Diagram.session(language = SourceLanguage.MERMAID).also { s ->
+            s.append("sequenceDiagram\nA ->> B\n")
+            s.finish()
+        }
+        try {
+            assertTrue(cls.state.value.ir is com.hrm.diagram.core.ir.ClassIR)
+            assertTrue(seq.state.value.ir is SequenceIR)
+        } finally { cls.close(); seq.close() }
+    }
+
+    @Test
+    fun state_header_dispatches_to_state_sub_pipeline() {
+        val s = Diagram.session(language = SourceLanguage.MERMAID)
+        try {
+            s.append("stateDiagram-v2\n[*] --> A\nA --> [*]\n")
+            val snap = s.finish()
+            assertTrue(snap.ir is com.hrm.diagram.core.ir.StateIR,
+                "expected StateIR, got ${snap.ir?.let { it::class.simpleName }}")
+            assertTrue(snap.drawCommands.isNotEmpty())
+        } finally { s.close() }
+    }
+
+    @Test
+    fun state_v1_header_also_dispatches() {
+        val s = Diagram.session(language = SourceLanguage.MERMAID)
+        try {
+            s.append("stateDiagram\nA --> B\n")
+            val snap = s.finish()
+            assertTrue(snap.ir is com.hrm.diagram.core.ir.StateIR)
         } finally { s.close() }
     }
 }

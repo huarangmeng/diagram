@@ -31,7 +31,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,12 +44,11 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.gallery.DemoSample
 import com.hrm.diagram.gallery.DemoSamples
 import com.hrm.diagram.gallery.SourceLang
-import com.hrm.diagram.render.Diagram
-import com.hrm.diagram.render.streaming.DiagramSession
+import com.hrm.diagram.render.compose.DiagramCanvas
+import com.hrm.diagram.render.compose.rememberDiagramSession
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 @Preview
@@ -67,20 +65,37 @@ private fun GalleryScaffold() {
     val samples = remember { DemoSamples.all }
     var selected by remember { mutableStateOf(samples.first()) }
     var sourceText by remember(selected) { mutableStateOf(selected.source) }
+    // Feed mode for the diagram session. ONESHOT is the default (selection switch /
+    // editor changes); STREAM is triggered by the "Stream this source" button and
+    // re-feeds the source in chunks from a *fresh* session.
+    var feedMode by remember(selected) { mutableStateOf(FeedMode.ONESHOT) }
+    // Bumping this epoch forces rememberDiagramSession to rebuild even if the source
+    // text and feed mode are identical to the previous run (e.g. clicking Stream
+    // twice in a row).
+    var runEpoch by remember(selected) { mutableStateOf(0) }
 
-    // Per-selection DiagramSession: rebuild whenever the chosen sample changes.
-    val session = remember(selected) {
-        Diagram.session(language = selected.lang.toCoreLanguage())
-    }
-    DisposableEffect(session) {
-        onDispose { session.close() }
-    }
-    // Whenever the source text is edited (or selection changes), reset the session by
-    // re-feeding the full text in one go. (Streaming demo is a separate button below.)
-    LaunchedEffect(session, sourceText) {
-        // Stub pipeline doesn't track per-source state, so reseeding is cheap; the snapshot's
-        // seq still reflects the number of advances we've performed.
-        session.append(sourceText)
+    // Per-(selection, source, feed-mode, epoch) DiagramSession: switching any of these
+    // disposes the previous session and creates a fresh one — there is no "append on
+    // top of finished session" path. One composable call wires the Compose text
+    // measurer into the layout pipeline and auto-disposes when leaving composition.
+    val session = rememberDiagramSession(
+        language = selected.lang.toCoreLanguage(),
+        key = listOf(selected, sourceText, feedMode, runEpoch),
+    )
+    LaunchedEffect(session) {
+        when (feedMode) {
+            FeedMode.ONESHOT -> {
+                session.append(sourceText)
+                session.finish()
+            }
+            FeedMode.STREAM -> {
+                sourceText.chunked(16).forEach { chunk ->
+                    session.append(chunk)
+                    delay(40)
+                }
+                session.finish()
+            }
+        }
     }
     val snapshot by session.state.collectAsState()
 
@@ -88,7 +103,12 @@ private fun GalleryScaffold() {
         SampleSidebar(
             samples = samples,
             current = selected,
-            onSelect = { selected = it; sourceText = it.source },
+            onSelect = {
+                selected = it
+                sourceText = it.source
+                feedMode = FeedMode.ONESHOT
+                runEpoch = 0
+            },
             modifier = Modifier.width(260.dp).fillMaxHeight(),
         )
         VerticalDivider()
@@ -97,7 +117,11 @@ private fun GalleryScaffold() {
             Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 SourceEditor(
                     text = sourceText,
-                    onTextChange = { sourceText = it },
+                    onTextChange = {
+                        sourceText = it
+                        feedMode = FeedMode.ONESHOT
+                        runEpoch = 0
+                    },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
                 VerticalDivider()
@@ -105,7 +129,10 @@ private fun GalleryScaffold() {
                     sample = selected,
                     sourceText = sourceText,
                     snapshot = snapshot,
-                    session = session,
+                    onStreamRequested = {
+                        feedMode = FeedMode.STREAM
+                        runEpoch += 1
+                    },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
             }
@@ -223,15 +250,16 @@ private fun SourceEditor(
     }
 }
 
+private enum class FeedMode { ONESHOT, STREAM }
+
 @Composable
 private fun PreviewPane(
     sample: DemoSample,
     sourceText: String,
     snapshot: DiagramSnapshot,
-    session: DiagramSession,
+    onStreamRequested: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val scope = rememberCoroutineScope()
     Column(modifier = modifier) {
         SectionLabel("Preview")
         Box(
@@ -241,45 +269,46 @@ private fun PreviewPane(
                 .padding(16.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Card {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = "DiagramView placeholder",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = "${sample.lang.display} · ${sample.kind}",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        text = "${sourceText.lines().size} lines · ${sourceText.length} chars",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    HorizontalDivider(modifier = Modifier.fillMaxWidth())
-                    Text(
-                        text = "session.seq = ${snapshot.seq}  ·  isFinal = ${snapshot.isFinal}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        text = "drawCommands = ${snapshot.drawCommands.size}  ·  diagnostics = ${snapshot.diagnostics.size}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Button(onClick = {
-                        scope.launch {
-                            // Demonstrate the streaming contract: feed the source 16 chars at a time.
-                            sourceText.chunked(16).forEach { chunk ->
-                                session.append(chunk)
-                                delay(40)
-                            }
-                            session.finish()
+            Card(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.surface),
+                    ) {
+                        DiagramCanvas(
+                            snapshot = snapshot,
+                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                        )
+                    }
+                    HorizontalDivider()
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = "${sample.lang.display} · ${sample.kind}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "${sourceText.lines().size} lines · ${sourceText.length} chars",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "session.seq = ${snapshot.seq}  ·  isFinal = ${snapshot.isFinal}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            text = "drawCommands = ${snapshot.drawCommands.size}  ·  diagnostics = ${snapshot.diagnostics.size}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(onClick = onStreamRequested) {
+                            Text("Stream this source (16 char chunks)")
                         }
-                    }) { Text("Stream this source (16 char chunks)") }
+                    }
                 }
             }
         }

@@ -6,6 +6,7 @@ import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.ir.SourceLanguage
@@ -36,11 +37,11 @@ import com.hrm.diagram.core.streaming.Token
  * - On parse error the bad line is dropped and a [Diagnostic] is appended via
  *   [IrPatch.AddDiagnostic]; the parser stays alive for subsequent lines.
  */
-public class MermaidFlowchartParser {
+class MermaidFlowchartParser {
     private val knownNodes: HashSet<NodeId> = HashSet()
-    public var direction: Direction = Direction.TB
+    var direction: Direction = Direction.TB
         private set
-    public var headerSeen: Boolean = false
+    var headerSeen: Boolean = false
         private set
 
     /** Accumulated IR view (rebuilt from patches on each [snapshot] call for tests / consumers). */
@@ -57,9 +58,11 @@ public class MermaidFlowchartParser {
      * the lexer's token stream on NEWLINE and feed each segment here; comments are dropped at
      * the splitter, ERROR tokens are surfaced as diagnostics.
      */
-    public fun acceptLine(line: List<Token>): IrPatchBatch {
+    fun acceptLine(line: List<Token>): IrPatchBatch {
         seq++
         if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        // Drop pure-comment lines silently; they are body content but contribute no IR.
+        if (line.all { it.kind == MermaidTokenKind.COMMENT }) return IrPatchBatch(seq, emptyList())
         val patches = ArrayList<IrPatch>()
 
         if (!headerSeen) {
@@ -69,11 +72,15 @@ public class MermaidFlowchartParser {
 
         // Body line.
         when (val parsed = parseStatement(line)) {
-            is StmtParse.NodeDecl -> registerNode(parsed.id, parsed.label, patches)
+            is StmtParse.NodeDecl -> registerNode(parsed.id, parsed.label, parsed.shape, patches)
             is StmtParse.EdgeDecl -> {
-                registerNode(parsed.from, parsed.fromLabel, patches)
-                registerNode(parsed.to, parsed.toLabel, patches)
-                val e = Edge(from = parsed.from, to = parsed.to)
+                registerNode(parsed.from, parsed.fromLabel, parsed.fromShape, patches)
+                registerNode(parsed.to, parsed.toLabel, parsed.toShape, patches)
+                val e = Edge(
+                    from = parsed.from,
+                    to = parsed.to,
+                    label = parsed.edgeLabel?.let { RichLabel.Plain(it) },
+                )
                 edges += e
                 patches += IrPatch.AddEdge(e)
             }
@@ -87,14 +94,14 @@ public class MermaidFlowchartParser {
     }
 
     /** Build a fresh [GraphIR] from accumulated state. */
-    public fun snapshot(): GraphIR = GraphIR(
+    fun snapshot(): GraphIR = GraphIR(
         nodes = nodes.toList(),
         edges = edges.toList(),
         sourceLanguage = SourceLanguage.MERMAID,
         styleHints = StyleHints(direction = direction),
     )
 
-    public fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
 
     // --- internals ---
 
@@ -126,16 +133,16 @@ public class MermaidFlowchartParser {
         }
     }
 
-    private fun registerNode(id: NodeId, label: String?, out: MutableList<IrPatch>) {
+    private fun registerNode(id: NodeId, label: String?, shape: NodeShape, out: MutableList<IrPatch>) {
         if (id in knownNodes) {
-            // If the second mention provides a label we didn't have, an UpdateAttr could be
-            // added later; current subset treats labels as fixed-on-first-mention.
+            // First-mention-wins: subsequent label/shape mentions are ignored in this subset.
             return
         }
         knownNodes += id
         val node = Node(
             id = id,
             label = if (label != null) RichLabel.Plain(label) else RichLabel.Empty,
+            shape = shape,
         )
         nodes += node
         out += IrPatch.AddNode(node)
@@ -156,40 +163,66 @@ public class MermaidFlowchartParser {
         val fromId = NodeId(first.text.toString())
         var i = 1
         var fromLabel: String? = null
-        if (i < toks.size && toks[i].kind == MermaidTokenKind.LABEL) {
+        var fromShape: NodeShape = NodeShape.Box
+        if (i < toks.size && isShapeLabel(toks[i].kind)) {
             fromLabel = toks[i].text.toString()
+            fromShape = shapeFor(toks[i].kind)
             i++
         }
         if (i >= toks.size) {
-            return StmtParse.NodeDecl(fromId, fromLabel)
+            return StmtParse.NodeDecl(fromId, fromLabel, fromShape)
         }
         if (toks[i].kind != MermaidTokenKind.ARROW_SOLID) {
             return StmtParse.Error("Expected '-->' after '${first.text}', got '${toks[i].text}'")
         }
         i++
+        var edgeLabel: String? = null
+        if (i < toks.size && toks[i].kind == MermaidTokenKind.EDGE_LABEL) {
+            edgeLabel = toks[i].text.toString()
+            i++
+        }
         if (i >= toks.size || toks[i].kind != MermaidTokenKind.IDENT) {
             return StmtParse.Error("Expected target identifier after '-->'")
         }
         val toId = NodeId(toks[i].text.toString())
         i++
         var toLabel: String? = null
-        if (i < toks.size && toks[i].kind == MermaidTokenKind.LABEL) {
+        var toShape: NodeShape = NodeShape.Box
+        if (i < toks.size && isShapeLabel(toks[i].kind)) {
             toLabel = toks[i].text.toString()
+            toShape = shapeFor(toks[i].kind)
             i++
         }
         if (i < toks.size) {
             return StmtParse.Error("Trailing token '${toks[i].text}' after edge")
         }
-        return StmtParse.EdgeDecl(fromId, fromLabel, toId, toLabel)
+        return StmtParse.EdgeDecl(fromId, fromLabel, fromShape, toId, toLabel, toShape, edgeLabel)
+    }
+
+    private companion object {
+        private fun isShapeLabel(kind: Int): Boolean = kind == MermaidTokenKind.LABEL ||
+            kind == MermaidTokenKind.LABEL_PAREN || kind == MermaidTokenKind.LABEL_DOUBLE_PAREN ||
+            kind == MermaidTokenKind.LABEL_BRACE
+
+        private fun shapeFor(kind: Int): NodeShape = when (kind) {
+            MermaidTokenKind.LABEL -> NodeShape.Box
+            MermaidTokenKind.LABEL_PAREN -> NodeShape.RoundedBox
+            MermaidTokenKind.LABEL_DOUBLE_PAREN -> NodeShape.Circle
+            MermaidTokenKind.LABEL_BRACE -> NodeShape.Diamond
+            else -> NodeShape.Box
+        }
     }
 
     private sealed interface StmtParse {
-        data class NodeDecl(val id: NodeId, val label: String?) : StmtParse
+        data class NodeDecl(val id: NodeId, val label: String?, val shape: NodeShape) : StmtParse
         data class EdgeDecl(
             val from: NodeId,
             val fromLabel: String?,
+            val fromShape: NodeShape,
             val to: NodeId,
             val toLabel: String?,
+            val toShape: NodeShape,
+            val edgeLabel: String?,
         ) : StmtParse
         data class Error(val message: String) : StmtParse
     }

@@ -42,13 +42,18 @@ sealed interface DrawCommand {
         override val z: Int = 0,
     ) : DrawCommand
 
-    /** Origin is baseline-left. Width pre-measured by the layout layer. */
+    /**
+     * Origin's interpretation depends on [anchorX] / [anchorY]; default keeps the historic
+     * baseline-left convention. Width pre-measured by the layout layer.
+     */
     data class DrawText(
         val text: String,
         val origin: Point,
         val font: FontSpec,
         val color: Color,
         val maxWidth: Float? = null,
+        val anchorX: TextAnchorX = TextAnchorX.Start,
+        val anchorY: TextAnchorY = TextAnchorY.Baseline,
         override val z: Int = 0,
     ) : DrawCommand
 
@@ -83,3 +88,9 @@ sealed interface DrawCommand {
         override val z: Int = 0,
     ) : DrawCommand
 }
+
+/** Horizontal anchor used by [DrawCommand.DrawText]. */
+enum class TextAnchorX { Start, Center, End }
+
+/** Vertical anchor used by [DrawCommand.DrawText]. */
+enum class TextAnchorY { Top, Middle, Baseline, Bottom }

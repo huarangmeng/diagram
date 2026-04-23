@@ -137,4 +137,89 @@ class MermaidFlowchartParserTest {
         val a = ir.nodes.first { it.id.value == "A" }
         assertEquals(RichLabel.Empty, a.label)
     }
+
+    // ----- Phase 1 v2: shape aliases + edge labels -----
+
+    @Test
+    fun golden_v2_1_rounded_box_to_box() {
+        val ir = parseAll("flowchart TD\nA(round) --> B[box]\n").snapshot()
+        val a = ir.nodes.first { it.id.value == "A" }
+        val b = ir.nodes.first { it.id.value == "B" }
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.RoundedBox, a.shape)
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Box, b.shape)
+        assertEquals(RichLabel.Plain("round"), a.label)
+        assertEquals(RichLabel.Plain("box"), b.label)
+    }
+
+    @Test
+    fun golden_v2_2_circle_default_target() {
+        val ir = parseAll("flowchart TD\nA((circle)) --> B\n").snapshot()
+        val a = ir.nodes.first { it.id.value == "A" }
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Circle, a.shape)
+        assertEquals(RichLabel.Plain("circle"), a.label)
+    }
+
+    @Test
+    fun golden_v2_3_diamond_with_yes_no_edge_labels() {
+        val p = parseAll(
+            """
+            flowchart TD
+            A{decision} -->|yes| B
+            A -->|no| C
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        val a = ir.nodes.first { it.id.value == "A" }
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Diamond, a.shape)
+        assertEquals(RichLabel.Plain("decision"), a.label)
+        val edges = p.snapshot().edges
+        assertEquals(2, edges.size)
+        assertEquals(RichLabel.Plain("yes"), edges[0].label)
+        assertEquals(RichLabel.Plain("no"), edges[1].label)
+        assertEquals(NodeId("B"), edges[0].to)
+        assertEquals(NodeId("C"), edges[1].to)
+    }
+
+    @Test
+    fun golden_v2_4_lr_chain_mixing_three_shapes() {
+        val p = parseAll(
+            """
+            flowchart LR
+            A(R) --> B((C))
+            B --> D{D}
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        assertEquals(Direction.LR, ir.styleHints.direction)
+        val byId = ir.nodes.associateBy { it.id.value }
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.RoundedBox, byId.getValue("A").shape)
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Circle, byId.getValue("B").shape)
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Diamond, byId.getValue("D").shape)
+        // Two edges, neither labeled.
+        assertEquals(2, p.snapshot().edges.size)
+        assertTrue(p.snapshot().edges.all { it.label == null })
+    }
+
+    @Test
+    fun golden_v2_5_kitchen_sink_comments_shapes_labels() {
+        val p = parseAll(
+            """
+            flowchart TD
+            %% top-level comment line
+            Start((start)) -->|init| Auth{auth?}
+            Auth -->|ok| Home[Home page]
+            Auth -->|fail| Login(login form)
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        val byId = ir.nodes.associateBy { it.id.value }
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Circle, byId.getValue("Start").shape)
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Diamond, byId.getValue("Auth").shape)
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.Box, byId.getValue("Home").shape)
+        assertEquals(com.hrm.diagram.core.ir.NodeShape.RoundedBox, byId.getValue("Login").shape)
+        val edges = p.snapshot().edges
+        assertEquals(3, edges.size)
+        assertEquals(listOf("init", "ok", "fail"), edges.map { (it.label as RichLabel.Plain).text })
+        assertTrue(p.diagnosticsSnapshot().isEmpty(), "no diagnostics expected")
+    }
 }

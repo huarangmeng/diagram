@@ -4,7 +4,7 @@ package com.hrm.diagram.bench
  * Ad-hoc bench main: prints percentile tables for the streaming workload.
  * Invoke with `./gradlew :diagram-bench:runBench`.
  */
-public fun main() {
+fun main() {
     println("== streaming session workload (${SessionWorkload.SOURCE.length} chars, " +
         "${SessionWorkload.CHUNK_SIZE}-byte chunks) ==")
 

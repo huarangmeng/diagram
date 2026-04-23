@@ -19,8 +19,14 @@ internal object DemoSamples {
         add(DemoSample(SourceLang.MERMAID, "flowchart", "flowchart 流程图", """
             flowchart LR
               A[Start] --> B{Decide}
-              B -- yes --> C[Do it]
-              B -- no  --> D[Stop]
+              B -->|yes| C[Do it]
+              B -->|no| D[Stop]
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "flowchart-bt", "flowchart 自下而上 (BT)", """
+            flowchart BT
+              A[Step 1] --> B[Step 2]
+              B --> C[Step 3]
+              C --> D[Done]
         """.trimIndent()))
         add(DemoSample(SourceLang.MERMAID, "sequenceDiagram", "sequenceDiagram 时序图", """
             sequenceDiagram
@@ -33,11 +39,69 @@ internal object DemoSamples {
               Animal : +String name
               Dog : +bark()
         """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "classDiagram-notes", "classDiagram + 多向 note", """
+            classDiagram
+              class Order {
+                +Long id
+                +place()
+              }
+              class Customer {
+                +String name
+              }
+              Customer "1" --> "*" Order : places
+              note left of Customer : 客户在左侧
+              note top of Order : 订单在上方
+              note bottom of Order : 订单在下方
+              note right of Order : 订单在右侧
+              note "全局说明：演示 left/top/bottom/right 四向 note 定位"
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "classDiagram-css", "classDiagram + cssClass 着色", """
+            classDiagram
+              class Service:::blue {
+                +start()
+                +stop()
+              }
+              class Repository:::green {
+                +findAll()
+              }
+              class Cache:::orange
+              class LegacyApi:::red {
+                +call() $
+              }
+              Service --> Repository : reads
+              Service ..> Cache : optional
+              Service --> LegacyApi : delegates
+              cssClass "Repository,Cache" purple
+        """.trimIndent()))
         add(DemoSample(SourceLang.MERMAID, "stateDiagram", "stateDiagram 状态图", """
             stateDiagram-v2
               [*] --> Idle
-              Idle --> Working: start
-              Working --> Idle: done
+              Idle --> Active : start
+              state Active {
+                [*] --> Loading
+                Loading --> Ready : loaded
+                Ready --> [*]
+              }
+              Active --> Choice
+              state Choice <<choice>>
+              Choice --> Done : ok
+              Choice --> Failed : err
+              Done --> [*]
+              Failed --> [*]
+              note right of Active : 内部子状态
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "stateDiagram-fork", "stateDiagram + fork/join", """
+            stateDiagram-v2
+              [*] --> Start
+              Start --> F
+              state F <<fork>>
+              F --> A
+              F --> B
+              A --> J
+              B --> J
+              state J <<join>>
+              J --> Done
+              Done --> [*]
         """.trimIndent()))
         add(DemoSample(SourceLang.MERMAID, "erDiagram", "erDiagram 实体关系图", """
             erDiagram

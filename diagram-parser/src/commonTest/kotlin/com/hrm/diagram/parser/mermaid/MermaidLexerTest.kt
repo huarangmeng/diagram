@@ -92,4 +92,54 @@ class MermaidLexerTest {
         // Subsequent tokens still flow.
         assertTrue(toks.any { it.kind == MermaidTokenKind.IDENT && it.text.toString() == "B" })
     }
+
+    // ----- Phase 1 v2: shape aliases + edge labels -----
+
+    @Test
+    fun shape_aliases_are_distinct_token_kinds() {
+        val toks = lexAll("flowchart TD\nA(r) B((c)) C{d} D[b]\n")
+        val kinds = toks.filter {
+            it.kind == MermaidTokenKind.LABEL_PAREN ||
+                it.kind == MermaidTokenKind.LABEL_DOUBLE_PAREN ||
+                it.kind == MermaidTokenKind.LABEL_BRACE ||
+                it.kind == MermaidTokenKind.LABEL
+        }
+        assertEquals(
+            listOf(
+                MermaidTokenKind.LABEL_PAREN,
+                MermaidTokenKind.LABEL_DOUBLE_PAREN,
+                MermaidTokenKind.LABEL_BRACE,
+                MermaidTokenKind.LABEL,
+            ),
+            kinds.map { it.kind },
+        )
+        assertEquals(listOf("r", "c", "d", "b"), kinds.map { it.text.toString() })
+    }
+
+    @Test
+    fun edge_label_pipe_pair_is_one_token() {
+        val toks = lexAll("flowchart TD\nA -->|hello world| B\n")
+        val edgeLabels = toks.filter { it.kind == MermaidTokenKind.EDGE_LABEL }
+        assertEquals(1, edgeLabels.size)
+        assertEquals("hello world", edgeLabels[0].text.toString())
+    }
+
+    @Test
+    fun double_paren_split_across_chunks_is_safe() {
+        // Split right between the two '(' characters.
+        val lexer = MermaidLexer()
+        val s0 = lexer.initialState()
+        val r1 = lexer.feed(s0, "flowchart TD\nA(", 0, eos = false)
+        val r2 = lexer.feed(r1.newState, "(c)) --> B\n", "flowchart TD\nA(".length, eos = true)
+        val merged = (r1.tokens + r2.tokens).filter { it.kind != MermaidTokenKind.NEWLINE }
+        // Compare against a one-shot lex.
+        val oneShot = lexAll("flowchart TD\nA((c)) --> B\n").filter { it.kind != MermaidTokenKind.NEWLINE }
+        assertEquals(oneShot.map { it.kind to it.text.toString() }, merged.map { it.kind to it.text.toString() })
+    }
+
+    @Test
+    fun unterminated_pipe_label_emits_error() {
+        val toks = lexAll("flowchart TD\nA -->|never closes\n")
+        assertTrue(toks.any { it.kind == MermaidTokenKind.ERROR })
+    }
 }

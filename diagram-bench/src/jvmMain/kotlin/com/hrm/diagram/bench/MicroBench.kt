@@ -13,7 +13,7 @@ import kotlin.math.min
  *
  * Returns nanoseconds. Perform repeated work inside [block] to keep per-call noise low.
  */
-public fun bench(
+internal fun bench(
     name: String,
     warmupIterations: Int = 50,
     measurementIterations: Int = 200,
@@ -29,7 +29,7 @@ public fun bench(
     return BenchResult.of(name, samples)
 }
 
-public data class BenchResult(
+internal data class BenchResult(
     val name: String,
     val count: Int,
     val minNs: Long,
@@ -39,15 +39,15 @@ public data class BenchResult(
     val p95Ns: Long,
     val p99Ns: Long,
 ) {
-    public val p50Ms: Double get() = p50Ns / 1_000_000.0
-    public val p95Ms: Double get() = p95Ns / 1_000_000.0
-    public val p99Ms: Double get() = p99Ns / 1_000_000.0
+    val p50Ms: Double get() = p50Ns / 1_000_000.0
+    val p95Ms: Double get() = p95Ns / 1_000_000.0
+    val p99Ms: Double get() = p99Ns / 1_000_000.0
 
     override fun toString(): String =
         "$name  count=$count  min=${ms(minNs)}  mean=${"%.3f".format(meanNs / 1_000_000)}ms  " +
             "p50=${ms(p50Ns)}  p95=${ms(p95Ns)}  p99=${ms(p99Ns)}  max=${ms(maxNs)}"
 
-    public companion object {
+    companion object {
         internal fun of(name: String, samples: LongArray): BenchResult {
             require(samples.isNotEmpty())
             val sorted = samples.copyOf().also { it.sort() }
