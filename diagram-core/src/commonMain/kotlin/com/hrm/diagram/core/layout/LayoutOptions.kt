@@ -16,8 +16,29 @@ data class LayoutOptions(
     val rankSpacing: Float = 48f,
     /** Hard ceiling for the laid-out drawing; null = no clamp. */
     val maxCanvas: Size? = null,
+    /**
+     * Streaming knob (see `docs/streaming.md` §3.4). When `true`, layouts MUST attempt to reuse
+     * coordinates from a previous run when given a `LaidOutDiagram` baseline. Default `true`
+     * because LLM streaming is the primary use case.
+     */
+    val incremental: Boolean = true,
+    /**
+     * Opt-in escape hatch: if an incremental layout cannot extend the baseline without moving
+     * existing nodes, allow it to fall back to a full re-layout. Default `false` so streaming UIs
+     * never experience node "jumping". Non-streaming callers may set this to `true`.
+     */
+    val allowGlobalReflow: Boolean = false,
+    /**
+     * Maximum number of `DrawCommand`s the renderer is willing to materialise. Beyond this, the
+     * pipeline emits a WARNING and stops appending. Default chosen to keep memory reasonable on
+     * mobile devices.
+     */
+    val drawCommandBudget: Int = 50_000,
     val extras: Map<String, String> = emptyMap(),
 ) {
+    init {
+        require(drawCommandBudget > 0) { "drawCommandBudget must be positive, got $drawCommandBudget" }
+    }
     val random: RandomSource get() = RandomSource(seed)
 }
 

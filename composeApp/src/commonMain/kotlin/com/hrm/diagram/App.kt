@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -25,9 +26,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,9 +41,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.gallery.DemoSample
 import com.hrm.diagram.gallery.DemoSamples
 import com.hrm.diagram.gallery.SourceLang
+import com.hrm.diagram.render.Diagram
+import com.hrm.diagram.render.streaming.DiagramSession
+import com.hrm.diagram.render.streaming.DiagramSnapshot
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 @Preview
@@ -56,6 +67,22 @@ private fun GalleryScaffold() {
     val samples = remember { DemoSamples.all }
     var selected by remember { mutableStateOf(samples.first()) }
     var sourceText by remember(selected) { mutableStateOf(selected.source) }
+
+    // Per-selection DiagramSession: rebuild whenever the chosen sample changes.
+    val session = remember(selected) {
+        Diagram.session(language = selected.lang.toCoreLanguage())
+    }
+    DisposableEffect(session) {
+        onDispose { session.close() }
+    }
+    // Whenever the source text is edited (or selection changes), reset the session by
+    // re-feeding the full text in one go. (Streaming demo is a separate button below.)
+    LaunchedEffect(session, sourceText) {
+        // Stub pipeline doesn't track per-source state, so reseeding is cheap; the snapshot's
+        // seq still reflects the number of advances we've performed.
+        session.append(sourceText)
+    }
+    val snapshot by session.state.collectAsState()
 
     Row(modifier = Modifier.fillMaxSize()) {
         SampleSidebar(
@@ -77,13 +104,21 @@ private fun GalleryScaffold() {
                 PreviewPane(
                     sample = selected,
                     sourceText = sourceText,
+                    snapshot = snapshot,
+                    session = session,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
             }
             HorizontalDivider()
-            DiagnosticsPane(modifier = Modifier.fillMaxWidth())
+            DiagnosticsPane(snapshot = snapshot, modifier = Modifier.fillMaxWidth())
         }
     }
+}
+
+private fun SourceLang.toCoreLanguage(): SourceLanguage = when (this) {
+    SourceLang.MERMAID -> SourceLanguage.MERMAID
+    SourceLang.PLANTUML -> SourceLanguage.PLANTUML
+    SourceLang.DOT -> SourceLanguage.DOT
 }
 
 @Composable
@@ -192,8 +227,11 @@ private fun SourceEditor(
 private fun PreviewPane(
     sample: DemoSample,
     sourceText: String,
+    snapshot: DiagramSnapshot,
+    session: DiagramSession,
     modifier: Modifier = Modifier,
 ) {
+    val scope = rememberCoroutineScope()
     Column(modifier = modifier) {
         SectionLabel("Preview")
         Box(
@@ -222,6 +260,26 @@ private fun PreviewPane(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    HorizontalDivider(modifier = Modifier.fillMaxWidth())
+                    Text(
+                        text = "session.seq = ${snapshot.seq}  ·  isFinal = ${snapshot.isFinal}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        text = "drawCommands = ${snapshot.drawCommands.size}  ·  diagnostics = ${snapshot.diagnostics.size}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(onClick = {
+                        scope.launch {
+                            // Demonstrate the streaming contract: feed the source 16 chars at a time.
+                            sourceText.chunked(16).forEach { chunk ->
+                                session.append(chunk)
+                                delay(40)
+                            }
+                            session.finish()
+                        }
+                    }) { Text("Stream this source (16 char chunks)") }
                 }
             }
         }
@@ -229,7 +287,7 @@ private fun PreviewPane(
 }
 
 @Composable
-private fun DiagnosticsPane(modifier: Modifier = Modifier) {
+private fun DiagnosticsPane(snapshot: DiagramSnapshot, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -240,11 +298,20 @@ private fun DiagnosticsPane(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
-            text = "(parser / layout / render not yet wired — Phase 0 placeholder)",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (snapshot.diagnostics.isEmpty()) {
+            Text(
+                text = "(no diagnostics — stub pipeline; real parsers land in Phase 1)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            snapshot.diagnostics.forEach { d ->
+                Text(
+                    text = "[${d.severity}] ${d.code}  ${d.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }
 

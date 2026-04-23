@@ -28,12 +28,14 @@ kotlin {
             api(projects.diagramCore)
             api(projects.diagramLayout)
             api(projects.diagramParser)
+            api(libs.kotlinx.coroutinesCore)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.ui)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.kotlinx.coroutinesTest)
         }
     }
 }

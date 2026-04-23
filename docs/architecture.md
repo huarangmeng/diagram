@@ -56,8 +56,9 @@ RenderPlan.from(laidOut, theme)        // 生成 List<DrawCommand>
 6. 更新 `docs/syntax-compat/<lang>.md`。
 
 ### 3.2 新增一种布局算法
-- 实现 `Layout<I, O>` 接口，注册到 `LayoutRegistry`。
-- 在 `docs/layout/<algo>.md` 写设计 + 复杂度 + 适用图类型。
+- 实现 `IncrementalLayout<I>` 接口（`:diagram-layout`），注册到 `LayoutRegistry`。
+- **必须支持 streaming pinning**：当 `previous != null && options.incremental` 时，已存在的 `(NodeId, Rect)` 必须 byte-for-byte 等于 baseline；详见 `docs/streaming.md` §3.4。
+- 在 `docs/layout/<algo>.md` 写设计 + 复杂度 + 适用图类型 + 增量策略。
 
 ### 3.3 新增导出格式
 - 在 `:diagram-core` 增加 writer，消费 `List<DrawCommand>`，无需碰其它模块。
