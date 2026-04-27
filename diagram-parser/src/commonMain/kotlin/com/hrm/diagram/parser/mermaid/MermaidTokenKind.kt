@@ -105,6 +105,11 @@ object MermaidTokenKind {
     const val START_END_TOKEN: Int = 102      // "[*]"
     const val STATE_ARROW: Int = 103          // "-->"
 
+    // ---- ER-diagram tokens (Phase 1) ----
+    const val ER_HEADER: Int = 120            // "erDiagram"
+    /** Relationship operator like `||--o{` or `}|..||` (two-end cardinality + link). */
+    const val ER_REL: Int = 121
+
     fun nameOf(kind: Int): String = when (kind) {
         NEWLINE -> "NEWLINE"
         KEYWORD_HEADER -> "KEYWORD_HEADER"
@@ -183,6 +188,8 @@ object MermaidTokenKind {
         STATE_KW -> "STATE_KW"
         START_END_TOKEN -> "START_END_TOKEN"
         STATE_ARROW -> "STATE_ARROW"
+        ER_HEADER -> "ER_HEADER"
+        ER_REL -> "ER_REL"
         else -> "UNKNOWN($kind)"
     }
 }

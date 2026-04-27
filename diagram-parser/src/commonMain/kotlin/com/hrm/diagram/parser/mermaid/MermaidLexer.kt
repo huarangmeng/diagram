@@ -11,8 +11,9 @@ import com.hrm.diagram.core.streaming.Token
  *  - [LexMode.Auto]      : initial — until a header keyword decides flowchart/sequence.
  *  - [LexMode.Flowchart] : Phase-1 flowchart token table (the original lexer behaviour).
  *  - [LexMode.Sequence]  : Phase-2 sequenceDiagram tokens (arrows ->>/-->/-x, COLON-LABEL, keywords).
+ *  - [LexMode.Er]        : Mermaid `erDiagram` tokens (relationship operators + entity blocks).
  */
-enum class LexMode { Auto, Flowchart, Sequence, Class, State }
+enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er }
 
 /**
  * Resumable lexer for the Mermaid Phase 1 + 2 subset (see [MermaidTokenKind]).
@@ -51,6 +52,30 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
         scan@ while (pos < buf.length) {
             val c = buf[pos]
             when {
+                mode == LexMode.Er && shouldHandleErRelationStart(buf, pos, eos) -> {
+                    // Need at least 2 chars to decide whether we're starting a relationship card (e.g. "||", "o{").
+                    if (buf.length - pos < 2 && !eos) return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                    val r = scanErRelation(buf, pos, eos)
+                    when (r) {
+                        is ErRelResult.Ok -> {
+                            tokens += Token(
+                                MermaidTokenKind.ER_REL,
+                                baseOffset + pos,
+                                baseOffset + r.endExclusive,
+                                buf.substring(pos, r.endExclusive),
+                            )
+                            pos = r.endExclusive
+                            safePoint = baseOffset + pos
+                        }
+                        ErRelResult.Suspend -> return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                        ErRelResult.NoMatch -> {
+                            tokens += errorTok(baseOffset + pos, c.toString())
+                            diags += LexDiagnostic("Invalid ER relationship operator", baseOffset + pos)
+                            pos++
+                            safePoint = baseOffset + pos
+                        }
+                    }
+                }
                 c == '\n' -> {
                     tokens += Token(MermaidTokenKind.NEWLINE, baseOffset + pos, baseOffset + pos + 1, "\n")
                     pos++
@@ -193,7 +218,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                         }
                     }
                 }
-                c == ':' && (mode == LexMode.Sequence || mode == LexMode.State) -> {
+                c == ':' && (mode == LexMode.Sequence || mode == LexMode.State || mode == LexMode.Er) -> {
                     // Emit COLON, then scan the rest of the line as a single LABEL token (trimmed).
                     var end = pos + 1
                     while (end < buf.length && buf[end] != '\n') end++
@@ -222,7 +247,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     tokens += Token(MermaidTokenKind.PLUS, baseOffset + pos, baseOffset + pos + 1, "+")
                     pos++; safePoint = baseOffset + pos
                 }
-                c == '}' && (mode == LexMode.Class || mode == LexMode.State) -> {
+                c == '}' && (mode == LexMode.Class || mode == LexMode.State || mode == LexMode.Er) -> {
                     tokens += Token(MermaidTokenKind.RBRACE, baseOffset + pos, baseOffset + pos + 1, "}")
                     pos++; safePoint = baseOffset + pos
                 }
@@ -380,7 +405,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                         pos++; safePoint = baseOffset + pos
                     }
                 }
-                c == '"' && (mode == LexMode.Class || mode == LexMode.State) -> {
+                c == '"' && (mode == LexMode.Class || mode == LexMode.State || mode == LexMode.Er) -> {
                     var end = pos + 1
                     while (end < buf.length && buf[end] != '"' && buf[end] != '\n') end++
                     if (end >= buf.length && !eos) {
@@ -459,7 +484,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     }
                 }
                 c == '{' -> {
-                    if (mode == LexMode.Class || mode == LexMode.State) {
+                    if (mode == LexMode.Class || mode == LexMode.State || mode == LexMode.Er) {
                         tokens += Token(MermaidTokenKind.LBRACE, baseOffset + pos, baseOffset + pos + 1, "{")
                         pos++; safePoint = baseOffset + pos
                     } else {
@@ -531,6 +556,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                             MermaidTokenKind.CLASS_HEADER -> mode = LexMode.Class
                             MermaidTokenKind.STATE_HEADER -> mode = LexMode.State
                             MermaidTokenKind.KEYWORD_HEADER -> mode = LexMode.Flowchart
+                            MermaidTokenKind.ER_HEADER -> mode = LexMode.Er
                         }
                     }
                 }
@@ -620,6 +646,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 if (text == "sequenceDiagram") return MermaidTokenKind.SEQUENCE_HEADER
                 if (text == "classDiagram") return MermaidTokenKind.CLASS_HEADER
                 if (text == "stateDiagram" || text.startsWith("stateDiagram-")) return MermaidTokenKind.STATE_HEADER
+                if (text == "erDiagram") return MermaidTokenKind.ER_HEADER
                 if (text in HEADER_KEYWORDS) return MermaidTokenKind.KEYWORD_HEADER
                 if (text in DIRECTIONS) return MermaidTokenKind.DIRECTION
             }
@@ -684,6 +711,39 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 }
             }
             return MermaidTokenKind.IDENT
+        }
+
+        private sealed interface ErRelResult {
+            data class Ok(val endExclusive: Int) : ErRelResult
+            data object Suspend : ErRelResult
+            data object NoMatch : ErRelResult
+        }
+
+        private fun shouldHandleErRelationStart(buf: String, pos: Int, eos: Boolean): Boolean {
+            val c = buf[pos]
+            if (c != '|' && c != 'o' && c != '}') return false
+            val remaining = buf.length - pos
+            if (remaining < 2) return !eos // need 2 chars to decide, but don't block at EOS
+            return isErCard(buf.substring(pos, pos + 2))
+        }
+
+        private fun scanErRelation(buf: String, pos: Int, eos: Boolean): ErRelResult {
+            // Mermaid ER relationship operators are of the form:
+            //   <card><link><card>
+            // where card is 2 chars from {||, o|, |o, }|, |{, o{, }o} and link is `--` or `..`.
+            val remaining = buf.length - pos
+            if (remaining < 6) return if (!eos) ErRelResult.Suspend else ErRelResult.NoMatch
+            val left = buf.substring(pos, pos + 2)
+            val link = buf.substring(pos + 2, pos + 4)
+            val right = buf.substring(pos + 4, pos + 6)
+            if (!isErCard(left) || !isErCard(right)) return ErRelResult.NoMatch
+            if (link != "--" && link != "..") return ErRelResult.NoMatch
+            return ErRelResult.Ok(endExclusive = pos + 6)
+        }
+
+        private fun isErCard(card: String): Boolean = when (card) {
+            "||", "o|", "|o", "}|", "|{", "o{", "}o" -> true
+            else -> false
         }
     }
 }

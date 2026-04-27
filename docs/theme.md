@@ -44,3 +44,8 @@ data class DiagramTheme(
 - DOT `node[shape=...] edge[arrowhead=...]` 等属性 → 直接映射。
 
 详细映射表在每个语法的 `docs/syntax-compat/<lang>.md` 内维护。
+
+### Mermaid External CSS (Ignored)
+- Mermaid 语法允许引用外部 CSS class（例如 `.cssClass > rect { ... }`）作为样式来源。
+- 本项目不支持加载/解析外部 CSS：遇到仅在外部 CSS 中定义的 class，将忽略并产出 `MERMAID-W010` 警告。
+- Mermaid 样式体系的对齐方案详见 `docs/style-mermaid.md`。

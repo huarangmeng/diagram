@@ -16,7 +16,12 @@
 |---|---|---|
 | MERMAID-E001 | 未知首行图类型关键字 | dispatcher |
 | MERMAID-E002 | flowchart 边语法不匹配 | flowchart parser |
+| MERMAID-E003 | erDiagram 关系语法不匹配 | erDiagram parser |
+| MERMAID-E004 | erDiagram 实体属性语法不匹配 | erDiagram parser |
 | MERMAID-W001 | 节点未声明，自动创建占位 | 任意图 |
+| MERMAID-W010 | 外部 CSS class 已忽略（不支持） | mermaid style resolver / parser |
+| MERMAID-W011 | 非 hex 颜色值已忽略（Mermaid.js theming 仅识别 hex） | mermaid themeVariables / style parser |
+| MERMAID-W012 | 不支持的样式 key 已忽略 | mermaid style parser |
 | PLANTUML-E001 | 缺失 `@enduml` 闭合 | block parser |
 | PLANTUML-W001 | 未识别 `skinparam`，已忽略 | lowering |
 | DOT-E001 | 词法错误：未闭合字符串 | lexer |

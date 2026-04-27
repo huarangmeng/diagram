@@ -125,6 +125,35 @@ class MermaidLexerTest {
     }
 
     @Test
+    fun er_header_and_relationship_operator() {
+        val toks = lexAll("erDiagram\nA ||--o{ B : allows\n")
+        val kinds = toks.map { it.kind }
+        assertEquals(
+            listOf(
+                MermaidTokenKind.ER_HEADER,
+                MermaidTokenKind.NEWLINE,
+                MermaidTokenKind.IDENT,
+                MermaidTokenKind.ER_REL,
+                MermaidTokenKind.IDENT,
+                MermaidTokenKind.COLON,
+                MermaidTokenKind.LABEL,
+                MermaidTokenKind.NEWLINE,
+            ),
+            kinds,
+        )
+        val rel = toks.first { it.kind == MermaidTokenKind.ER_REL }
+        assertEquals("||--o{", rel.text.toString())
+    }
+
+    @Test
+    fun er_relationship_operator_is_chunk_safe() {
+        val src = "erDiagram\nA ||--o{ B : allows\n"
+        val oneShot = lexAll(src).map { it.kind to it.text.toString() }
+        val streamed = lexAll(src, chunkSize = 1).map { it.kind to it.text.toString() }
+        assertEquals(oneShot, streamed)
+    }
+
+    @Test
     fun double_paren_split_across_chunks_is_safe() {
         // Split right between the two '(' characters.
         val lexer = MermaidLexer()

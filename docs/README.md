@@ -12,6 +12,7 @@
 - [`ir.md`](./ir.md) —— 通用 IR（`DiagramModel` 家族）字段语义
 - [`draw-command.md`](./draw-command.md) —— 渲染中间层指令集，Compose / SVG / PNG 共用
 - [`theme.md`](./theme.md) —— 主题 / 颜色 / 字体 / 形状 / 箭头规范
+- [`style-mermaid.md`](./style-mermaid.md) —— Mermaid 样式系统（对齐 Mermaid.js：themeVariables + classDef/style/linkStyle）
 - [`coordinate-system.md`](./coordinate-system.md) —— 坐标、单位、DPI、文本基线约定
 
 ## 布局算法
