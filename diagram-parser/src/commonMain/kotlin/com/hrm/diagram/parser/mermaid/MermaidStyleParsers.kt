@@ -375,7 +375,7 @@ object MermaidStyleParsers {
                 val r = h[0].digitToIntOrNull(16) ?: return null
                 val g = h[1].digitToIntOrNull(16) ?: return null
                 val b = h[2].digitToIntOrNull(16) ?: return null
-                ((r * 17) shl 16 or (g * 17) shl 8 or (b * 17)).toLong()
+                (((r * 17) shl 16) or ((g * 17) shl 8) or (b * 17)).toLong()
             }
             6 -> h.toLongOrNull(16) ?: return null
             8 -> {

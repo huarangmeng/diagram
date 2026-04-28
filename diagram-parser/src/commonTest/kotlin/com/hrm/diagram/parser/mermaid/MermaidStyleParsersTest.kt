@@ -20,6 +20,15 @@ class MermaidStyleParsersTest {
     }
 
     @Test
+    fun parse_styleDecl_short_hex_colors_expand_correctly() {
+        val (decl, diags) = MermaidStyleParsers.parseStyleDecl("fill:#f9f,stroke:#333,color:#bbf")
+        assertEquals(0xFFFF99FF.toInt(), decl.fill?.argb)
+        assertEquals(0xFF333333.toInt(), decl.stroke?.argb)
+        assertEquals(0xFFBBBBFF.toInt(), decl.textColor?.argb)
+        assertTrue(diags.isEmpty())
+    }
+
+    @Test
     fun parse_styleDecl_non_hex_color_emits_warning() {
         val (decl, diags) = MermaidStyleParsers.parseStyleDecl("fill:red,stroke:#333")
         assertEquals(null, decl.fill)
