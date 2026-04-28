@@ -45,16 +45,32 @@ object MermaidStyleParsers {
         // This is intentionally limited; unsupported syntax should be ignored gracefully.
         var inConfig = false
         var inThemeVars = false
+        var currentThemeVarSection: String? = null
+        var currentChartSection: String? = null
         var configIndent = -1
         var themeVarsIndent = -1
+        var themeVarSectionIndent = -1
+        var chartSectionIndent = -1
 
         var themeNameRaw: String? = null
         val themeVars = LinkedHashMap<String, String>()
+        val chartConfig = LinkedHashMap<String, String>()
 
         for (raw in lines.drop(1).dropLast(1)) {
             val indent = raw.indexOfFirst { !it.isWhitespace() }.let { if (it < 0) 0 else it }
             val line = raw.trim()
             if (line.startsWith("#")) continue
+
+            if (!inConfig) {
+                val rootKv = splitYamlKeyValue(line)
+                if (rootKv != null) {
+                    val (k, vRaw) = rootKv
+                    val v = unquoteYamlScalar(vRaw)
+                    if (k == "displayMode") {
+                        chartConfig["gantt.displayMode"] = v
+                    }
+                }
+            }
 
             if (line == "config:" && (configIndent < 0 || indent <= configIndent)) {
                 inConfig = true
@@ -66,24 +82,53 @@ object MermaidStyleParsers {
 
             if (line == "themeVariables:" && indent > configIndent) {
                 inThemeVars = true
+                currentThemeVarSection = null
+                currentChartSection = null
                 themeVarsIndent = indent
                 continue
+            }
+            if (inThemeVars && currentThemeVarSection != null && indent <= themeVarSectionIndent) {
+                currentThemeVarSection = null
+            }
+            if (inThemeVars && indent > themeVarsIndent && line.endsWith(":")) {
+                currentThemeVarSection = line.removeSuffix(":").trim().takeIf { it.isNotEmpty() }
+                themeVarSectionIndent = indent
+                continue
+            }
+            if (indent > configIndent && line.endsWith(":")) {
+                val keyOnly = line.removeSuffix(":").trim()
+                if (keyOnly in setOf("timeline", "xyChart", "kanban", "quadrantChart", "gantt")) {
+                    currentChartSection = keyOnly
+                    chartSectionIndent = indent
+                    inThemeVars = false
+                    continue
+                }
             }
 
             val kv = splitYamlKeyValue(line) ?: continue
             val (k, vRaw) = kv
             val v = unquoteYamlScalar(vRaw)
 
-            if (!inThemeVars && indent > configIndent) {
+            if (!inThemeVars && currentChartSection == null && indent > configIndent) {
                 if (k == "theme") themeNameRaw = v
                 continue
             }
 
             if (inThemeVars && indent > themeVarsIndent) {
-                themeVars[k] = v
+                if (currentThemeVarSection != null && indent > themeVarSectionIndent) {
+                    themeVars[k] = v
+                } else if (currentThemeVarSection == null) {
+                    themeVars[k] = v
+                }
             } else if (inThemeVars && indent <= themeVarsIndent) {
                 // End of themeVariables block.
                 inThemeVars = false
+                currentThemeVarSection = null
+                if (k == "theme") themeNameRaw = v
+            } else if (currentChartSection != null && indent > chartSectionIndent) {
+                chartConfig["${currentChartSection}.$k"] = v
+            } else if (currentChartSection != null && indent <= chartSectionIndent) {
+                currentChartSection = null
                 if (k == "theme") themeNameRaw = v
             }
         }
@@ -91,8 +136,8 @@ object MermaidStyleParsers {
         val diags = ArrayList<Diagnostic>()
         val theme = themeNameRaw?.let { parseThemeName(it, diags) }
         val tokens = if (themeVars.isEmpty()) null else parseThemeTokens(themeVars, diags)
-        if (theme == null && tokens == null) return null
-        return ParseThemeConfigResult(MermaidStyleConfig(theme, tokens), diags)
+        if (theme == null && tokens == null && chartConfig.isEmpty()) return null
+        return ParseThemeConfigResult(MermaidStyleConfig(theme, tokens, chartConfig.toMap()), diags)
     }
 
     /**
@@ -234,7 +279,7 @@ object MermaidStyleParsers {
         raw: Map<String, String>,
         diags: MutableList<Diagnostic>,
     ): MermaidThemeTokens {
-        fun c(key: String): ArgbColor? = raw[key]?.let { parseHexColor(it, diags) }
+        fun c(key: String): ArgbColor? = raw[key]?.let { parseCssColor(it, diags) }
         fun fPx(key: String): Float? = raw[key]?.let { parseCssPx(it, diags) }
         fun b(key: String): Boolean? = raw[key]?.let { parseBool(it) }
         fun s(key: String): String? = raw[key]?.trim()?.trim('\'', '"')?.takeIf { it.isNotEmpty() }
@@ -292,11 +337,11 @@ object MermaidStyleParsers {
             if (k.isEmpty()) continue
 
             when (k) {
-                "fill" -> fill = parseHexColor(v, diags)
-                "stroke" -> stroke = parseHexColor(v, diags)
+                "fill" -> fill = parseCssColor(v, diags)
+                "stroke" -> stroke = parseCssColor(v, diags)
                 "stroke-width" -> strokeWidthPx = parseCssPx(v, diags)
                 "stroke-dasharray" -> dash = parseDashArray(v, diags)
-                "color" -> textColor = parseHexColor(v, diags)
+                "color" -> textColor = parseCssColor(v, diags)
                 "font-family" -> fontFamily = v.trim('\'', '"')
                 "font-size" -> fontSizePx = parseCssPx(v, diags)
                 "font-weight" -> fontWeight = parseFontWeight(v, diags)
@@ -356,36 +401,14 @@ object MermaidStyleParsers {
     private fun warn(message: String, code: String): Diagnostic =
         Diagnostic(severity = Severity.WARNING, message = message, code = code)
 
-    private fun parseHexColor(text: String, diags: MutableList<Diagnostic>): ArgbColor? {
+    private fun parseCssColor(text: String, diags: MutableList<Diagnostic>): ArgbColor? {
         val s = text.trim().trim('\'', '"')
-        val argb = parseHexToArgbIntOrNull(s)
+        val argb = MermaidCssColors.parseToArgbIntOrNull(s)
         if (argb == null) {
-            diags += warn("Non-hex color '$text' ignored (hex required)", "MERMAID-W011")
+            diags += warn("Unrecognized color '$text' ignored", "MERMAID-W011")
             return null
         }
         return ArgbColor(argb)
-    }
-
-    private fun parseHexToArgbIntOrNull(hex: String): Int? {
-        if (!hex.startsWith("#")) return null
-        val h = hex.substring(1)
-        val v: Long = when (h.length) {
-            3 -> {
-                // RGB -> RRGGBB
-                val r = h[0].digitToIntOrNull(16) ?: return null
-                val g = h[1].digitToIntOrNull(16) ?: return null
-                val b = h[2].digitToIntOrNull(16) ?: return null
-                (((r * 17) shl 16) or ((g * 17) shl 8) or (b * 17)).toLong()
-            }
-            6 -> h.toLongOrNull(16) ?: return null
-            8 -> {
-                // AARRGGBB
-                return (h.toLongOrNull(16) ?: return null).toInt()
-            }
-            else -> return null
-        }
-        // Avoid unsigned ops so it compiles on all KMP targets (JS/Wasm).
-        return (0xFF000000.toInt() or v.toInt())
     }
 
     private fun parseCssPx(text: String, diags: MutableList<Diagnostic>): Float? {

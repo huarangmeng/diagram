@@ -7,7 +7,6 @@ import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.Node
-import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
@@ -32,7 +31,7 @@ class MermaidOfficialSampleTest {
             """.trimIndent() + "\n",
         )
 
-        val ir = assertIs<GraphIR>(snap.ir)
+        val ir = assertIs<com.hrm.diagram.core.ir.GraphIR>(snap.ir)
         assertEquals(5, ir.nodes.size)
         assertEquals(4, ir.edges.size)
         assertTrue(ir.nodes.any { it.id.value == "B" && it.shape == NodeShape.RoundedBox })
@@ -71,6 +70,57 @@ class MermaidOfficialSampleTest {
     }
 
     @Test
+    fun official_flowchart_triple_colon_class_syntax_applies_classDef() {
+        val snap = runSession(
+            """
+            flowchart LR
+                A:::someclass --> B
+                classDef someclass fill:#f96,stroke:#333,stroke-width:4px;
+            """.trimIndent() + "\n",
+        )
+        val fills = snap.drawCommands
+            .filterIsInstance<DrawCommand.FillRect>()
+            .map { it.color.argb.toLong() and 0xFFFFFFFFL }
+            .toSet()
+        assertTrue(fills.contains(0xFFFF9966L), "expected #f96 fill from :::classDef (got: $fills)")
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+    }
+
+    @Test
+    fun official_flowchart_default_class_applies_when_no_specific_class() {
+        val snap = runSession(
+            """
+            flowchart LR
+                A --> B
+                classDef default fill:#f9f,stroke:#333,stroke-width:4px;
+            """.trimIndent() + "\n",
+        )
+        val fills = snap.drawCommands
+            .filterIsInstance<DrawCommand.FillRect>()
+            .map { it.color.argb.toLong() and 0xFFFFFFFFL }
+            .toSet()
+        assertTrue(fills.contains(0xFFFF99FFL), "expected #f9f fill from classDef default (got: $fills)")
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+    }
+
+    @Test
+    fun official_flowchart_linkStyle_default_and_index_apply() {
+        val snap = runSession(
+            """
+            flowchart LR
+                A -->|x| B
+                B -->|y| C
+                linkStyle default stroke:#111111,stroke-width:2px,stroke-dasharray: 5 5;
+                linkStyle 2 stroke:#222222;
+            """.trimIndent() + "\n",
+        )
+        val strokes = snap.drawCommands.filterIsInstance<DrawCommand.StrokePath>()
+        assertTrue(strokes.any { (it.color.argb.toLong() and 0xFFFFFFFFL) == 0xFF111111L && it.stroke.dash == listOf(5f, 5f) })
+        assertTrue(strokes.any { (it.color.argb.toLong() and 0xFFFFFFFFL) == 0xFF222222L })
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+    }
+
+    @Test
     fun official_er_order_example_renders_relationship_and_attributes() {
         val snap = runSession(
             """
@@ -88,7 +138,7 @@ class MermaidOfficialSampleTest {
             """.trimIndent() + "\n",
         )
 
-        val ir = assertIs<GraphIR>(snap.ir)
+        val ir = assertIs<com.hrm.diagram.core.ir.GraphIR>(snap.ir)
         val nodeIds = ir.nodes.map { it.id.value }.toSet()
         assertTrue("CUSTOMER" in nodeIds)
         assertTrue("ORDER" in nodeIds)
@@ -131,6 +181,28 @@ class MermaidOfficialSampleTest {
     }
 
     @Test
+    fun official_er_triple_colon_class_syntax_applies_classDef() {
+        val snap = runSession(
+            """
+            erDiagram
+                direction TB
+                CAR:::someclass {
+                    string registrationNumber
+                }
+                HOUSE
+                CAR ||--|| HOUSE : parks
+                classDef someclass fill:#f96;
+            """.trimIndent() + "\n",
+        )
+        val fills = snap.drawCommands
+            .filterIsInstance<DrawCommand.FillRect>()
+            .map { it.color.argb.toLong() and 0xFFFFFFFFL }
+            .toSet()
+        assertTrue(fills.contains(0xFFFF9966L), "expected #f96 fill from :::classDef (got: $fills)")
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+    }
+
+    @Test
     fun official_flowchart_branching_streaming_is_consistent() {
         val src =
             """
@@ -158,6 +230,41 @@ class MermaidOfficialSampleTest {
     }
 
     @Test
+    fun official_flowchart_triple_colon_streaming_is_consistent() {
+        val src =
+            """
+            flowchart LR
+                A:::someclass --> B
+                classDef someclass fill:#f96,stroke:#333,stroke-width:4px;
+            """.trimIndent() + "\n"
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_flowchart_default_class_streaming_is_consistent() {
+        val src =
+            """
+            flowchart LR
+                A --> B
+                classDef default fill:#f9f,stroke:#333,stroke-width:4px;
+            """.trimIndent() + "\n"
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_flowchart_linkStyle_default_streaming_is_consistent() {
+        val src =
+            """
+            flowchart LR
+                A -->|x| B
+                B -->|y| C
+                linkStyle default stroke:#111111,stroke-width:2px,stroke-dasharray: 5 5;
+                linkStyle 2 stroke:#222222;
+            """.trimIndent() + "\n"
+        assertStreamingConsistent(src)
+    }
+
+    @Test
     fun official_er_order_example_streaming_is_consistent() {
         val src =
             """
@@ -174,6 +281,152 @@ class MermaidOfficialSampleTest {
                 }
             """.trimIndent() + "\n"
 
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_er_triple_colon_streaming_is_consistent() {
+        val src =
+            """
+            erDiagram
+                direction TB
+                CAR:::someclass {
+                    string registrationNumber
+                }
+                HOUSE
+                CAR ||--|| HOUSE : parks
+                classDef someclass fill:#f96;
+            """.trimIndent() + "\n"
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_sequence_basic_sample_renders_and_is_streaming_consistent() {
+        val src =
+            """
+            sequenceDiagram
+                Alice->>John: Hello John, how are you?
+                John-->>Alice: Great!
+            """.trimIndent() + "\n"
+        val snap = runSession(src)
+        assertTrue(snap.drawCommands.isNotEmpty())
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_class_animal_example_renders_and_is_streaming_consistent() {
+        val src =
+            """
+            classDiagram
+                note "From Duck till Zebra"
+                Animal <|-- Duck
+                note for Duck "can fly<br>can swim<br>can dive<br>can help in debugging"
+                Animal <|-- Fish
+                Animal <|-- Zebra
+                Animal : +int age
+                Animal : +String gender
+                Animal: +isMammal()
+                Animal: +mate()
+                class Duck{
+                    +String beakColor
+                    +swim()
+                    +quack()
+                }
+                class Fish{
+                    -int sizeInFeet
+                    -canEat()
+                }
+                class Zebra{
+                    +bool is_wild
+                    +run()
+                }
+            """.trimIndent() + "\n"
+        val snap = runSession(src)
+        assertTrue(snap.drawCommands.isNotEmpty())
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_class_style_sample_applies_node_colors() {
+        val snap = runSession(
+            """
+            classDiagram
+              class Animal
+              class Mineral
+              style Animal fill:#f9f,stroke:#333,stroke-width:4px
+              style Mineral fill:#bbf,stroke:#f66,stroke-width:2px,color:#fff,stroke-dasharray: 5 5
+            """.trimIndent() + "\n",
+        )
+        val fills = snap.drawCommands
+            .filterIsInstance<DrawCommand.FillRect>()
+            .map { it.color.argb.toLong() and 0xFFFFFFFFL }
+            .toSet()
+        val strokes = snap.drawCommands
+            .filterIsInstance<DrawCommand.StrokeRect>()
+            .map { (it.color.argb.toLong() and 0xFFFFFFFFL) to it.stroke.width }
+            .toSet()
+        assertTrue(fills.contains(0xFFFF99FFL), "expected #f9f class fill (got: $fills)")
+        assertTrue(fills.contains(0xFFBBBBFFL), "expected #bbf class fill (got: $fills)")
+        assertTrue(strokes.contains(0xFF333333L to 4f), "expected #333 class stroke width 4 (got: $strokes)")
+        assertTrue(strokes.contains(0xFFFF6666L to 2f), "expected #f66 class stroke width 2 (got: $strokes)")
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+    }
+
+    @Test
+    fun official_class_triple_colon_style_sample_is_streaming_consistent() {
+        val src =
+            """
+            classDiagram
+                class Animal:::someclass
+                classDef someclass fill:#f96
+            """.trimIndent() + "\n"
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_state_simple_sample_renders_and_is_streaming_consistent() {
+        val src =
+            """
+            stateDiagram-v2
+                [*] --> Still
+                Still --> [*]
+                Still --> Moving
+                Moving --> Still
+                Moving --> Crash
+                Crash --> [*]
+            """.trimIndent() + "\n"
+        val snap = runSession(src)
+        assertTrue(snap.drawCommands.isNotEmpty())
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
+        assertStreamingConsistent(src)
+    }
+
+    @Test
+    fun official_state_classDef_and_triple_colon_apply_and_are_streaming_consistent() {
+        val src =
+            """
+            stateDiagram
+               direction TB
+               classDef notMoving fill:white
+               classDef movement font-style:italic;
+               classDef badBadEvent fill:#f00,color:white,font-weight:bold,stroke-width:2px,stroke:yellow
+
+               [*] --> Still:::notMoving
+               Still --> Moving:::movement
+               Moving --> Crash:::movement
+               Crash:::badBadEvent --> [*]
+            """.trimIndent() + "\n"
+        val snap = runSession(src)
+        // The red fill (#f00) must appear at least once (Crash).
+        val fills = snap.drawCommands
+            .filterIsInstance<DrawCommand.FillRect>()
+            .map { it.color.argb.toLong() and 0xFFFFFFFFL }
+            .toSet()
+        assertTrue(fills.contains(0xFFFF0000L), "expected #f00 state fill from classDef (got: $fills)")
+        // Official sample uses named colors (`white`, `yellow`) which are supported.
+        assertTrue(snap.diagnostics.isEmpty(), "expected official sample to parse cleanly: ${snap.diagnostics}")
         assertStreamingConsistent(src)
     }
 
@@ -202,25 +455,44 @@ class MermaidOfficialSampleTest {
         }
     }
 
-    private fun assertStreamingConsistent(src: String) {
+    private fun assertStreamingConsistent(src: String, allowedDiagnosticCodes: Set<String> = emptySet()) {
         val one = runSession(src)
         val c1 = runSessionChunked(src, chunkSize = 1)
         val c4 = runSessionChunked(src, chunkSize = 4)
 
-        val oneIr = assertIs<GraphIR>(one.ir)
-        val c1Ir = assertIs<GraphIR>(c1.ir)
-        val c4Ir = assertIs<GraphIR>(c4.ir)
-
-        assertEquals(graphSignature(oneIr), graphSignature(c1Ir), "one-shot vs chunkSize=1 GraphIR mismatch")
-        assertEquals(graphSignature(oneIr), graphSignature(c4Ir), "one-shot vs chunkSize=4 GraphIR mismatch")
+        val oneIr = one.ir
+        val c1Ir = c1.ir
+        val c4Ir = c4.ir
+        // Only GraphIR has stable structural signatures we want to lock at IR layer.
+        if (oneIr is com.hrm.diagram.core.ir.GraphIR && c1Ir is com.hrm.diagram.core.ir.GraphIR && c4Ir is com.hrm.diagram.core.ir.GraphIR) {
+            assertEquals(graphSignature(oneIr), graphSignature(c1Ir), "one-shot vs chunkSize=1 GraphIR mismatch")
+            assertEquals(graphSignature(oneIr), graphSignature(c4Ir), "one-shot vs chunkSize=4 GraphIR mismatch")
+        } else {
+            // For non-GraphIR (sequence/class/state), draw signature is the canonical verification.
+            assertEquals(oneIr?.let { it::class }, c1Ir?.let { it::class }, "IR type mismatch (one-shot vs chunkSize=1)")
+            assertEquals(oneIr?.let { it::class }, c4Ir?.let { it::class }, "IR type mismatch (one-shot vs chunkSize=4)")
+        }
         assertEquals(drawSignature(one.drawCommands), drawSignature(c1.drawCommands), "one-shot vs chunkSize=1 DrawCommand mismatch")
         assertEquals(drawSignature(one.drawCommands), drawSignature(c4.drawCommands), "one-shot vs chunkSize=4 DrawCommand mismatch")
-        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
-        assertTrue(c1.diagnostics.isEmpty(), "chunkSize=1 diagnostics: ${c1.diagnostics}")
-        assertTrue(c4.diagnostics.isEmpty(), "chunkSize=4 diagnostics: ${c4.diagnostics}")
+        assertOnlyDiagnostics(one.diagnostics, allowedDiagnosticCodes, "one-shot diagnostics")
+        assertOnlyDiagnostics(c1.diagnostics, allowedDiagnosticCodes, "chunkSize=1 diagnostics")
+        assertOnlyDiagnostics(c4.diagnostics, allowedDiagnosticCodes, "chunkSize=4 diagnostics")
     }
 
-    private fun graphSignature(ir: GraphIR): Pair<List<NodeSig>, List<EdgeSig>> {
+    private fun assertOnlyDiagnostics(
+        diagnostics: List<com.hrm.diagram.core.ir.Diagnostic>,
+        allowedCodes: Set<String>,
+        messagePrefix: String = "diagnostics",
+    ) {
+        if (allowedCodes.isEmpty()) {
+            assertTrue(diagnostics.isEmpty(), "$messagePrefix: $diagnostics")
+            return
+        }
+        val unexpected = diagnostics.filter { it.code !in allowedCodes }
+        assertTrue(unexpected.isEmpty(), "$messagePrefix has unexpected diagnostics: $unexpected (all=$diagnostics)")
+    }
+
+    private fun graphSignature(ir: com.hrm.diagram.core.ir.GraphIR): Pair<List<NodeSig>, List<EdgeSig>> {
         // Order matters for edges (linkStyle index semantics), so keep edge order.
         val nodes = ir.nodes.map { it.toSig() }.sortedBy { it.id }
         val edges = ir.edges.map { it.toSig() }

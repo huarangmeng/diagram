@@ -33,6 +33,12 @@ internal class MermaidStateSubPipeline(
 
     private val parser = MermaidStateParser()
     private val layout = StateDiagramLayout(textMeasurer)
+    private var graphStyles: MermaidGraphStyleState? = null
+
+    override fun updateGraphStyles(styles: MermaidGraphStyleState) {
+        // Reuse the same style carrier as GraphIR diagrams: classDef/class/style/::: bindings.
+        graphStyles = styles
+    }
 
     override fun acceptLines(
         previousSnapshot: com.hrm.diagram.render.streaming.DiagramSnapshot,
@@ -99,20 +105,25 @@ internal class MermaidStateSubPipeline(
         val pseudoFont = FontSpec(family = "sans-serif", sizeSp = 11f)
 
         val byId = ir.states.associateBy { it.id }
+        val styleById = computeStateNodeStyles()
 
         // Composite states first (lowest z) so children paint on top.
         for (s in ir.states) {
             if (s.kind != StateKind.Composite) continue
             val r = laidOut.nodePositions[s.id] ?: continue
-            out += DrawCommand.FillRect(rect = r, color = compositeFill, corner = 8f, z = 0)
-            out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = compositeStroke, corner = 8f, z = 1)
+            val st = styleById[s.id]
+            val fill = st?.fill?.let { Color(it.argb) } ?: compositeFill
+            val strokeColor = st?.stroke?.let { Color(it.argb) } ?: compositeStroke
+            val strokeWidth = st?.strokeWidth ?: solid.width
+            out += DrawCommand.FillRect(rect = r, color = fill, corner = 8f, z = 0)
+            out += DrawCommand.StrokeRect(rect = r, stroke = Stroke(width = strokeWidth), color = strokeColor, corner = 8f, z = 1)
             val title = s.description ?: s.name
             if (title.isNotEmpty()) {
                 out += DrawCommand.DrawText(
                     text = title,
                     origin = Point(r.left + 8f, r.top + 4f),
                     font = nodeFont,
-                    color = compositeStroke,
+                    color = st?.textColor?.let { Color(it.argb) } ?: strokeColor,
                     anchorX = TextAnchorX.Start,
                     anchorY = TextAnchorY.Top,
                     z = 2,
@@ -169,15 +180,20 @@ internal class MermaidStateSubPipeline(
                     )
                 }
                 StateKind.Simple -> {
-                    out += DrawCommand.FillRect(rect = r, color = boxFill, corner = 8f, z = 4)
-                    out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = boxStroke, corner = 8f, z = 5)
+                    val st = styleById[s.id]
+                    val fill = st?.fill?.let { Color(it.argb) } ?: boxFill
+                    val strokeColor = st?.stroke?.let { Color(it.argb) } ?: boxStroke
+                    val strokeWidth = st?.strokeWidth ?: solid.width
+                    val stroke = Stroke(width = strokeWidth)
+                    out += DrawCommand.FillRect(rect = r, color = fill, corner = 8f, z = 4)
+                    out += DrawCommand.StrokeRect(rect = r, stroke = stroke, color = strokeColor, corner = 8f, z = 5)
                     val name = s.description ?: s.name
                     if (name.isNotEmpty()) {
                         out += DrawCommand.DrawText(
                             text = name,
                             origin = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
                             font = nodeFont,
-                            color = textColor,
+                            color = st?.textColor?.let { Color(it.argb) } ?: textColor,
                             anchorX = TextAnchorX.Center,
                             anchorY = TextAnchorY.Middle,
                             z = 6,
@@ -263,6 +279,54 @@ internal class MermaidStateSubPipeline(
         @Suppress("UNUSED_VARIABLE") val unused = byId
         return out
     }
+
+    private fun computeStateNodeStyles(): Map<NodeId, com.hrm.diagram.core.ir.NodeStyle> {
+        val styles = graphStyles ?: return emptyMap()
+        val defaultDecl = styles.classDefs["default"]
+        if (defaultDecl == null && styles.nodeClassBindings.isEmpty() && styles.nodeInline.isEmpty()) return emptyMap()
+
+        val out = HashMap<NodeId, com.hrm.diagram.core.ir.NodeStyle>()
+        for (s in parser.snapshot().states) {
+            val id = s.id
+            var decl: com.hrm.diagram.parser.mermaid.MermaidStyleDecl? = null
+            defaultDecl?.let { decl = mergeDecl(decl, it) }
+            styles.nodeClassBindings[id]?.forEach { cls ->
+                val d = styles.classDefs[cls] ?: return@forEach
+                decl = mergeDecl(decl, d)
+            }
+            styles.nodeInline[id]?.let { decl = mergeDecl(decl, it) }
+            if (decl != null) {
+                val d = decl
+                out[id] = com.hrm.diagram.core.ir.NodeStyle(
+                    fill = d.fill,
+                    stroke = d.stroke,
+                    strokeWidth = d.strokeWidthPx,
+                    textColor = d.textColor,
+                )
+            }
+        }
+        return out
+    }
+
+    private fun mergeDecl(
+        base: com.hrm.diagram.parser.mermaid.MermaidStyleDecl?,
+        override: com.hrm.diagram.parser.mermaid.MermaidStyleDecl,
+    ): com.hrm.diagram.parser.mermaid.MermaidStyleDecl {
+        val b = base ?: com.hrm.diagram.parser.mermaid.MermaidStyleDecl()
+        return com.hrm.diagram.parser.mermaid.MermaidStyleDecl(
+            fill = override.fill ?: b.fill,
+            stroke = override.stroke ?: b.stroke,
+            strokeWidthPx = override.strokeWidthPx ?: b.strokeWidthPx,
+            strokeDashArrayPx = override.strokeDashArrayPx ?: b.strokeDashArrayPx,
+            textColor = override.textColor ?: b.textColor,
+            fontFamily = override.fontFamily ?: b.fontFamily,
+            fontSizePx = override.fontSizePx ?: b.fontSizePx,
+            fontWeight = override.fontWeight ?: b.fontWeight,
+            italic = override.italic ?: b.italic,
+            extras = if (b.extras.isEmpty()) override.extras else b.extras + override.extras,
+        )
+    }
+
 
     private fun openArrowHead(from: Point, to: Point, color: Color): DrawCommand {
         val dx = to.x - from.x; val dy = to.y - from.y

@@ -287,6 +287,8 @@ internal class MermaidFlowchartSubPipeline(
 internal interface MermaidSubPipeline {
     /** Optional hook for Mermaid GraphIR-based styling (flowchart/erDiagram). */
     fun updateGraphStyles(styles: MermaidGraphStyleState) {}
+    /** Optional hook for non-GraphIR frontmatter/style extras needed during render. */
+    fun updateStyleExtras(extras: Map<String, String>) {}
 
     fun acceptLines(
         previousSnapshot: DiagramSnapshot,

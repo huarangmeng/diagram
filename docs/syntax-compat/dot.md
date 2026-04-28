@@ -1,6 +1,7 @@
 # Graphviz DOT 语法兼容矩阵
 
 > 兼容目标：能解析 Graphviz Gallery 大多数 .dot 示例并合理布局。
+> 当前 DOT 仍为 stub pipeline：Phase 1 不交付，Phase 6 起进入实现与验收。
 
 | 特性 | 状态 | 子项 | Phase | 备注 |
 |---|---|---|---|---|

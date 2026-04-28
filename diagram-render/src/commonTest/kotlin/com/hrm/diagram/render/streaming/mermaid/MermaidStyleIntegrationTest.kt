@@ -28,8 +28,8 @@ class MermaidStyleIntegrationTest {
         val snap = s.state.value
         // Ensure the diagram still rendered something (i.e. lexer/parser wasn't derailed).
         assertTrue(snap.drawCommands.isNotEmpty())
-        // Non-hex themeVariables color should be surfaced as a warning.
-        assertTrue(snap.diagnostics.any { it.code == "MERMAID-W011" })
+        // Named CSS colors are supported (no warning expected).
+        assertTrue(snap.diagnostics.none { it.code == "MERMAID-W011" })
 
         // Style extras should be injected into IR styleHints.
         val ir = assertIs<GraphIR>(snap.ir)

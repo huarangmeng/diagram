@@ -29,8 +29,16 @@ class MermaidStyleParsersTest {
     }
 
     @Test
-    fun parse_styleDecl_non_hex_color_emits_warning() {
+    fun parse_styleDecl_named_color_is_supported() {
         val (decl, diags) = MermaidStyleParsers.parseStyleDecl("fill:red,stroke:#333")
+        assertNotNull(decl.fill)
+        assertNotNull(decl.stroke)
+        assertTrue(diags.none { it.code == "MERMAID-W011" })
+    }
+
+    @Test
+    fun parse_styleDecl_unknown_color_emits_warning() {
+        val (decl, diags) = MermaidStyleParsers.parseStyleDecl("fill:blurple,stroke:#333")
         assertEquals(null, decl.fill)
         assertNotNull(decl.stroke)
         assertTrue(diags.any { it.code == "MERMAID-W011" })

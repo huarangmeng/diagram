@@ -50,6 +50,7 @@ data class MermaidThemeTokens(
 data class MermaidStyleConfig(
     val theme: MermaidThemeName? = null,
     val themeTokens: MermaidThemeTokens? = null,
+    val chartConfig: Map<String, String> = emptyMap(),
 )
 
 /**
@@ -86,4 +87,3 @@ data class MermaidStyleClass(
 sealed interface MermaidStyleRule {
     data class ClassDef(val classes: List<MermaidStyleClass>) : MermaidStyleRule
 }
-

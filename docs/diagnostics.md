@@ -18,9 +18,17 @@
 | MERMAID-E002 | flowchart 边语法不匹配 | flowchart parser |
 | MERMAID-E003 | erDiagram 关系语法不匹配 | erDiagram parser |
 | MERMAID-E004 | erDiagram 实体属性语法不匹配 | erDiagram parser |
+| MERMAID-E200 | pie 语法不匹配（title / slice 行） | pie parser |
+| MERMAID-E201 | gauge 语法不匹配（title / min/max/value 行） | gauge parser |
+| MERMAID-E202 | timeline 语法不匹配（title / section / event 行） | timeline parser |
+| MERMAID-E203 | gantt 语法不匹配（title / dateFormat / section / task 行） | gantt parser |
+| MERMAID-E204 | mindmap 语法不匹配（缩进 / 节点行） | mindmap parser |
+| MERMAID-E205 | kanban 语法不匹配（column / card / metadata 行） | kanban parser |
+| MERMAID-E206 | xyChart 语法不匹配（axis / series 行） | xyChart parser |
+| MERMAID-E207 | quadrantChart 语法不匹配（axis / quadrant / point 行） | quadrantChart parser |
 | MERMAID-W001 | 节点未声明，自动创建占位 | 任意图 |
 | MERMAID-W010 | 外部 CSS class 已忽略（不支持） | mermaid style resolver / parser |
-| MERMAID-W011 | 非 hex 颜色值已忽略（Mermaid.js theming 仅识别 hex） | mermaid themeVariables / style parser |
+| MERMAID-W011 | 无法识别的颜色值已忽略（支持 CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`、以及 hex） | mermaid themeVariables / style parser |
 | MERMAID-W012 | 不支持的样式 key 已忽略 | mermaid style parser |
 | PLANTUML-E001 | 缺失 `@enduml` 闭合 | block parser |
 | PLANTUML-W001 | 未识别 `skinparam`，已忽略 | lowering |

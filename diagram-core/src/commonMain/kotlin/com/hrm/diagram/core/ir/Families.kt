@@ -155,6 +155,28 @@ data class XYChartIR(
     override val styleHints: StyleHints = StyleHints(),
 ) : DiagramModel
 
+/* ---------- QuadrantChart ---------- */
+
+data class QuadrantPoint(
+    val id: NodeId,
+    val label: RichLabel,
+    val x: Double,
+    val y: Double,
+    val payload: Map<String, String> = emptyMap(),
+)
+
+data class QuadrantChartIR(
+    val xMinLabel: RichLabel? = null,
+    val xMaxLabel: RichLabel? = null,
+    val yMinLabel: RichLabel? = null,
+    val yMaxLabel: RichLabel? = null,
+    val quadrantLabels: Map<Int, RichLabel> = emptyMap(), // 1..4
+    val points: List<QuadrantPoint> = emptyList(),
+    override val title: String? = null,
+    override val sourceLanguage: SourceLanguage,
+    override val styleHints: StyleHints = StyleHints(),
+) : DiagramModel
+
 /* ---------- Sankey ---------- */
 
 data class SankeyFlow(val from: NodeId, val to: NodeId, val value: Double)

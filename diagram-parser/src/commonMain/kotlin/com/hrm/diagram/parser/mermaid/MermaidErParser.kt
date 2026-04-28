@@ -1,6 +1,7 @@
 package com.hrm.diagram.parser.mermaid
 
 import com.hrm.diagram.core.ir.Diagnostic
+import com.hrm.diagram.core.ir.Direction
 import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.EdgeStyle
 import com.hrm.diagram.core.ir.GraphIR
@@ -51,6 +52,7 @@ class MermaidErParser {
     private var seq: Long = 0
 
     private var currentEntity: NodeId? = null
+    private var direction: Direction? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
         seq++
@@ -80,6 +82,12 @@ class MermaidErParser {
         }
 
         // Entity declaration: `ENTITY {` or just `ENTITY`.
+        if (toks.first().kind == MermaidTokenKind.DIRECTION_KW && toks.size >= 2 &&
+            (toks[1].kind == MermaidTokenKind.DIRECTION || toks[1].kind == MermaidTokenKind.IDENT)
+        ) {
+            direction = parseDirection(toks[1].text.toString())
+            return IrPatchBatch(seq, emptyList())
+        }
         if (toks.first().kind == MermaidTokenKind.IDENT && toks.size >= 2 && toks[1].kind == MermaidTokenKind.LBRACE) {
             val id = NodeId(toks.first().text.toString())
             val patches = ArrayList<IrPatch>()
@@ -101,7 +109,7 @@ class MermaidErParser {
         nodes = nodes.toList(),
         edges = edges.toList(),
         sourceLanguage = SourceLanguage.MERMAID,
-        styleHints = StyleHints(),
+        styleHints = StyleHints(direction = direction),
     )
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
@@ -221,6 +229,16 @@ class MermaidErParser {
         val d = Diagnostic(Severity.ERROR, message, code)
         diagnostics += d
         return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+    }
+
+    private fun parseDirection(raw: String): Direction? {
+        return when (raw.trim().uppercase()) {
+            "TB", "TD" -> Direction.TB
+            "BT" -> Direction.BT
+            "LR" -> Direction.LR
+            "RL" -> Direction.RL
+            else -> null
+        }
     }
 
     private fun attributeStyleFor(flags: List<String>): NodeStyle {

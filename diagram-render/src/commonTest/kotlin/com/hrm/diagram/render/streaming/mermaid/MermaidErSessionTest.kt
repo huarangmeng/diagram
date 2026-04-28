@@ -63,7 +63,9 @@ class MermaidErSessionTest {
             assertTrue(textCommands.any { it.text == "places" })
 
             val fillRects = snap.drawCommands.filterIsInstance<DrawCommand.FillRect>()
-            assertTrue(fillRects.size >= ir.nodes.size + 2, "expected node fills plus relationship badges")
+            // Final rendering may embed attribute rows into the entity box (so attribute-node fills may be skipped).
+            val entityCount = ir.nodes.count { !it.id.value.contains("::") }
+            assertTrue(fillRects.size >= entityCount + 3, "expected entity fills + attribute flag badges + relationship badge")
             // Relationship badge background uses a light gray chip (Mermaid-like).
             val fills = fillRects.map { it.color.argb.toLong() and 0xFFFFFFFFL }.toSet()
             assertTrue(fills.contains(0xFFF5F5F5L), "expected relationship badge chip fill (got: $fills)")

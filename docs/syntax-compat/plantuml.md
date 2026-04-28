@@ -1,6 +1,7 @@
 # PlantUML 语法兼容矩阵
 
 > 每实现一项就更新一行。兼容目标：直接跑 PlantUML 官方文档与 PlantUML Server 上的示例。
+> 当前 PlantUML 仍为 stub pipeline：Phase 1 不交付，Phase 4 起进入实现与验收。
 
 | 图类型 | 状态 | 关键语法 | Phase | 备注 |
 |---|---|---|---|---|

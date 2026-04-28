@@ -91,8 +91,8 @@ Mermaid.js 使用一组主题变量表达“全图默认视觉”，例如：
 
 需要对齐的 Mermaid 行为：
 
-- 颜色只接受 hex，不接受命名颜色。
-  - 非 hex 颜色值忽略，并产出 `MERMAID-W011`
+- 颜色支持：hex、CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`。
+  - 无法识别的颜色值忽略，并产出 `MERMAID-W011`
 - 一部分变量是派生变量。
   - 例如边框色、文本色、默认连线色可能由基础色推导
   - 我们不复制 Mermaid.js 的实现代码，但必须提供确定性的本地派生规则
@@ -241,7 +241,7 @@ Mermaid.js 使用一组主题变量表达“全图默认视觉”，例如：
 
 ### 5.3 非法值处理
 
-- 非 hex 颜色：
+- 无法识别的颜色值：
   - 忽略该值
   - 诊断码：`MERMAID-W011`
 - 不支持的 key：
@@ -392,8 +392,8 @@ render 只消费 `ResolvedStyle`：
   - 含义：外部样式表引用已忽略
   - 触发：出现依赖外部样式表才能生效的 Mermaid 样式用法
 - `MERMAID-W011`
-  - 含义：非 hex 颜色值已忽略
-  - 触发：`themeVariables` 或样式声明中出现 `red` 之类非 hex 色值
+  - 含义：无法识别的颜色值已忽略
+  - 触发：`themeVariables` 或样式声明中出现无法解析的颜色字面量（支持 CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`、以及 hex）
 - `MERMAID-W012`
   - 含义：不支持的样式 key 或非法样式值已忽略
   - 触发：未知 key、非法单位、无法解析的 dash/number/font 值
@@ -650,8 +650,8 @@ render 只消费 `ResolvedStyle`：
 #### ThemeTokens 归一化
 
 - 颜色：
-  - 校验是否为 hex
-  - 非 hex -> `MERMAID-W011`
+  - 支持：hex、CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`
+  - 无法识别 -> `MERMAID-W011`
 - 字体：
   - `fontFamily` 保留字符串
   - `fontSize` 归一化为数值

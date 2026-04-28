@@ -13,7 +13,7 @@ import com.hrm.diagram.core.streaming.Token
  *  - [LexMode.Sequence]  : Phase-2 sequenceDiagram tokens (arrows ->>/-->/-x, COLON-LABEL, keywords).
  *  - [LexMode.Er]        : Mermaid `erDiagram` tokens (relationship operators + entity blocks).
  */
-enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er }
+enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant }
 
 /**
  * Resumable lexer for the Mermaid Phase 1 + 2 subset (see [MermaidTokenKind]).
@@ -52,6 +52,34 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
         scan@ while (pos < buf.length) {
             val c = buf[pos]
             when {
+                mode == LexMode.Auto && buf.startsWith("xychart-beta", pos) -> {
+                    val end = pos + "xychart-beta".length
+                    tokens += Token(MermaidTokenKind.XYCHART_HEADER, baseOffset + pos, baseOffset + end, "xychart-beta")
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.XYChart
+                }
+                mode == LexMode.Auto && buf.startsWith("quadrantChart", pos) -> {
+                    val end = pos + "quadrantChart".length
+                    tokens += Token(MermaidTokenKind.QUADRANT_HEADER, baseOffset + pos, baseOffset + end, "quadrantChart")
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.Quadrant
+                }
+                (mode == LexMode.Mindmap || mode == LexMode.Kanban) && isLineStart(buf, pos) && (c == ' ' || c == '\t') -> {
+                    var end = pos
+                    var cols = 0
+                    while (end < buf.length && (buf[end] == ' ' || buf[end] == '\t')) {
+                        cols += if (buf[end] == '\t') 4 else 1
+                        end++
+                    }
+                    if (end >= buf.length && !eos) return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                    if (end < buf.length && buf[end] != '\n' && buf[end] != '\r') {
+                        tokens += Token(MermaidTokenKind.INDENT, baseOffset + pos, baseOffset + end, cols.toString())
+                    }
+                    pos = end
+                    safePoint = baseOffset + pos
+                }
                 mode == LexMode.Er && shouldHandleErRelationStart(buf, pos, eos) -> {
                     // Need at least 2 chars to decide whether we're starting a relationship card (e.g. "||", "o{").
                     if (buf.length - pos < 2 && !eos) return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
@@ -83,6 +111,16 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 }
                 c == '\r' -> { pos++; safePoint = baseOffset + pos }
                 c == ' ' || c == '\t' -> { pos++; safePoint = baseOffset + pos }
+                mode == LexMode.Gantt -> {
+                    var end = pos
+                    while (end < buf.length && buf[end] != '\n' && buf[end] != '\r') end++
+                    if (end >= buf.length && !eos) {
+                        return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                    }
+                    tokens += Token(MermaidTokenKind.IDENT, baseOffset + pos, baseOffset + end, buf.substring(pos, end))
+                    pos = end
+                    safePoint = baseOffset + pos
+                }
                 c == '%' -> {
                     if (pos + 1 >= buf.length) {
                         if (eos) {
@@ -106,7 +144,45 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                         safePoint = baseOffset + pos
                     }
                 }
+                c == '@' && mode == LexMode.Kanban -> {
+                    tokens += Token(MermaidTokenKind.AT, baseOffset + pos, baseOffset + pos + 1, "@")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == '<' && mode == LexMode.Mindmap -> {
+                    var end = pos + 1
+                    while (end < buf.length && buf[end] != '>' && buf[end] != '\n') end++
+                    if (end >= buf.length && !eos) return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                    if (end >= buf.length || buf[end] == '\n') {
+                        tokens += errorTok(baseOffset + pos, buf.substring(pos, end))
+                        diags += LexDiagnostic("Unterminated inline tag", baseOffset + pos)
+                        pos = end; safePoint = baseOffset + pos
+                    } else {
+                        tokens += Token(MermaidTokenKind.IDENT, baseOffset + pos, baseOffset + end + 1, buf.substring(pos, end + 1))
+                        pos = end + 1; safePoint = baseOffset + pos
+                    }
+                }
                 c == '-' -> {
+                    if (mode == LexMode.Timeline) {
+                        // Timeline is text-heavy; treat '-' as a plain token so labels like "sub-point"
+                        // don't become lex errors.
+                        tokens += Token(MermaidTokenKind.MINUS, baseOffset + pos, baseOffset + pos + 1, "-")
+                        pos++; safePoint = baseOffset + pos
+                    } else if (mode == LexMode.XYChart || mode == LexMode.Quadrant) {
+                        if (buf.length - pos >= 3 && buf[pos + 1] == '-' && buf[pos + 2] == '>') {
+                            tokens += Token(MermaidTokenKind.ARROW_SOLID, baseOffset + pos, baseOffset + pos + 3, "-->")
+                            pos += 3; safePoint = baseOffset + pos
+                        } else {
+                            tokens += Token(MermaidTokenKind.MINUS, baseOffset + pos, baseOffset + pos + 1, "-")
+                            pos++; safePoint = baseOffset + pos
+                        }
+                    } else if (mode == LexMode.Mindmap || mode == LexMode.Kanban) {
+                        tokens += Token(MermaidTokenKind.MINUS, baseOffset + pos, baseOffset + pos + 1, "-")
+                        pos++; safePoint = baseOffset + pos
+                    } else if (mode == LexMode.Gantt) {
+                        // Gantt uses '-' inside dates (YYYY-MM-DD) and free text.
+                        tokens += Token(MermaidTokenKind.MINUS, baseOffset + pos, baseOffset + pos + 1, "-")
+                        pos++; safePoint = baseOffset + pos
+                    } else
                     if (mode == LexMode.Sequence) {
                         // Need lookahead up to 4 chars ('-->>') to disambiguate arrows.
                         val remaining = buf.length - pos
@@ -218,6 +294,36 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                         }
                     }
                 }
+                c == ':' && mode == LexMode.Pie -> {
+                    tokens += Token(MermaidTokenKind.COLON, baseOffset + pos, baseOffset + pos + 1, ":")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ':' && mode == LexMode.Timeline -> {
+                    // Timeline uses ':' as a structural delimiter between {period} and {event} parts.
+                    tokens += Token(MermaidTokenKind.COLON, baseOffset + pos, baseOffset + pos + 1, ":")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ':' && mode == LexMode.Gantt -> {
+                    // Gantt uses ':' to split task title from metadata list.
+                    tokens += Token(MermaidTokenKind.COLON, baseOffset + pos, baseOffset + pos + 1, ":")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ':' && mode == LexMode.Mindmap -> {
+                    tokens += Token(MermaidTokenKind.COLON, baseOffset + pos, baseOffset + pos + 1, ":")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ':' && mode == LexMode.Kanban -> {
+                    tokens += Token(MermaidTokenKind.COLON, baseOffset + pos, baseOffset + pos + 1, ":")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ':' && mode == LexMode.XYChart -> {
+                    tokens += Token(MermaidTokenKind.COLON, baseOffset + pos, baseOffset + pos + 1, ":")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ':' && mode == LexMode.Quadrant -> {
+                    tokens += Token(MermaidTokenKind.COLON, baseOffset + pos, baseOffset + pos + 1, ":")
+                    pos++; safePoint = baseOffset + pos
+                }
                 c == ':' && (mode == LexMode.Sequence || mode == LexMode.State || mode == LexMode.Er) -> {
                     // Emit COLON, then scan the rest of the line as a single LABEL token (trimmed).
                     var end = pos + 1
@@ -235,6 +341,14 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     pos = end
                     safePoint = baseOffset + pos
                 }
+                c == ',' && mode == LexMode.Gantt -> {
+                    tokens += Token(MermaidTokenKind.COMMA, baseOffset + pos, baseOffset + pos + 1, ",")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ',' && mode == LexMode.Quadrant -> {
+                    tokens += Token(MermaidTokenKind.COMMA, baseOffset + pos, baseOffset + pos + 1, ",")
+                    pos++; safePoint = baseOffset + pos
+                }
                 c == ',' && mode == LexMode.Sequence -> {
                     tokens += Token(MermaidTokenKind.COMMA, baseOffset + pos, baseOffset + pos + 1, ",")
                     pos++; safePoint = baseOffset + pos
@@ -251,7 +365,49 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     tokens += Token(MermaidTokenKind.RBRACE, baseOffset + pos, baseOffset + pos + 1, "}")
                     pos++; safePoint = baseOffset + pos
                 }
+                c == '}' && (mode == LexMode.Mindmap || mode == LexMode.Kanban) -> {
+                    tokens += Token(MermaidTokenKind.RBRACE, baseOffset + pos, baseOffset + pos + 1, "}")
+                    pos++; safePoint = baseOffset + pos
+                }
                 c == ')' && mode == LexMode.Class -> {
+                    tokens += Token(MermaidTokenKind.RPAREN, baseOffset + pos, baseOffset + pos + 1, ")")
+                    pos++; safePoint = baseOffset + pos
+                }
+                c == ')' && mode == LexMode.Mindmap -> {
+                    val bang = scanMindmapReverseShape(buf, pos, "))", "((", baseOffset, eos)
+                    when (bang) {
+                        is ReverseShapeResult.Ok -> {
+                            tokens += Token(
+                                MermaidTokenKind.LABEL_BANG,
+                                baseOffset + pos,
+                                baseOffset + bang.endExclusive,
+                                bang.label,
+                            )
+                            pos = bang.endExclusive; safePoint = baseOffset + pos
+                        }
+                        ReverseShapeResult.Suspend -> return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                        ReverseShapeResult.NoMatch -> {
+                            val cloud = scanMindmapReverseShape(buf, pos, ")", "(", baseOffset, eos)
+                            when (cloud) {
+                                is ReverseShapeResult.Ok -> {
+                                    tokens += Token(
+                                        MermaidTokenKind.LABEL_CLOUD,
+                                        baseOffset + pos,
+                                        baseOffset + cloud.endExclusive,
+                                        cloud.label,
+                                    )
+                                    pos = cloud.endExclusive; safePoint = baseOffset + pos
+                                }
+                                ReverseShapeResult.Suspend -> return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                                ReverseShapeResult.NoMatch -> {
+                                    tokens += Token(MermaidTokenKind.RPAREN, baseOffset + pos, baseOffset + pos + 1, ")")
+                                    pos++; safePoint = baseOffset + pos
+                                }
+                            }
+                        }
+                    }
+                }
+                c == ')' && mode == LexMode.Kanban -> {
                     tokens += Token(MermaidTokenKind.RPAREN, baseOffset + pos, baseOffset + pos + 1, ")")
                     pos++; safePoint = baseOffset + pos
                 }
@@ -262,6 +418,13 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 c == '$' && mode == LexMode.Class -> {
                     tokens += Token(MermaidTokenKind.DOLLAR, baseOffset + pos, baseOffset + pos + 1, "$")
                     pos++; safePoint = baseOffset + pos
+                }
+                c == '#' && mode == LexMode.Quadrant -> {
+                    var end = pos + 1
+                    while (end < buf.length && buf[end].isLetterOrDigit()) end++
+                    if (end >= buf.length && !eos) return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                    tokens += Token(MermaidTokenKind.IDENT, baseOffset + pos, baseOffset + end, buf.substring(pos, end))
+                    pos = end; safePoint = baseOffset + pos
                 }
                 c == '#' && mode == LexMode.Class -> {
                     tokens += Token(MermaidTokenKind.HASH, baseOffset + pos, baseOffset + pos + 1, "#")
@@ -405,7 +568,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                         pos++; safePoint = baseOffset + pos
                     }
                 }
-                c == '"' && (mode == LexMode.Class || mode == LexMode.State || mode == LexMode.Er) -> {
+                c == '"' && (mode == LexMode.Class || mode == LexMode.State || mode == LexMode.Er || mode == LexMode.Pie || mode == LexMode.Mindmap || mode == LexMode.Kanban || mode == LexMode.XYChart || mode == LexMode.Quadrant) -> {
                     var end = pos + 1
                     while (end < buf.length && buf[end] != '"' && buf[end] != '\n') end++
                     if (end >= buf.length && !eos) {
@@ -520,6 +683,30 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                         }
                     }
                 }
+                c.isDigit() -> {
+                    var end = pos + 1
+                    var seenDot = false
+                    while (end < buf.length) {
+                        val ch = buf[end]
+                        if (ch.isDigit()) {
+                            end++
+                            continue
+                        }
+                        if (ch == '.' && !seenDot) {
+                            seenDot = true
+                            end++
+                            continue
+                        }
+                        break
+                    }
+                    if (end >= buf.length && !eos) {
+                        return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                    }
+                    val text = buf.substring(pos, end)
+                    tokens += Token(MermaidTokenKind.NUMBER, baseOffset + pos, baseOffset + end, text)
+                    pos = end
+                    safePoint = baseOffset + pos
+                }
                 isIdentStart(c) -> {
                     var end = pos + 1
                     while (end < buf.length && isIdentCont(buf[end])) end++
@@ -557,6 +744,14 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                             MermaidTokenKind.STATE_HEADER -> mode = LexMode.State
                             MermaidTokenKind.KEYWORD_HEADER -> mode = LexMode.Flowchart
                             MermaidTokenKind.ER_HEADER -> mode = LexMode.Er
+                            MermaidTokenKind.PIE_HEADER -> mode = LexMode.Pie
+                            MermaidTokenKind.GAUGE_HEADER -> mode = LexMode.Gauge
+                            MermaidTokenKind.TIMELINE_HEADER -> mode = LexMode.Timeline
+                            MermaidTokenKind.GANTT_HEADER -> mode = LexMode.Gantt
+                            MermaidTokenKind.MINDMAP_HEADER -> mode = LexMode.Mindmap
+                            MermaidTokenKind.KANBAN_HEADER -> mode = LexMode.Kanban
+                            MermaidTokenKind.XYCHART_HEADER -> mode = LexMode.XYChart
+                            MermaidTokenKind.QUADRANT_HEADER -> mode = LexMode.Quadrant
                         }
                     }
                 }
@@ -630,6 +825,12 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
         data object Suspend : DelimResult
     }
 
+    private sealed interface ReverseShapeResult {
+        data class Ok(val endExclusive: Int, val label: String) : ReverseShapeResult
+        data object NoMatch : ReverseShapeResult
+        data object Suspend : ReverseShapeResult
+    }
+
     private companion object {
         private val DIRECTIONS = setOf("TD", "TB", "LR", "RL", "BT")
         private val HEADER_KEYWORDS = setOf("flowchart", "graph")
@@ -647,6 +848,14 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 if (text == "classDiagram") return MermaidTokenKind.CLASS_HEADER
                 if (text == "stateDiagram" || text.startsWith("stateDiagram-")) return MermaidTokenKind.STATE_HEADER
                 if (text == "erDiagram") return MermaidTokenKind.ER_HEADER
+                if (text == "pie") return MermaidTokenKind.PIE_HEADER
+                if (text == "gauge") return MermaidTokenKind.GAUGE_HEADER
+                if (text == "timeline") return MermaidTokenKind.TIMELINE_HEADER
+                if (text == "gantt") return MermaidTokenKind.GANTT_HEADER
+                if (text == "mindmap") return MermaidTokenKind.MINDMAP_HEADER
+                if (text == "kanban") return MermaidTokenKind.KANBAN_HEADER
+                if (text == "xychart") return MermaidTokenKind.XYCHART_HEADER
+                if (text == "quadrantChart") return MermaidTokenKind.QUADRANT_HEADER
                 if (text in HEADER_KEYWORDS) return MermaidTokenKind.KEYWORD_HEADER
                 if (text in DIRECTIONS) return MermaidTokenKind.DIRECTION
             }
@@ -710,8 +919,57 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     else -> MermaidTokenKind.IDENT
                 }
             }
+            if (mode == LexMode.Er) {
+                return when {
+                    text == "erDiagram" -> MermaidTokenKind.ER_HEADER
+                    text == "direction" -> MermaidTokenKind.DIRECTION_KW
+                    text in DIRECTIONS -> MermaidTokenKind.DIRECTION
+                    else -> MermaidTokenKind.IDENT
+                }
+            }
+            if (mode == LexMode.Pie) {
+                return when (text) {
+                    "pie" -> MermaidTokenKind.PIE_HEADER
+                    else -> MermaidTokenKind.IDENT
+                }
+            }
+            if (mode == LexMode.Gauge) {
+                return when (text) {
+                    "gauge" -> MermaidTokenKind.GAUGE_HEADER
+                    else -> MermaidTokenKind.IDENT
+                }
+            }
+            if (mode == LexMode.Timeline) {
+                if (text == "timeline") return MermaidTokenKind.TIMELINE_HEADER
+                if (text in DIRECTIONS) return MermaidTokenKind.DIRECTION
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Gantt) {
+                if (text == "gantt") return MermaidTokenKind.GANTT_HEADER
+                if (text in DIRECTIONS) return MermaidTokenKind.DIRECTION
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Mindmap) {
+                if (text == "mindmap") return MermaidTokenKind.MINDMAP_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Kanban) {
+                if (text == "kanban") return MermaidTokenKind.KANBAN_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.XYChart) {
+                if (text == "xychart" || text == "xychart-beta") return MermaidTokenKind.XYCHART_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Quadrant) {
+                if (text == "quadrantChart") return MermaidTokenKind.QUADRANT_HEADER
+                return MermaidTokenKind.IDENT
+            }
             return MermaidTokenKind.IDENT
         }
+
+        private fun isLineStart(buf: String, pos: Int): Boolean =
+            pos == 0 || buf[pos - 1] == '\n' || buf[pos - 1] == '\r'
 
         private sealed interface ErRelResult {
             data class Ok(val endExclusive: Int) : ErRelResult
@@ -744,6 +1002,29 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
         private fun isErCard(card: String): Boolean = when (card) {
             "||", "o|", "|o", "}|", "|{", "o{", "}o" -> true
             else -> false
+        }
+    }
+
+    private fun scanMindmapReverseShape(
+        buf: String,
+        start: Int,
+        open: String,
+        close: String,
+        baseOffset: Int,
+        eos: Boolean,
+    ): ReverseShapeResult {
+        if (!buf.startsWith(open, start)) return ReverseShapeResult.NoMatch
+        var end = start + open.length
+        while (true) {
+            if (end >= buf.length) {
+                return if (eos) ReverseShapeResult.NoMatch else ReverseShapeResult.Suspend
+            }
+            if (buf[end] == '\n') return ReverseShapeResult.NoMatch
+            if (buf.startsWith(close, end)) {
+                val label = buf.substring(start + open.length, end)
+                return ReverseShapeResult.Ok(endExclusive = end + close.length, label = label)
+            }
+            end++
         }
     }
 }

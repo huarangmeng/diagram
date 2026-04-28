@@ -35,6 +35,11 @@ internal class MermaidClassSubPipeline(
 
     private val parser = MermaidClassParser()
     private val layout = ClassDiagramLayout(textMeasurer)
+    private var graphStyles: MermaidGraphStyleState? = null
+
+    override fun updateGraphStyles(styles: MermaidGraphStyleState) {
+        graphStyles = styles
+    }
 
     override fun acceptLines(
         previousSnapshot: com.hrm.diagram.render.streaming.DiagramSnapshot,
@@ -105,6 +110,7 @@ internal class MermaidClassSubPipeline(
                 if (key.isNotEmpty()) classStyleByName[NodeId(key)] = def.style
             }
         }
+        val resolvedNodeStyleById = computeClassNodeStyles(ir, classStyleByName)
 
         val solid = Stroke(width = 1.5f)
         val dashed = Stroke(width = 1.5f, dash = listOf(6f, 4f))
@@ -140,11 +146,14 @@ internal class MermaidClassSubPipeline(
         // used so divider positions track real glyph heights at any density.
         for (c in ir.classes) {
             val r = laidOut.nodePositions[c.id] ?: continue
+            val st = resolvedNodeStyleById[c.id]
             val palette = paletteFor(classStyleByName[c.id])
-            val cBoxFill = palette?.fill ?: boxFill
-            val cBoxStroke = palette?.stroke ?: boxStroke
-            val cHeaderFill = palette?.header ?: headerFill
-            val cTextColor = palette?.text ?: textColor
+            val cBoxFill = st?.fill?.let { Color(it.argb) } ?: (palette?.fill ?: boxFill)
+            val cBoxStroke = st?.stroke?.let { Color(it.argb) } ?: (palette?.stroke ?: boxStroke)
+            val cHeaderFill = st?.fill?.let { Color(it.argb) } ?: (palette?.header ?: headerFill)
+            val cTextColor = st?.textColor?.let { Color(it.argb) } ?: (palette?.text ?: textColor)
+            val strokeWidth = st?.strokeWidth ?: solid.width
+            val borderStroke = Stroke(width = strokeWidth)
             val headerText = buildString {
                 c.stereotype?.let { append("«").append(it).append("»\n") }
                 append(c.name)
@@ -154,7 +163,7 @@ internal class MermaidClassSubPipeline(
             val headerH = headerMetrics.height + sectionPad
 
             out += DrawCommand.FillRect(rect = r, color = cBoxFill, corner = 4f, z = 2)
-            out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = cBoxStroke, corner = 4f, z = 4)
+            out += DrawCommand.StrokeRect(rect = r, stroke = borderStroke, color = cBoxStroke, corner = 4f, z = 4)
 
             val headerRect = Rect.ltrb(r.left, r.top, r.right, r.top + headerH)
             out += DrawCommand.FillRect(rect = headerRect, color = cHeaderFill, corner = 4f, z = 3)
@@ -181,7 +190,7 @@ internal class MermaidClassSubPipeline(
                 val divY1 = r.top + headerH
                 out += DrawCommand.StrokePath(
                     path = PathCmd(listOf(PathOp.MoveTo(Point(r.left, divY1)), PathOp.LineTo(Point(r.right, divY1)))),
-                    stroke = solid, color = cBoxStroke, z = 4,
+                    stroke = borderStroke, color = cBoxStroke, z = 4,
                 )
                 var y = divY1 + rowGap
                 for (a in attrs) {
@@ -201,7 +210,7 @@ internal class MermaidClassSubPipeline(
                 if (hasAttrs && hasMethods) {
                     out += DrawCommand.StrokePath(
                         path = PathCmd(listOf(PathOp.MoveTo(Point(r.left, y + rowGap)), PathOp.LineTo(Point(r.right, y + rowGap)))),
-                        stroke = solid, color = cBoxStroke, z = 4,
+                        stroke = borderStroke, color = cBoxStroke, z = 4,
                     )
                     y += rowGap * 2 + 2f
                 }
@@ -316,6 +325,62 @@ internal class MermaidClassSubPipeline(
 
         return out
     }
+
+    private fun computeClassNodeStyles(
+        ir: ClassIR,
+        classStyleByName: Map<NodeId, String>,
+    ): Map<NodeId, com.hrm.diagram.core.ir.NodeStyle> {
+        val styles = graphStyles ?: return emptyMap()
+        val defaultDecl = styles.classDefs["default"]
+        if (defaultDecl == null && styles.nodeInline.isEmpty() && styles.classDefs.isEmpty()) return emptyMap()
+
+        val out = HashMap<NodeId, com.hrm.diagram.core.ir.NodeStyle>()
+        for (c in ir.classes) {
+            val id = c.id
+            var decl: com.hrm.diagram.parser.mermaid.MermaidStyleDecl? = null
+            defaultDecl?.let { decl = mergeDecl(decl, it) }
+
+            // `:::someclass` and bulk `cssClass "A,B" someclass` point to a named classDef.
+            val clsName = classStyleByName[id]
+            if (!clsName.isNullOrBlank()) {
+                styles.classDefs[clsName]?.let { decl = mergeDecl(decl, it) }
+            }
+
+            // `style Animal ...` in classDiagram.
+            styles.nodeInline[id]?.let { decl = mergeDecl(decl, it) }
+
+            if (decl != null) {
+                val d = decl
+                out[id] = com.hrm.diagram.core.ir.NodeStyle(
+                    fill = d.fill,
+                    stroke = d.stroke,
+                    strokeWidth = d.strokeWidthPx,
+                    textColor = d.textColor,
+                )
+            }
+        }
+        return out
+    }
+
+    private fun mergeDecl(
+        base: com.hrm.diagram.parser.mermaid.MermaidStyleDecl?,
+        override: com.hrm.diagram.parser.mermaid.MermaidStyleDecl,
+    ): com.hrm.diagram.parser.mermaid.MermaidStyleDecl {
+        val b = base ?: com.hrm.diagram.parser.mermaid.MermaidStyleDecl()
+        return com.hrm.diagram.parser.mermaid.MermaidStyleDecl(
+            fill = override.fill ?: b.fill,
+            stroke = override.stroke ?: b.stroke,
+            strokeWidthPx = override.strokeWidthPx ?: b.strokeWidthPx,
+            strokeDashArrayPx = override.strokeDashArrayPx ?: b.strokeDashArrayPx,
+            textColor = override.textColor ?: b.textColor,
+            fontFamily = override.fontFamily ?: b.fontFamily,
+            fontSizePx = override.fontSizePx ?: b.fontSizePx,
+            fontWeight = override.fontWeight ?: b.fontWeight,
+            italic = override.italic ?: b.italic,
+            extras = if (b.extras.isEmpty()) override.extras else b.extras + override.extras,
+        )
+    }
+
 
     private fun renderMemberLine(m: ClassMember): String {
         val sb = StringBuilder()

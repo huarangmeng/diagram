@@ -110,6 +110,21 @@ object MermaidTokenKind {
     /** Relationship operator like `||--o{` or `}|..||` (two-end cardinality + link). */
     const val ER_REL: Int = 121
 
+    // ---- Pie (Phase 2) ----
+    const val PIE_HEADER: Int = 130           // "pie"
+    const val NUMBER: Int = 131               // 123 / 1.23 (used by pie values; safe for others)
+    const val GAUGE_HEADER: Int = 132         // "gauge"
+    const val TIMELINE_HEADER: Int = 133      // "timeline"
+    const val GANTT_HEADER: Int = 134         // "gantt"
+    const val MINDMAP_HEADER: Int = 135       // "mindmap"
+    const val INDENT: Int = 136               // leading spaces/tabs of a logical line (mindmap/wbs)
+    const val KANBAN_HEADER: Int = 137        // "kanban"
+    const val AT: Int = 138                   // '@' (kanban metadata prefix)
+    const val XYCHART_HEADER: Int = 139       // "xychart" / "xychart-beta"
+    const val QUADRANT_HEADER: Int = 140      // "quadrantChart"
+    const val LABEL_CLOUD: Int = 141          // `)text(` → Cloud (mindmap)
+    const val LABEL_BANG: Int = 142           // `))text((` → Bang (mindmap)
+
     fun nameOf(kind: Int): String = when (kind) {
         NEWLINE -> "NEWLINE"
         KEYWORD_HEADER -> "KEYWORD_HEADER"
@@ -190,6 +205,19 @@ object MermaidTokenKind {
         STATE_ARROW -> "STATE_ARROW"
         ER_HEADER -> "ER_HEADER"
         ER_REL -> "ER_REL"
+        PIE_HEADER -> "PIE_HEADER"
+        NUMBER -> "NUMBER"
+        GAUGE_HEADER -> "GAUGE_HEADER"
+        TIMELINE_HEADER -> "TIMELINE_HEADER"
+        GANTT_HEADER -> "GANTT_HEADER"
+        MINDMAP_HEADER -> "MINDMAP_HEADER"
+        INDENT -> "INDENT"
+        KANBAN_HEADER -> "KANBAN_HEADER"
+        AT -> "AT"
+        XYCHART_HEADER -> "XYCHART_HEADER"
+        QUADRANT_HEADER -> "QUADRANT_HEADER"
+        LABEL_CLOUD -> "LABEL_CLOUD"
+        LABEL_BANG -> "LABEL_BANG"
         else -> "UNKNOWN($kind)"
     }
 }
