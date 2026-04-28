@@ -1,9 +1,11 @@
 package com.hrm.diagram.parser.mermaid
 
 import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.streaming.Token
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MermaidErParserTest {
@@ -58,7 +60,71 @@ class MermaidErParserTest {
         val rel = ir.edges.last()
         assertEquals(NodeId("CAR"), rel.from)
         assertEquals(NodeId("PERSON"), rel.to)
-        assertEquals("||--o{ allows", (rel.label as com.hrm.diagram.core.ir.RichLabel.Plain).text)
+        assertEquals("||--o{ allows", (rel.label as RichLabel.Plain).text)
+    }
+
+    @Test
+    fun attribute_flags_and_styles_are_preserved_in_ir() {
+        val p = feedAll(
+            """
+            erDiagram
+            USER {
+              uuid id PK
+              uuid account_id FK
+              string email UK
+              string nickname
+            }
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        val byId = ir.nodes.associateBy { it.id.value }
+
+        val entity = assertNotNull(byId["USER"])
+        assertEquals(MermaidErParser.ER_ENTITY_KIND, entity.payload[MermaidErParser.ER_KIND_KEY])
+
+        val pk = assertNotNull(byId["USER::id"])
+        assertEquals("uuid", pk.payload[MermaidErParser.ER_ATTRIBUTE_TYPE_KEY])
+        assertEquals("PK", pk.payload[MermaidErParser.ER_ATTRIBUTE_FLAGS_KEY])
+        assertTrue(pk.style.fill != null)
+        assertTrue(pk.style.stroke != null)
+
+        val fk = assertNotNull(byId["USER::account_id"])
+        assertEquals("FK", fk.payload[MermaidErParser.ER_ATTRIBUTE_FLAGS_KEY])
+
+        val uk = assertNotNull(byId["USER::email"])
+        assertEquals("UK", uk.payload[MermaidErParser.ER_ATTRIBUTE_FLAGS_KEY])
+
+        val plain = assertNotNull(byId["USER::nickname"])
+        assertTrue(MermaidErParser.ER_ATTRIBUTE_FLAGS_KEY !in plain.payload)
+    }
+
+    @Test
+    fun attribute_edges_are_weakened_and_relationship_edges_keep_cardinality_label() {
+        val p = feedAll(
+            """
+            erDiagram
+            ORDER {
+              int id PK
+            }
+            ORDER ||--o{ LINE_ITEM : contains
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        assertEquals(2, ir.edges.size)
+
+        val attrEdge = ir.edges.first()
+        assertEquals(NodeId("ORDER"), attrEdge.from)
+        assertEquals(NodeId("ORDER::id"), attrEdge.to)
+        assertEquals(listOf(5f, 5f), attrEdge.style.dash)
+        assertEquals(1f, attrEdge.style.width)
+        assertTrue(attrEdge.label == null)
+
+        val relEdge = ir.edges.last()
+        assertEquals(NodeId("ORDER"), relEdge.from)
+        assertEquals(NodeId("LINE_ITEM"), relEdge.to)
+        assertEquals("||--o{ contains", (relEdge.label as RichLabel.Plain).text)
+        assertEquals(1.5f, relEdge.style.width)
+        assertEquals(0xFFF5F5F5.toInt(), relEdge.style.labelBg?.argb)
+        assertTrue(relEdge.style.dash == null)
     }
 }
-

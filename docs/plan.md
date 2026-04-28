@@ -247,11 +247,15 @@ flowchart → sequenceDiagram → classDiagram → stateDiagram → erDiagram。
 - `sequenceDiagram`：parser / layout / streaming sub-pipeline / render；
 - `classDiagram`：parser / layout / streaming sub-pipeline / render；
 - `stateDiagram-v2`：parser / layout / streaming sub-pipeline / render；
+- `erDiagram`：lexer / parser / Sugiyama 布局 / streaming sub-pipeline / render；
 - 上述能力均已进入 `commonTest`，并接入统一 `MermaidSessionPipeline`。
+- Mermaid 样式链路已完成首段落地：frontmatter `theme/themeVariables` 与 `classDef` 可在 streaming 会话中被解析、产出 diagnostics，并注入 `styleHints.extras`；真正的样式决议与渲染消费仍在收口中。
+- 对会影响文本测量与几何的样式属性（如字体、字号、padding），增量阶段不做局部重排，统一延迟到 `finish()` 收敛，避免破坏 pinned layout 契约。
 
 当前未完成：
-- `erDiagram` 尚未实现；
+- `erDiagram` 当前仍为部分兼容：关系、实体属性已打通；`PK/FK/UK` 标记当前已完成解析，并体现在属性节点标签中，但尚未形成更强语义化的实体内嵌属性展示；当前渲染暂采用“实体节点 + 属性节点”连接方案，后续可升级为实体内嵌属性展示；
 - Phase 1 的“官方示例覆盖过半”里程碑尚未达到；
+- Mermaid 样式系统尚未完成 `class` / `:::` / `style` / `linkStyle` 的全链路决议与渲染消费；
 - PlantUML / DOT 仍是 stub pipeline，不属于本 Phase 已交付范围。
 
 ### Phase 2 — Mermaid 数据/时间/树类

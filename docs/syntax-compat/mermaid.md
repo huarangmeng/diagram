@@ -9,7 +9,7 @@
 | sequenceDiagram | ✅ | participant/actor、自激活、`->>` 系列、note、loop/alt/opt/par/critical/break、autonumber | 1 | |
 | classDiagram | ✅ | 关系(`<|--`/`*--`/`o--`/`-->`/`..>`/`..|>`)、可见性、泛型、接口、注解、namespace | 1 | |
 | stateDiagram-v2 | ✅ | composite、并行、history、`[*]`、note、direction | 1 | |
-| erDiagram | 🟡 | 实体属性、关系基数、PK/FK | 1 | 当前渲染为“实体节点 + 属性节点”连接，后续可升级为实体内嵌属性展示 |
+| erDiagram | 🟡 | 实体属性、关系基数、PK/FK/UK | 1 | 当前渲染为“实体节点 + 属性节点”分层展示：属性节点带类型文本，`PK/FK/UK` 以徽标显示，属性连线弱化为虚线，关系以基数 + 标签 badge 展示；后续可升级为实体内嵌属性展示 |
 | gantt | ⬜ | dateFormat、section、task、依赖 `after`、milestone、excludes | 2 | |
 | timeline | ⬜ | section、events | 2 | |
 | pie | ⬜ | showData、title、slice | 2 | |

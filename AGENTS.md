@@ -153,9 +153,11 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
   - ✅ `composeApp` Demo gallery 框架（左侧三语种 42 个内置样例分类列表 + 中间源码编辑区 + 右侧 DiagramView 占位 + 底部 Diagnostics 面板，jvmMain 编译通过）。
 - 🚧 Phase 1（进行中）：
   - ✅ Mermaid 流式主链路已打通：`Diagram.session(...)`、`rememberDiagramSession(...)`、`MermaidSessionPipeline` 已落地，支持 append-only session 与 Compose `TextMeasurer` 接入。
-  - ✅ Mermaid **flowchart / sequenceDiagram / classDiagram / stateDiagram** 已有自研 lexer/parser + layout + render 子流水线，并配套 `commonTest`。
+  - ✅ Mermaid **flowchart / sequenceDiagram / classDiagram / stateDiagram / erDiagram** 已有自研 lexer/parser + layout + render 子流水线，并配套 `commonTest`。
   - ✅ `:diagram-layout` 已落地 Sugiyama、sequence、class、state 几类布局入口；`:diagram-render` 已有 `DiagramCanvas`、测量缓存、quadtree 等基础渲染设施。
-  - ⬜ Phase 1 里程碑尚未完成：`erDiagram` 仍未落地，距离“覆盖 Mermaid 官方示例一半以上”还有差距。
+  - ✅ Mermaid 样式链路已完成首段落地：frontmatter `theme/themeVariables` 与 `classDef` 可在 streaming 会话中被解析、产出 diagnostics，并注入 `styleHints.extras`；真正的样式决议与渲染消费仍在收口中。
+  - ✅ 对会影响文本测量与几何的样式属性（如字体、字号、padding），当前策略已固定为：增量阶段不做局部重排，统一延迟到 `finish()` 收敛，避免破坏 pinned layout 契约。
+  - ⬜ Phase 1 里程碑尚未完成：`erDiagram` 当前仍为部分兼容（关系、实体属性已打通；`PK/FK/UK` 标记当前已完成解析，并体现在属性节点标签中，但尚未形成更强语义化的实体内嵌属性展示；渲染暂采用“实体节点 + 属性节点”连接方案），且距离“覆盖 Mermaid 官方示例一半以上”还有差距。
 - ⬜ Phase 2 ~ 7：规划仍有效，但绝大多数能力尚未实现；`composeApp` 中这些图型目前主要用于样例占位与后续验收清单。
 - ⚠️ 工程基线：
   - ✅ 仓库级 `./gradlew allTests` 当前可通过，可作为后续开发的统一回归入口。

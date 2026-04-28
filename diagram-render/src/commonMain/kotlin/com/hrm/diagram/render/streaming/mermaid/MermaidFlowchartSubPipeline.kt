@@ -46,10 +46,15 @@ internal class MermaidFlowchartSubPipeline(
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val nodeMetrics: MutableMap<NodeId, TextMetrics> = HashMap()
+    private var graphStyles: MermaidGraphStyleState? = null
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
         defaultNodeSize = Size(120f, 48f),
         nodeSizeOf = { id -> nodeSizes[id] ?: Size(120f, 48f) },
     )
+
+    override fun updateGraphStyles(styles: MermaidGraphStyleState) {
+        graphStyles = styles
+    }
 
     override fun acceptLines(
         previousSnapshot: DiagramSnapshot,
@@ -67,7 +72,8 @@ internal class MermaidFlowchartSubPipeline(
             }
         }
 
-        val ir: GraphIR = parser.snapshot()
+        val ir0: GraphIR = parser.snapshot()
+        val ir: GraphIR = graphStyles?.applyTo(ir0) ?: ir0
         val needRemeasure = isFinal
         for (n in ir.nodes) {
             if (!needRemeasure && n.id in nodeSizes) continue
@@ -146,16 +152,19 @@ internal class MermaidFlowchartSubPipeline(
 
     private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>(ir.nodes.size * 3 + ir.edges.size * 2)
-        val nodeFill = Color(0xFFE3F2FDU.toInt())
-        val nodeStroke = Color(0xFF1565C0U.toInt())
-        val edgeColor = Color(0xFF455A64U.toInt())
-        val textColor = Color(0xFF0D47A1U.toInt())
-        val edgeLabelColor = Color(0xFF263238U.toInt())
-        val edgeLabelBg = Color(0xF0FFFFFFU.toInt())
-        val stroke = Stroke(width = 1.5f)
+        val defaultNodeFill = Color(0xFFE3F2FDU.toInt())
+        val defaultNodeStroke = Color(0xFF1565C0U.toInt())
+        val defaultTextColor = Color(0xFF0D47A1U.toInt())
+        val defaultEdgeColor = Color(0xFF455A64U.toInt())
+        val defaultEdgeLabelColor = Color(0xFF263238U.toInt())
+        val defaultEdgeLabelBg = Color(0xF0FFFFFFU.toInt())
 
         for (n in ir.nodes) {
             val r = laidOut.nodePositions[n.id] ?: continue
+            val nodeFill = n.style.fill?.let { Color(it.argb) } ?: defaultNodeFill
+            val nodeStroke = n.style.stroke?.let { Color(it.argb) } ?: defaultNodeStroke
+            val textColor = n.style.textColor?.let { Color(it.argb) } ?: defaultTextColor
+            val stroke = Stroke(width = n.style.strokeWidth ?: 1.5f)
             when (n.shape) {
                 is NodeShape.Diamond -> {
                     val cx = (r.left + r.right) / 2f
@@ -212,8 +221,10 @@ internal class MermaidFlowchartSubPipeline(
                 else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
             }
             val path = PathCmd(ops)
-            out += DrawCommand.StrokePath(path = path, stroke = stroke, color = edgeColor, z = 0)
             val edge = ir.edges.getOrNull(idx) ?: continue
+            val edgeColor = edge.style.color?.let { Color(it.argb) } ?: defaultEdgeColor
+            val edgeStroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
+            out += DrawCommand.StrokePath(path = path, stroke = edgeStroke, color = edgeColor, z = 0)
             val tail = pts[pts.size - 2]
             val head = pts.last()
             val startTail = pts[1]
@@ -239,12 +250,13 @@ internal class MermaidFlowchartSubPipeline(
                 midPoint.x + metrics.width / 2f + padding,
                 midPoint.y + metrics.height / 2f + padding / 2f,
             )
-            out += DrawCommand.FillRect(rect = bgRect, color = edgeLabelBg, corner = 3f, z = 4)
+            val bg = edge.style.labelBg?.let { Color(it.argb) } ?: defaultEdgeLabelBg
+            out += DrawCommand.FillRect(rect = bgRect, color = bg, corner = 3f, z = 4)
             out += DrawCommand.DrawText(
                 text = text,
                 origin = midPoint,
                 font = edgeLabelFont,
-                color = edgeLabelColor,
+                color = defaultEdgeLabelColor,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,
                 z = 5,
@@ -273,6 +285,9 @@ internal class MermaidFlowchartSubPipeline(
 
 /** Internal SPI used by the dispatcher to delegate per-line work. */
 internal interface MermaidSubPipeline {
+    /** Optional hook for Mermaid GraphIR-based styling (flowchart/erDiagram). */
+    fun updateGraphStyles(styles: MermaidGraphStyleState) {}
+
     fun acceptLines(
         previousSnapshot: DiagramSnapshot,
         lines: List<List<Token>>,

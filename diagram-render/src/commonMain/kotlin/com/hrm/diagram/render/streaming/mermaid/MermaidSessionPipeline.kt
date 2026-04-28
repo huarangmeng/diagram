@@ -3,6 +3,7 @@ package com.hrm.diagram.render.streaming.mermaid
 import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.DiagramModel
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
@@ -44,8 +45,13 @@ internal class MermaidSessionPipeline(
     private var frontmatterStripped: Boolean = false
     private var styleConfig: MermaidStyleConfig? = null
     private val styleClasses: LinkedHashMap<String, MermaidStyleDecl> = LinkedHashMap()
+    private val nodeClassBindings: LinkedHashMap<NodeId, MutableList<String>> = LinkedHashMap()
+    private val nodeInlineStyles: LinkedHashMap<NodeId, MermaidStyleDecl> = LinkedHashMap()
+    private var linkStyleDefault: MermaidStyleDecl? = null
+    private val linkStyleByIndex: LinkedHashMap<Int, MermaidStyleDecl> = LinkedHashMap()
     private val styleDiagnosticsAll: MutableList<Diagnostic> = ArrayList()
     private var cachedStyleExtras: Map<String, String> = emptyMap()
+    private val graphStyleState: MermaidGraphStyleState = MermaidGraphStyleState()
 
     override fun advance(
         previousSnapshot: DiagramSnapshot,
@@ -136,6 +142,14 @@ internal class MermaidSessionPipeline(
             pendingLines.clear()
             combined
         } else lines
+
+        // Make the latest style state available to graph-based sub-pipelines.
+        graphStyleState.classDefs = styleClasses.toMap()
+        graphStyleState.nodeClassBindings = nodeClassBindings.mapValues { it.value.toList() }
+        graphStyleState.nodeInline = nodeInlineStyles.toMap()
+        graphStyleState.linkDefault = linkStyleDefault
+        graphStyleState.linkByIndex = linkStyleByIndex.toMap()
+        sub!!.updateGraphStyles(graphStyleState)
 
         return wrapWithStyleDiagnosticsAndHints(
             sub!!.acceptLines(previousSnapshot, toFeed, seq, isFinal),
@@ -258,6 +272,64 @@ internal class MermaidSessionPipeline(
                     cachedStyleExtras = emptyMap()
                 }
                 // Skip the whole line (including newline).
+            } else if (trimmedLeading.startsWith("class ")) {
+                if (runStart != null && runStart < lineStart) {
+                    val seg = buf.substring(runStart, lineStart)
+                    feeds += LexerFeed(
+                        text = seg,
+                        absoluteOffset = baseOffset + runStart,
+                        endAbsoluteOffset = baseOffset + lineStart,
+                    )
+                    runStart = null
+                }
+                val parsed = MermaidStyleParsers.parseClassAssignLine(trimmedLeading.trimEnd())
+                if (parsed != null) {
+                    for (rawId in parsed.nodeIds) {
+                        val id = NodeId(rawId)
+                        val list = nodeClassBindings.getOrPut(id) { ArrayList() }
+                        list.addAll(parsed.classNames)
+                    }
+                    newDiags += parsed.diagnostics
+                    cachedStyleExtras = emptyMap()
+                }
+            } else if (trimmedLeading.startsWith("style ")) {
+                if (runStart != null && runStart < lineStart) {
+                    val seg = buf.substring(runStart, lineStart)
+                    feeds += LexerFeed(
+                        text = seg,
+                        absoluteOffset = baseOffset + runStart,
+                        endAbsoluteOffset = baseOffset + lineStart,
+                    )
+                    runStart = null
+                }
+                val parsed = MermaidStyleParsers.parseNodeStyleLine(trimmedLeading.trimEnd())
+                if (parsed != null) {
+                    for (rawId in parsed.nodeIds) {
+                        nodeInlineStyles[NodeId(rawId)] = parsed.decl
+                    }
+                    newDiags += parsed.diagnostics
+                    cachedStyleExtras = emptyMap()
+                }
+            } else if (trimmedLeading.startsWith("linkStyle ")) {
+                if (runStart != null && runStart < lineStart) {
+                    val seg = buf.substring(runStart, lineStart)
+                    feeds += LexerFeed(
+                        text = seg,
+                        absoluteOffset = baseOffset + runStart,
+                        endAbsoluteOffset = baseOffset + lineStart,
+                    )
+                    runStart = null
+                }
+                val parsed = MermaidStyleParsers.parseLinkStyleLine(trimmedLeading.trimEnd())
+                if (parsed != null) {
+                    if (parsed.isDefault) {
+                        linkStyleDefault = parsed.decl
+                    } else {
+                        for (idx in parsed.indexes) linkStyleByIndex[idx] = parsed.decl
+                    }
+                    newDiags += parsed.diagnostics
+                    cachedStyleExtras = emptyMap()
+                }
             } else {
                 if (runStart == null) runStart = lineStart
             }
@@ -278,6 +350,35 @@ internal class MermaidSessionPipeline(
                         cachedStyleExtras = emptyMap()
                     }
                     // Do not feed to lexer.
+                } else if (trimmedLeading.startsWith("class ")) {
+                    val parsed = MermaidStyleParsers.parseClassAssignLine(trimmedLeading.trimEnd())
+                    if (parsed != null) {
+                        for (rawId in parsed.nodeIds) {
+                            val id = NodeId(rawId)
+                            val list = nodeClassBindings.getOrPut(id) { ArrayList() }
+                            list.addAll(parsed.classNames)
+                        }
+                        newDiags += parsed.diagnostics
+                        cachedStyleExtras = emptyMap()
+                    }
+                } else if (trimmedLeading.startsWith("style ")) {
+                    val parsed = MermaidStyleParsers.parseNodeStyleLine(trimmedLeading.trimEnd())
+                    if (parsed != null) {
+                        for (rawId in parsed.nodeIds) nodeInlineStyles[NodeId(rawId)] = parsed.decl
+                        newDiags += parsed.diagnostics
+                        cachedStyleExtras = emptyMap()
+                    }
+                } else if (trimmedLeading.startsWith("linkStyle ")) {
+                    val parsed = MermaidStyleParsers.parseLinkStyleLine(trimmedLeading.trimEnd())
+                    if (parsed != null) {
+                        if (parsed.isDefault) {
+                            linkStyleDefault = parsed.decl
+                        } else {
+                            for (idx in parsed.indexes) linkStyleByIndex[idx] = parsed.decl
+                        }
+                        newDiags += parsed.diagnostics
+                        cachedStyleExtras = emptyMap()
+                    }
                 } else {
                     if (runStart == null) runStart = tailStart
                 }
@@ -384,6 +485,10 @@ internal class MermaidSessionPipeline(
         frontmatterStripped = false
         styleConfig = null
         styleClasses.clear()
+        nodeClassBindings.clear()
+        nodeInlineStyles.clear()
+        linkStyleDefault = null
+        linkStyleByIndex.clear()
         styleDiagnosticsAll.clear()
         cachedStyleExtras = emptyMap()
     }

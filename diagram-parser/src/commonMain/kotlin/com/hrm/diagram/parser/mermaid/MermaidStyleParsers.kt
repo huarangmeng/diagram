@@ -134,6 +134,85 @@ object MermaidStyleParsers {
         return ParseClassDefResult(classes, diags)
     }
 
+    /**
+     * Parse Mermaid `class` statement line:
+     * - `class A warn`
+     * - `class A,B warn,focus`
+     */
+    fun parseClassAssignLine(line: String): ParseClassAssignResult? {
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("class ")) return null
+        val rest = trimmed.removePrefix("class ").trimStart().trimEnd(';').trim()
+        val firstSpace = rest.indexOfFirst { it.isWhitespace() }
+        if (firstSpace < 0) {
+            val d = warn("Invalid class (missing class names)", "MERMAID-W012")
+            return ParseClassAssignResult(emptyList(), emptyList(), listOf(d))
+        }
+        val nodesPart = rest.substring(0, firstSpace).trim()
+        val classesPart = rest.substring(firstSpace).trim()
+        val nodes = nodesPart.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val classes = classesPart.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (nodes.isEmpty() || classes.isEmpty()) {
+            val d = warn("Invalid class (missing node id or class name)", "MERMAID-W012")
+            return ParseClassAssignResult(nodes, classes, listOf(d))
+        }
+        return ParseClassAssignResult(nodes, classes, emptyList())
+    }
+
+    /**
+     * Parse Mermaid `style` statement line:
+     * - `style A fill:#f00,stroke:#333,stroke-width:2px`
+     */
+    fun parseNodeStyleLine(line: String): ParseNodeStyleResult? {
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("style ")) return null
+        val rest = trimmed.removePrefix("style ").trimStart().trimEnd(';').trim()
+        val firstSpace = rest.indexOfFirst { it.isWhitespace() }
+        if (firstSpace < 0) {
+            val d = warn("Invalid style (missing style declaration)", "MERMAID-W012")
+            return ParseNodeStyleResult(emptyList(), MermaidStyleDecl(), listOf(d))
+        }
+        val nodesPart = rest.substring(0, firstSpace).trim()
+        val declPart = rest.substring(firstSpace).trim()
+        val nodes = nodesPart.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val (decl, diags) = parseStyleDecl(declPart)
+        return ParseNodeStyleResult(nodes, decl, diags)
+    }
+
+    /**
+     * Parse Mermaid `linkStyle` statement line:
+     * - `linkStyle default stroke:#333,stroke-width:2px`
+     * - `linkStyle 1,2,7 stroke-dasharray: 5 5`
+     */
+    fun parseLinkStyleLine(line: String): ParseLinkStyleResult? {
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("linkStyle ")) return null
+        val rest = trimmed.removePrefix("linkStyle ").trimStart().trimEnd(';').trim()
+        val firstSpace = rest.indexOfFirst { it.isWhitespace() }
+        if (firstSpace < 0) {
+            val d = warn("Invalid linkStyle (missing style declaration)", "MERMAID-W012")
+            return ParseLinkStyleResult(isDefault = false, indexes = emptyList(), decl = MermaidStyleDecl(), diagnostics = listOf(d))
+        }
+        val targetPart = rest.substring(0, firstSpace).trim()
+        val declPart = rest.substring(firstSpace).trim()
+        val (decl, diags0) = parseStyleDecl(declPart)
+        val diags = ArrayList<Diagnostic>()
+        diags += diags0
+        if (targetPart == "default") {
+            return ParseLinkStyleResult(isDefault = true, indexes = emptyList(), decl = decl, diagnostics = diags)
+        }
+        val idxs = ArrayList<Int>()
+        for (p in targetPart.split(',')) {
+            val v = p.trim().toIntOrNull()
+            if (v == null || v <= 0) {
+                diags += warn("Invalid linkStyle index '$p' ignored", "MERMAID-W012")
+                continue
+            }
+            idxs += v
+        }
+        return ParseLinkStyleResult(isDefault = false, indexes = idxs, decl = decl, diagnostics = diags)
+    }
+
     // ---- ThemeVariables parsing ----
 
     private fun parseThemeName(raw: String, diags: MutableList<Diagnostic>): MermaidThemeName? {
@@ -252,6 +331,25 @@ object MermaidStyleParsers {
 
     data class ParseClassDefResult(
         val classes: List<MermaidStyleClass>,
+        val diagnostics: List<Diagnostic>,
+    )
+
+    data class ParseClassAssignResult(
+        val nodeIds: List<String>,
+        val classNames: List<String>,
+        val diagnostics: List<Diagnostic>,
+    )
+
+    data class ParseNodeStyleResult(
+        val nodeIds: List<String>,
+        val decl: MermaidStyleDecl,
+        val diagnostics: List<Diagnostic>,
+    )
+
+    data class ParseLinkStyleResult(
+        val isDefault: Boolean,
+        val indexes: List<Int>,
+        val decl: MermaidStyleDecl,
         val diagnostics: List<Diagnostic>,
     )
 

@@ -2,11 +2,13 @@ package com.hrm.diagram.parser.mermaid
 
 import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.Edge
+import com.hrm.diagram.core.ir.EdgeStyle
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.ArrowEnds
+import com.hrm.diagram.core.ir.NodeStyle
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.ir.SourceLanguage
@@ -32,6 +34,14 @@ import com.hrm.diagram.core.streaming.Token
  * their own nodes connected to the entity.
  */
 class MermaidErParser {
+    companion object {
+        const val ER_KIND_KEY = "mermaid.er.kind"
+        const val ER_ENTITY_KIND = "entity"
+        const val ER_ATTRIBUTE_KIND = "attribute"
+        const val ER_ATTRIBUTE_TYPE_KEY = "mermaid.er.attribute.type"
+        const val ER_ATTRIBUTE_FLAGS_KEY = "mermaid.er.attribute.flags"
+    }
+
     private val knownNodes: HashSet<NodeId> = HashSet()
     private var headerSeen: Boolean = false
 
@@ -105,6 +115,13 @@ class MermaidErParser {
             id = id,
             label = RichLabel.Plain(id.value),
             shape = NodeShape.Box,
+            style = NodeStyle(
+                fill = com.hrm.diagram.core.ir.ArgbColor(0xFFE8F5E9.toInt()),
+                stroke = com.hrm.diagram.core.ir.ArgbColor(0xFF2E7D32.toInt()),
+                strokeWidth = 1.5f,
+                textColor = com.hrm.diagram.core.ir.ArgbColor(0xFF1B5E20.toInt()),
+            ),
+            payload = mapOf(ER_KIND_KEY to ER_ENTITY_KIND),
         )
         nodes += n
         out += IrPatch.AddNode(n)
@@ -116,15 +133,36 @@ class MermaidErParser {
             knownNodes += attrId
             val flagSuffix = if (flags.isEmpty()) "" else " " + flags.joinToString(" ")
             val label = "$name: $type$flagSuffix"
+            val normalizedFlags = flags.map { it.uppercase() }
             val n = Node(
                 id = attrId,
                 label = RichLabel.Plain(label),
                 shape = NodeShape.RoundedBox,
+                style = attributeStyleFor(normalizedFlags),
+                payload = buildMap {
+                    put(ER_KIND_KEY, ER_ATTRIBUTE_KIND)
+                    put(ER_ATTRIBUTE_TYPE_KEY, type)
+                    if (normalizedFlags.isNotEmpty()) {
+                        put(ER_ATTRIBUTE_FLAGS_KEY, normalizedFlags.joinToString(","))
+                    }
+                },
             )
             nodes += n
             out += IrPatch.AddNode(n)
         }
-        val e = Edge(from = entity, to = attrId, label = null, arrow = ArrowEnds.None)
+        val e = Edge(
+            from = entity,
+            to = attrId,
+            label = null,
+            arrow = ArrowEnds.None,
+            style = EdgeStyle(
+                // Lighter, less prominent than relationship edges (matches Mermaid's "helper" lines vibe).
+                color = com.hrm.diagram.core.ir.ArgbColor(0xFFB0BEC5.toInt()),
+                width = 1f,
+                // Mermaid commonly uses a 5-5 dash rhythm in SVG output.
+                dash = listOf(5f, 5f),
+            ),
+        )
         edges += e
         out += IrPatch.AddEdge(e)
     }
@@ -167,7 +205,13 @@ class MermaidErParser {
                 append(label)
             }
         }
-        val e = Edge(from = a, to = b, label = RichLabel.Plain(fullLabel), arrow = ArrowEnds.None)
+        val e = Edge(
+            from = a,
+            to = b,
+            label = RichLabel.Plain(fullLabel),
+            arrow = ArrowEnds.None,
+            style = relationshipStyleFor(op),
+        )
         edges += e
         patches += IrPatch.AddEdge(e)
         return IrPatchBatch(seq, patches)
@@ -177,5 +221,45 @@ class MermaidErParser {
         val d = Diagnostic(Severity.ERROR, message, code)
         diagnostics += d
         return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+    }
+
+    private fun attributeStyleFor(flags: List<String>): NodeStyle {
+        return when {
+            "PK" in flags -> NodeStyle(
+                fill = com.hrm.diagram.core.ir.ArgbColor(0xFFFFF8E1.toInt()),
+                stroke = com.hrm.diagram.core.ir.ArgbColor(0xFFF9A825.toInt()),
+                strokeWidth = 1.25f,
+                textColor = com.hrm.diagram.core.ir.ArgbColor(0xFF795548.toInt()),
+            )
+            "FK" in flags -> NodeStyle(
+                fill = com.hrm.diagram.core.ir.ArgbColor(0xFFE3F2FD.toInt()),
+                stroke = com.hrm.diagram.core.ir.ArgbColor(0xFF1E88E5.toInt()),
+                strokeWidth = 1.25f,
+                textColor = com.hrm.diagram.core.ir.ArgbColor(0xFF0D47A1.toInt()),
+            )
+            "UK" in flags -> NodeStyle(
+                fill = com.hrm.diagram.core.ir.ArgbColor(0xFFF3E5F5.toInt()),
+                stroke = com.hrm.diagram.core.ir.ArgbColor(0xFF8E24AA.toInt()),
+                strokeWidth = 1.25f,
+                textColor = com.hrm.diagram.core.ir.ArgbColor(0xFF6A1B9A.toInt()),
+            )
+            else -> NodeStyle(
+                fill = com.hrm.diagram.core.ir.ArgbColor(0xFFF1F8E9.toInt()),
+                stroke = com.hrm.diagram.core.ir.ArgbColor(0xFF7CB342.toInt()),
+                strokeWidth = 1.25f,
+                textColor = com.hrm.diagram.core.ir.ArgbColor(0xFF33691E.toInt()),
+            )
+        }
+    }
+
+    private fun relationshipStyleFor(op: String): EdgeStyle {
+        val dashed = op.contains("..")
+        return EdgeStyle(
+            color = com.hrm.diagram.core.ir.ArgbColor(0xFF455A64.toInt()),
+            width = 1.5f,
+            dash = if (dashed) listOf(6f, 4f) else null,
+            // Mermaid relationship labels read like small light chips with a subtle contrast.
+            labelBg = com.hrm.diagram.core.ir.ArgbColor(0xFFF5F5F5.toInt()),
+        )
     }
 }
