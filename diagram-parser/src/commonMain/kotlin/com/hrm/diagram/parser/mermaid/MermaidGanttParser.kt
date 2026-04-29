@@ -13,6 +13,7 @@ import com.hrm.diagram.core.ir.TimeTrack
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
+import kotlin.math.floor
 import kotlin.math.max
 
 /**
@@ -21,7 +22,7 @@ import kotlin.math.max
  * Supported subset (matches `docs/syntax-compat/mermaid.md` Phase 2 target):
  * - `gantt` header
  * - `title ...`
- * - `dateFormat <fmt>` (subset: YYYY, MM, DD, HH, mm, ss, X, x)
+ * - `dateFormat <fmt>` using Mermaid gantt tokens (for example `YYYY-MM-DD`, `MMMM D, YYYY h:mm A`, `DDD`, `Z`)
  * - `excludes weekends` / `excludes sunday,monday,...` / `excludes YYYY-MM-DD, ...`
  * - `weekend friday|saturday` (only when excluding weekends)
  * - `section <name...>`
@@ -276,26 +277,10 @@ class MermaidGanttParser {
             parts.removeAt(0)
         }
 
-        // Resolve ID + time specs.
-        var id: String? = null
-        var startSpec: String? = null
-        var endSpec: String? = null
-
-        when (parts.size) {
-            1 -> {
-                endSpec = parts[0]
-            }
-            2 -> {
-                startSpec = parts[0]
-                endSpec = parts[1]
-            }
-            else -> {
-                // 3+; follow Mermaid's "first is id" rule.
-                id = parts[0]
-                startSpec = parts[1]
-                endSpec = parts[2]
-            }
-        }
+        val parsedMeta = parseTaskMetadata(parts) ?: return null
+        val id = parsedMeta.id
+        val startSpec = parsedMeta.startSpec
+        val endSpec = parsedMeta.endSpec
 
         val sectionIdx = currentSectionIdx
         val defaultStart = lastEndBySection[sectionIdx] ?: 0L
@@ -313,6 +298,70 @@ class MermaidGanttParser {
             depends = depends,
             href = clickHrefById[finalId],
         )
+    }
+
+    private data class ParsedTaskMetadata(
+        val id: String?,
+        val startSpec: String?,
+        val endSpec: String?,
+    )
+
+    private fun parseTaskMetadata(parts: List<String>): ParsedTaskMetadata? {
+        if (parts.isEmpty()) return null
+        if (parts.size == 1) return ParsedTaskMetadata(id = null, startSpec = null, endSpec = parts[0])
+
+        var best: ParsedTaskMetadata? = null
+
+        for (split in 1 until parts.size) {
+            val start = joinParts(parts, 0, split)
+            val end = joinParts(parts, split, parts.size)
+            if (isValidStartSpec(start) && isValidEndSpec(end)) {
+                best = ParsedTaskMetadata(id = null, startSpec = start, endSpec = end)
+                break
+            }
+        }
+        if (best != null) return best
+
+        if (parts.size >= 3 && isLikelyId(parts[0])) {
+            for (split in 2..parts.lastIndex) {
+                val start = joinParts(parts, 1, split)
+                val end = joinParts(parts, split, parts.size)
+                if (isValidStartSpec(start) && isValidEndSpec(end)) {
+                    return ParsedTaskMetadata(id = parts[0], startSpec = start, endSpec = end)
+                }
+            }
+        }
+
+        return when (parts.size) {
+            2 -> ParsedTaskMetadata(id = null, startSpec = parts[0], endSpec = parts[1])
+            else -> ParsedTaskMetadata(id = parts[0], startSpec = parts[1], endSpec = joinParts(parts, 2, parts.size))
+        }
+    }
+
+    private fun joinParts(parts: List<String>, start: Int, end: Int): String =
+        parts.subList(start, end).joinToString(", ").trim()
+
+    private fun isLikelyId(text: String): Boolean {
+        if (text.isBlank()) return false
+        if (text.startsWith("after ") || text.startsWith("until ")) return false
+        if (MermaidGanttTime.parseDateTime(text, dateFormat) != null) return false
+        if (MermaidGanttTime.parseDuration(text) != null) return false
+        return true
+    }
+
+    private fun isValidStartSpec(text: String): Boolean {
+        if (text.isBlank()) return false
+        if (text.startsWith("after ")) {
+            return text.removePrefix("after ").trim().split(' ').any { it.isNotBlank() }
+        }
+        return MermaidGanttTime.parseDateTime(text, dateFormat) != null
+    }
+
+    private fun isValidEndSpec(text: String): Boolean {
+        if (text.isBlank()) return false
+        if (text.startsWith("until ")) return text.removePrefix("until ").trim().isNotEmpty()
+        if (MermaidGanttTime.parseDuration(text) != null) return true
+        return MermaidGanttTime.parseDateTime(text, dateFormat) != null
     }
 
     private fun parseClick(spec: String) {
@@ -362,10 +411,31 @@ class MermaidGanttParser {
         if (dt != null) return dt
         val dur = MermaidGanttTime.parseDuration(s)
         if (dur != null) {
-            return if (dur.unitIsDayLike) {
-                addWorkingDays(startMs, dur, excludeWeekends, weekendStartsFriday, excludedWeekdays, excludedDatesEpochDay)
-            } else {
-                startMs + dur.millis
+            return when (dur.unit) {
+                MermaidGanttTime.DurationUnit.Millisecond,
+                MermaidGanttTime.DurationUnit.Second,
+                MermaidGanttTime.DurationUnit.Minute,
+                MermaidGanttTime.DurationUnit.Hour,
+                -> startMs + (dur.millis ?: 0L)
+                MermaidGanttTime.DurationUnit.Day,
+                MermaidGanttTime.DurationUnit.Week,
+                -> addWorkingDays(startMs, dur, excludeWeekends, weekendStartsFriday, excludedWeekdays, excludedDatesEpochDay)
+                MermaidGanttTime.DurationUnit.Month -> addCalendarMonths(
+                    startMs,
+                    dur.value,
+                    excludeWeekends,
+                    weekendStartsFriday,
+                    excludedWeekdays,
+                    excludedDatesEpochDay,
+                )
+                MermaidGanttTime.DurationUnit.Year -> addCalendarYears(
+                    startMs,
+                    dur.value,
+                    excludeWeekends,
+                    weekendStartsFriday,
+                    excludedWeekdays,
+                    excludedDatesEpochDay,
+                )
             }
         }
         return startMs
@@ -385,7 +455,11 @@ class MermaidGanttParser {
         excludedWeekdays: Set<Int>,
         excludedDatesEpochDay: Set<Long>,
     ): Long {
-        var remaining = dur.dayLikeCount
+        var remaining = when (dur.unit) {
+            MermaidGanttTime.DurationUnit.Day -> floorToInt(dur.value)
+            MermaidGanttTime.DurationUnit.Week -> floorToInt(dur.value * 7.0)
+            else -> 0
+        }
         var curDay = MermaidGanttTime.epochDay(startMs)
         // Interpret duration as "N included days" added to start.
         while (remaining > 0) {
@@ -395,6 +469,56 @@ class MermaidGanttParser {
         }
         return curDay * MermaidGanttTime.MS_PER_DAY
     }
+
+    private fun addCalendarMonths(
+        startMs: Long,
+        value: Double,
+        excludeWeekends: Boolean,
+        weekendStartsFriday: Boolean,
+        excludedWeekdays: Set<Int>,
+        excludedDatesEpochDay: Set<Long>,
+    ): Long {
+        val wholeMonths = floorToInt(value)
+        val fractional = value - wholeMonths
+        var endMs = MermaidGanttTime.addCalendarMonths(startMs, wholeMonths)
+        if (fractional > 0.0) {
+            endMs = addWorkingDays(
+                endMs,
+                MermaidGanttTime.Duration(fractional * 30.0, MermaidGanttTime.DurationUnit.Day),
+                excludeWeekends,
+                weekendStartsFriday,
+                excludedWeekdays,
+                excludedDatesEpochDay,
+            )
+        }
+        return endMs
+    }
+
+    private fun addCalendarYears(
+        startMs: Long,
+        value: Double,
+        excludeWeekends: Boolean,
+        weekendStartsFriday: Boolean,
+        excludedWeekdays: Set<Int>,
+        excludedDatesEpochDay: Set<Long>,
+    ): Long {
+        val wholeYears = floorToInt(value)
+        val fractional = value - wholeYears
+        var endMs = MermaidGanttTime.addCalendarYears(startMs, wholeYears)
+        if (fractional > 0.0) {
+            endMs = addCalendarMonths(
+                endMs,
+                fractional * 12.0,
+                excludeWeekends,
+                weekendStartsFriday,
+                excludedWeekdays,
+                excludedDatesEpochDay,
+            )
+        }
+        return endMs
+    }
+
+    private fun floorToInt(value: Double): Int = floor(value).toInt()
 
     private fun isExcludedDay(
         epochDay: Long,

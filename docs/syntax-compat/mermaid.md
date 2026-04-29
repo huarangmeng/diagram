@@ -10,7 +10,7 @@
 | classDiagram | ✅ | 关系(`<|--`/`*--`/`o--`/`-->`/`..>`/`..|>`)、可见性、泛型、接口、注解、namespace | 1 | |
 | stateDiagram-v2 | ✅ | composite、并行、history、`[*]`、note、direction | 1 | |
 | erDiagram | ✅ | 实体属性、关系基数、PK/FK/UK | 1 | 最终态（`finish()`）渲染为“实体框内嵌属性列表”，PK/FK/UK 以徽标展示；增量态为保证 pinned layout 与 append-only IR，内部仍会生成属性节点与属性连线，但会在最终渲染阶段折叠隐藏 |
-| gantt | 🟡 | dateFormat、axisFormat、tickInterval、section、task、依赖 `after`、`until`、milestone、vert、excludes、compact、click | 2 | 已支持 `click href` 与 `click call`（后者降级为 `javascript:` 外链）、`displayMode: compact`、轴刻度配置与跨图 body 的 `vert` 参考线；dateFormat 目前实现子集：`YYYY-MM-DD`/`YYYY`/`HH:mm`/`X`/`x`，duration 的 `M/y` 采用固定天数近似 |
+| gantt | ✅ | dateFormat、axisFormat、tickInterval、section、task、依赖 `after`、`until`、milestone、vert、excludes、compact、click | 2 | 已支持 Mermaid `dateFormat` 官方 token 集（含 `YYYY/YY/Q/M/MM/MMM/MMMM/D/DD/Do/DDD/DDDD/H/HH/h/hh/m/mm/s/ss/S/SS/SSS/A/a/Z/ZZ/X/x`）、`click href` 与 `click call`（后者降级为 `javascript:` 外链）、`displayMode: compact`、轴刻度配置、跨图 body 的 `vert` 参考线，以及基于起点按日历月/年推进的 `duration M/y` 精确语义；`MMM/MMMM` 当前按英文月份名解析 |
 | timeline | ✅ | title、section、events、`timeline TD/LR`、frontmatter `disableMulticolor` / `themeVariables` | 2 | 支持 `time : e1 : e2` 与续行 `: e3`；frontmatter 图级配置与主题变量已接入渲染 |
 | pie | ✅ | title、slice（`"Label" : number`）、streaming 一致性 | 2 | |
 | gauge | ✅ | title、min/max/value、streaming 一致性 | 2 | |

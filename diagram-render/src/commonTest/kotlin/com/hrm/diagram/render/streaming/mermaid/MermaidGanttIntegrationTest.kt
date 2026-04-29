@@ -99,6 +99,48 @@ class MermaidGanttIntegrationTest {
         assertTrue(vert.top <= taskA.top && vert.bottom >= taskB.bottom, "vert marker should span the chart body: $vert tasks=[$taskA,$taskB]")
     }
 
+    @Test
+    fun gantt_mermaid_dateformat_tokens_render_and_are_streaming_consistent() {
+        val src =
+            """
+            gantt
+                title Fancy Dates
+                dateFormat MMMM D, YYYY h:mm A
+                section Fancy
+                    Kickoff :k1, January 2, 2014 5:00 PM, 2h
+                    Review  :k2, January 3, 2014 8:30 AM, 90m
+            """.trimIndent() + "\n"
+
+        val one = run(src, chunkSize = src.length)
+        val chunked = run(src, chunkSize = 5)
+        val oneIr = assertIs<TimeSeriesIR>(one.ir)
+        val chunkedIr = assertIs<TimeSeriesIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertEquals(drawSignature(one.drawCommands), drawSignature(chunked.drawCommands))
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+    }
+
+    @Test
+    fun gantt_calendar_month_and_year_duration_are_precise() {
+        val src =
+            """
+            gantt
+                dateFormat YYYY-MM-DD
+                section Calendar
+                    Month Clamp :m1, 2024-01-31, 1M
+                    Leap Clamp  :y1, 2024-02-29, 1y
+            """.trimIndent() + "\n"
+
+        val snapshot = run(src, chunkSize = 6)
+        val ir = assertIs<TimeSeriesIR>(snapshot.ir)
+        val month = ir.items.first { it.id.value == "m1" }
+        val year = ir.items.first { it.id.value == "y1" }
+        assertEquals("2024-02-29", renderDate(month.range.endMs))
+        assertEquals("2025-02-28", renderDate(year.range.endMs))
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.MERMAID).let { s ->
         try {
             var i = 0
@@ -114,6 +156,13 @@ class MermaidGanttIntegrationTest {
     }
 
     private fun drawSignature(cmds: List<DrawCommand>): List<DrawSig> = cmds.map { it.toSig() }
+
+    private fun renderDate(epochMs: Long): String {
+        val civil = MermaidGanttTestDate.civil(epochMs)
+        return civil.year.toString().padStart(4, '0') +
+            "-" + civil.month.toString().padStart(2, '0') +
+            "-" + civil.day.toString().padStart(2, '0')
+    }
 
     private sealed interface DrawSig {
         val z: Int
@@ -166,4 +215,23 @@ class MermaidGanttIntegrationTest {
                 z = z,
             )
         }
+}
+
+private object MermaidGanttTestDate {
+    data class Civil(val year: Int, val month: Int, val day: Int)
+
+    fun civil(epochMs: Long): Civil {
+        val epochDay = epochMs.floorDiv(86_400_000L)
+        val z = epochDay + 719468L
+        val era = if (z >= 0) z / 146097L else (z - 146096L) / 146097L
+        val doe = (z - era * 146097L).toInt()
+        val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+        var y = yoe + era.toInt() * 400
+        val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+        val mp = (5 * doy + 2) / 153
+        val d = doy - (153 * mp + 2) / 5 + 1
+        val m = mp + if (mp < 10) 3 else -9
+        y += if (m <= 2) 1 else 0
+        return Civil(y, m, d)
+    }
 }

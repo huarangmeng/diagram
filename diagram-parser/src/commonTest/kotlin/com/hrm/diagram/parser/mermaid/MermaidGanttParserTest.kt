@@ -5,6 +5,7 @@ import com.hrm.diagram.core.streaming.Token
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MermaidGanttParserTest {
@@ -103,5 +104,43 @@ class MermaidGanttParserTest {
         assertEquals("vert", vert.payload["gantt.kind"])
         assertEquals(2 * 60_000L, vert.range.endMs - vert.range.startMs)
         assertEquals(0L, task.range.startMs, "vert should not advance the sequential baseline: task=$task vert=$vert")
+    }
+
+    @Test
+    fun parses_mermaid_dateformat_token_variants_in_tasks() {
+        val p = feedAll(
+            """
+            gantt
+                dateFormat MMMM D, YYYY h:mm A
+                section Fancy
+                    Kickoff :k1, January 2, 2014 5:00 PM, 2h
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        val item = ir.items.single()
+        assertEquals("k1", item.id.value)
+        assertEquals(2 * 3_600_000L, item.range.endMs - item.range.startMs)
+    }
+
+    @Test
+    fun parses_calendar_month_and_year_duration_precisely() {
+        val p = feedAll(
+            """
+            gantt
+                dateFormat YYYY-MM-DD
+                section Calendar
+                    Month Clamp :m1, 2024-01-31, 1M
+                    Leap Clamp  :y1, 2024-02-29, 1y
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        val month = ir.items.first { it.id.value == "m1" }
+        val year = ir.items.first { it.id.value == "y1" }
+        val expectedMonth = MermaidGanttTime.parseDateTime("2024-02-29", "YYYY-MM-DD")
+        val expectedYear = MermaidGanttTime.parseDateTime("2025-02-28", "YYYY-MM-DD")
+        assertNotNull(expectedMonth)
+        assertNotNull(expectedYear)
+        assertEquals(expectedMonth.epochMs, month.range.endMs)
+        assertEquals(expectedYear.epochMs, year.range.endMs)
     }
 }
