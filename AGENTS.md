@@ -161,7 +161,16 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
   - ✅ 已修复：`erDiagram` 最终态（`finish()`）渲染为“实体框内嵌属性列表”（增量态内部仍保留属性节点以满足 append-only IR 与 pinned layout，最终渲染阶段折叠隐藏）。
   - ✅ 已修复：Mermaid 颜色值支持 CSS 颜色关键字与 `rgb/rgba`、`hsl/hsla`；无法识别的颜色会被忽略并记录 `MERMAID-W011`。
   - ⚠️ 已知限制：PlantUML / DOT 仍是 stub pipeline，不属于 Phase 1 已交付范围。
-- ⬜ Phase 2 ~ 7：规划仍有效，但绝大多数能力尚未实现；`composeApp` 中这些图型目前主要用于样例占位与后续验收清单。
+- ✅ Phase 2（已完成）：
+  - ✅ 已完成 Mermaid **pie / gauge / timeline / gantt / journey / mindmap / kanban / xyChart / sankey / gitGraph** 全链路实现，并额外落地 `quadrantChart`；上述图型均已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
+  - ✅ 已补齐本轮优先收口的兼容能力：`timeline.disableMulticolor`、`kanban priority/ticketBaseUrl`、`xyChart area/showDataLabel`、`mindmap bang/cloud/双侧布局/icon`、`gantt axisFormat/tickInterval/click/compact/vert/dateFormat/M/y 精确时长语义`。
+  - ✅ `journey` 已支持阶段 / 评分 / actors；`sankey` 已支持 `source,target,value` 主链路；`gitGraph` 已支持 `commit/branch/checkout/merge/cherry-pick/id/type/tag` 基础命令集。
+- ✅ Phase 3（已完成）：
+  - ✅ `requirementDiagram` 已完成：支持 requirement / element / relation / direction、`style` / `classDef` / `class` / `:::` 样式链路，并补齐 requirement / text / docRef 中的基础 markdown 保真渲染；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
+  - ✅ `architectureDiagram` 已完成：支持 `architecture-beta` 的 group / nested group / service / junction / port-side edge / `{group}` boundary edge / icon；GraphIR 的 `style` / `classDef` / `class` / `:::` 样式链路同样可用，并兼容无 icon 简写与 iconify 名称透传；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
+  - ✅ `c4` 已完成：支持 `C4Context/C4Container/C4Component/C4Dynamic/C4Deployment`、常用元素（`Person/System/Container/Component` 家族）、边界嵌套、`Rel/BiRel/RelIndex/Rel_*`、`AddElementTag/AddRelTag`、`UpdateElementStyle/UpdateRelStyle`、`UpdateLayoutConfig`、元素/关系/边界 `$tags` / `$link` / legend，以及 `RoundedBoxShape` / `EightSidedShape` / `DashedLine` / `DottedLine` / `BoldLine` helper；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
+  - ✅ `block` 已完成：支持 `block` / `block-beta`、显式 `columns` 网格、`space[:n]`、列跨度、nested `block ... end`、常用形状、block arrow、`-->` / `---` 与带标签连线，以及 `style` / `classDef` / `class` / `:::` GraphIR 样式链路；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
+- ⬜ Phase 4 ~ 7：规划仍有效，但尚未进入实现主线；`composeApp` 中这些图型目前主要用于样例占位与后续验收清单。
 - ⚠️ 工程基线：
   - ✅ 仓库级 `./gradlew allTests` 当前可通过，可作为后续开发的统一回归入口。
   - ✅ `diagram-core` / `diagram-parser` / `diagram-layout` / `diagram-render` 已具备成体系的 `commonTest` 覆盖，说明核心图表链路已进入“可迭代开发”阶段，而非仅有骨架。

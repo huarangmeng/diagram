@@ -26,6 +26,13 @@
 | MERMAID-E205 | kanban 语法不匹配（column / card / metadata 行） | kanban parser |
 | MERMAID-E206 | xyChart 语法不匹配（axis / series 行） | xyChart parser |
 | MERMAID-E207 | quadrantChart 语法不匹配（axis / quadrant / point 行） | quadrantChart parser |
+| MERMAID-E208 | journey 语法不匹配（title / section / step 行） | journey parser |
+| MERMAID-E209 | sankey 语法不匹配（source,target,value 行） | sankey parser |
+| MERMAID-E210 | gitGraph 语法不匹配（commit / branch / checkout / merge / cherry-pick 行） | gitGraph parser |
+| MERMAID-E211 | requirementDiagram 语法不匹配（block / property / relation 行） | requirementDiagram parser |
+| MERMAID-E212 | architectureDiagram 语法不匹配（group / service / junction / edge 行） | architectureDiagram parser |
+| MERMAID-E213 | c4Diagram 语法不匹配（header / element / boundary / relation / update style 行） | c4 parser |
+| MERMAID-E214 | block 图语法不匹配（block-beta / columns / row item / block / edge 行） | block parser |
 | MERMAID-W001 | 节点未声明，自动创建占位 | 任意图 |
 | MERMAID-W010 | 外部 CSS class 已忽略（不支持） | mermaid style resolver / parser |
 | MERMAID-W011 | 无法识别的颜色值已忽略（支持 CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`、以及 hex） | mermaid themeVariables / style parser |

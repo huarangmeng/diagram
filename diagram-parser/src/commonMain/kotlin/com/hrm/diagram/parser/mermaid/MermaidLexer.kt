@@ -13,7 +13,7 @@ import com.hrm.diagram.core.streaming.Token
  *  - [LexMode.Sequence]  : Phase-2 sequenceDiagram tokens (arrows ->>/-->/-x, COLON-LABEL, keywords).
  *  - [LexMode.Er]        : Mermaid `erDiagram` tokens (relationship operators + entity blocks).
  */
-enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant }
+enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block }
 
 /**
  * Resumable lexer for the Mermaid Phase 1 + 2 subset (see [MermaidTokenKind]).
@@ -66,6 +66,50 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     safePoint = baseOffset + pos
                     mode = LexMode.Quadrant
                 }
+                mode == LexMode.Auto && buf.startsWith("sankey-beta", pos) -> {
+                    val end = pos + "sankey-beta".length
+                    tokens += Token(MermaidTokenKind.SANKEY_HEADER, baseOffset + pos, baseOffset + end, "sankey-beta")
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.Sankey
+                }
+                mode == LexMode.Auto && buf.startsWith("gitGraph", pos) -> {
+                    val end = pos + "gitGraph".length
+                    tokens += Token(MermaidTokenKind.GITGRAPH_HEADER, baseOffset + pos, baseOffset + end, "gitGraph")
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.GitGraph
+                }
+                mode == LexMode.Auto && buf.startsWith("requirementDiagram", pos) -> {
+                    val end = pos + "requirementDiagram".length
+                    tokens += Token(MermaidTokenKind.REQUIREMENT_HEADER, baseOffset + pos, baseOffset + end, "requirementDiagram")
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.Requirement
+                }
+                mode == LexMode.Auto && buf.startsWith("architecture-beta", pos) -> {
+                    val end = pos + "architecture-beta".length
+                    tokens += Token(MermaidTokenKind.ARCHITECTURE_HEADER, baseOffset + pos, baseOffset + end, "architecture-beta")
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.Architecture
+                }
+                mode == LexMode.Auto && (buf.startsWith("block-beta", pos) || buf.startsWith("block", pos)) -> {
+                    val header = if (buf.startsWith("block-beta", pos)) "block-beta" else "block"
+                    val end = pos + header.length
+                    tokens += Token(MermaidTokenKind.BLOCK_HEADER, baseOffset + pos, baseOffset + end, header)
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.Block
+                }
+                mode == LexMode.Auto && startsWithAny(buf, pos, C4_HEADERS) != null -> {
+                    val header = startsWithAny(buf, pos, C4_HEADERS)!!
+                    val end = pos + header.length
+                    tokens += Token(MermaidTokenKind.C4_HEADER, baseOffset + pos, baseOffset + end, header)
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.C4
+                }
                 (mode == LexMode.Mindmap || mode == LexMode.Kanban) && isLineStart(buf, pos) && (c == ' ' || c == '\t') -> {
                     var end = pos
                     var cols = 0
@@ -112,6 +156,16 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 c == '\r' -> { pos++; safePoint = baseOffset + pos }
                 c == ' ' || c == '\t' -> { pos++; safePoint = baseOffset + pos }
                 mode == LexMode.Gantt -> {
+                    var end = pos
+                    while (end < buf.length && buf[end] != '\n' && buf[end] != '\r') end++
+                    if (end >= buf.length && !eos) {
+                        return suspendHere(buf, pos, baseOffset, tokens, diags, mode)
+                    }
+                    tokens += Token(MermaidTokenKind.IDENT, baseOffset + pos, baseOffset + end, buf.substring(pos, end))
+                    pos = end
+                    safePoint = baseOffset + pos
+                }
+                mode == LexMode.Journey || mode == LexMode.Sankey || mode == LexMode.GitGraph || mode == LexMode.Requirement || mode == LexMode.Architecture || mode == LexMode.C4 || mode == LexMode.Block -> {
                     var end = pos
                     while (end < buf.length && buf[end] != '\n' && buf[end] != '\r') end++
                     if (end >= buf.length && !eos) {
@@ -752,6 +806,13 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                             MermaidTokenKind.KANBAN_HEADER -> mode = LexMode.Kanban
                             MermaidTokenKind.XYCHART_HEADER -> mode = LexMode.XYChart
                             MermaidTokenKind.QUADRANT_HEADER -> mode = LexMode.Quadrant
+                            MermaidTokenKind.JOURNEY_HEADER -> mode = LexMode.Journey
+                            MermaidTokenKind.SANKEY_HEADER -> mode = LexMode.Sankey
+                            MermaidTokenKind.GITGRAPH_HEADER -> mode = LexMode.GitGraph
+                            MermaidTokenKind.REQUIREMENT_HEADER -> mode = LexMode.Requirement
+                            MermaidTokenKind.ARCHITECTURE_HEADER -> mode = LexMode.Architecture
+                            MermaidTokenKind.C4_HEADER -> mode = LexMode.C4
+                            MermaidTokenKind.BLOCK_HEADER -> mode = LexMode.Block
                         }
                     }
                 }
@@ -834,6 +895,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
     private companion object {
         private val DIRECTIONS = setOf("TD", "TB", "LR", "RL", "BT")
         private val HEADER_KEYWORDS = setOf("flowchart", "graph")
+        private val C4_HEADERS = listOf("C4Context", "C4Container", "C4Component", "C4Dynamic", "C4Deployment")
 
         private fun isIdentStart(c: Char): Boolean =
             c.isLetter() || c == '_'
@@ -856,6 +918,13 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 if (text == "kanban") return MermaidTokenKind.KANBAN_HEADER
                 if (text == "xychart") return MermaidTokenKind.XYCHART_HEADER
                 if (text == "quadrantChart") return MermaidTokenKind.QUADRANT_HEADER
+                if (text == "journey") return MermaidTokenKind.JOURNEY_HEADER
+                if (text == "sankey") return MermaidTokenKind.SANKEY_HEADER
+                if (text == "gitGraph") return MermaidTokenKind.GITGRAPH_HEADER
+                if (text == "requirementDiagram") return MermaidTokenKind.REQUIREMENT_HEADER
+                if (text == "architecture-beta") return MermaidTokenKind.ARCHITECTURE_HEADER
+                if (text in C4_HEADERS) return MermaidTokenKind.C4_HEADER
+                if (text == "block-beta" || text == "block") return MermaidTokenKind.BLOCK_HEADER
                 if (text in HEADER_KEYWORDS) return MermaidTokenKind.KEYWORD_HEADER
                 if (text in DIRECTIONS) return MermaidTokenKind.DIRECTION
             }
@@ -965,7 +1034,42 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                 if (text == "quadrantChart") return MermaidTokenKind.QUADRANT_HEADER
                 return MermaidTokenKind.IDENT
             }
+            if (mode == LexMode.Journey) {
+                if (text == "journey") return MermaidTokenKind.JOURNEY_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Sankey) {
+                if (text == "sankey" || text == "sankey-beta") return MermaidTokenKind.SANKEY_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.GitGraph) {
+                if (text == "gitGraph") return MermaidTokenKind.GITGRAPH_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Requirement) {
+                if (text == "requirementDiagram") return MermaidTokenKind.REQUIREMENT_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Architecture) {
+                if (text == "architecture-beta") return MermaidTokenKind.ARCHITECTURE_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.C4) {
+                if (text in C4_HEADERS) return MermaidTokenKind.C4_HEADER
+                return MermaidTokenKind.IDENT
+            }
+            if (mode == LexMode.Block) {
+                if (text == "block-beta" || text == "block") return MermaidTokenKind.BLOCK_HEADER
+                return MermaidTokenKind.IDENT
+            }
             return MermaidTokenKind.IDENT
+        }
+
+        private fun startsWithAny(buf: String, pos: Int, candidates: List<String>): String? {
+            for (candidate in candidates) {
+                if (buf.startsWith(candidate, pos)) return candidate
+            }
+            return null
         }
 
         private fun isLineStart(buf: String, pos: Int): Boolean =

@@ -255,13 +255,13 @@ flowchart → sequenceDiagram → classDiagram → stateDiagram → erDiagram。
 gantt、timeline、pie、gauge、journey、mindmap、xyChart、sankey、kanban、gitGraph。
 需要：时间轴 / 树 / 桑基 / 网格等布局，xyChart 坐标系。
 
-当前状态：⬜ 未开始实现；`composeApp` 已放入样例文本，主要作为后续验收清单。
+当前状态：✅ 已完成；`gantt`、`timeline`、`pie`、`gauge`、`journey`、`mindmap`、`xyChart`、`sankey`、`kanban`、`gitGraph` 均已落地 Mermaid streaming 主链路、`commonTest` 与 one-shot vs chunked 一致性校验，并额外完成了 `quadrantChart`。`composeApp` 中对应样例已可作为 Phase 2 验收集使用。
 
-### Phase 3 — Mermaid 进阶结构图
+### Phase 3 — Mermaid 进阶结构图 ✅ 已完成
 requirementDiagram、architectureDiagram、c4、block。
 正交布局 + A* 直角路由，集群嵌套增强。
 
-当前状态：⬜ 未开始实现；`composeApp` 已放入样例文本，主要作为后续验收清单。
+当前状态：✅ 已完成；`requirementDiagram` 已支持 requirement / element / relation / direction、`style` / `classDef` / `class` / `:::` 样式链路，以及 requirement 文本中的基础 markdown 保真渲染。`architectureDiagram` 已覆盖 `architecture-beta` 官方主语法：group / nested group / service / junction / port-side edge / `{group}` boundary edge / icon，并兼容内置 icon 与 iconify 名称透传。`c4` 已补齐 `C4Context/C4Container/C4Component/C4Dynamic/C4Deployment`、常用元素/边界、`Rel/BiRel/RelIndex/Rel_*`、`AddElementTag/AddRelTag`、`UpdateElementStyle/UpdateRelStyle`、`UpdateLayoutConfig`、`$tags` / `$link` / legend，以及 `RoundedBoxShape` / `EightSidedShape` / `DashedLine` / `DottedLine` / `BoldLine` helper。`block` 已补齐 `block` / `block-beta`、显式 `columns`、`space[:n]`、列跨度、nested `block ... end`、常用形状、block arrow、`-->` / `---` 与带标签连线，并全部接入 Mermaid streaming 主链路、`commonTest` 与 one-shot vs chunked 一致性校验。
 
 ### Phase 4 — PlantUML 主体
 sequence、usecase、class、activity、component、state、object、deployment、erd。

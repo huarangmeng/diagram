@@ -40,7 +40,7 @@ internal class MermaidSessionPipeline(
     private val pendingLines: MutableList<List<Token>> = ArrayList()
     private var sub: MermaidSubPipeline? = null
 
-    private enum class HeaderHint { Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant }
+    private enum class HeaderHint { Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block }
     private var headerHint: HeaderHint? = null
 
     // --- Style parsing state (Phase 1: themeVariables + classDef) ---
@@ -140,6 +140,27 @@ internal class MermaidSessionPipeline(
                     }
                     MermaidTokenKind.QUADRANT_HEADER -> {
                         sub = MermaidQuadrantChartSubPipeline(); break
+                    }
+                    MermaidTokenKind.JOURNEY_HEADER -> {
+                        sub = MermaidJourneySubPipeline(textMeasurer); break
+                    }
+                    MermaidTokenKind.SANKEY_HEADER -> {
+                        sub = MermaidSankeySubPipeline(textMeasurer); break
+                    }
+                    MermaidTokenKind.GITGRAPH_HEADER -> {
+                        sub = MermaidGitGraphSubPipeline(textMeasurer); break
+                    }
+                    MermaidTokenKind.REQUIREMENT_HEADER -> {
+                        sub = MermaidRequirementSubPipeline(textMeasurer); break
+                    }
+                    MermaidTokenKind.ARCHITECTURE_HEADER -> {
+                        sub = MermaidArchitectureSubPipeline(textMeasurer); break
+                    }
+                    MermaidTokenKind.C4_HEADER -> {
+                        sub = MermaidC4SubPipeline(textMeasurer); break
+                    }
+                    MermaidTokenKind.BLOCK_HEADER -> {
+                        sub = MermaidBlockSubPipeline(textMeasurer); break
                     }
                     else -> { /* keep looking */ }
                 }
@@ -301,6 +322,13 @@ internal class MermaidSessionPipeline(
                     t.startsWith("kanban") -> HeaderHint.Kanban
                     t.startsWith("xychart") -> HeaderHint.XYChart
                     t.startsWith("quadrantChart") -> HeaderHint.Quadrant
+                    t.startsWith("journey") -> HeaderHint.Journey
+                    t.startsWith("sankey") -> HeaderHint.Sankey
+                    t.startsWith("gitGraph") -> HeaderHint.GitGraph
+                    t.startsWith("requirementDiagram") -> HeaderHint.Requirement
+                    t.startsWith("architecture-beta") -> HeaderHint.Architecture
+                    t.startsWith("C4Context") || t.startsWith("C4Container") || t.startsWith("C4Component") || t.startsWith("C4Dynamic") || t.startsWith("C4Deployment") -> HeaderHint.C4
+                    t.startsWith("block-beta") -> HeaderHint.Block
                     else -> null
                 }
             }
@@ -309,11 +337,15 @@ internal class MermaidSessionPipeline(
                 headerHint == HeaderHint.Flowchart ||
                     headerHint == HeaderHint.Er ||
                     headerHint == HeaderHint.State ||
-                    headerHint == HeaderHint.Class
+                    headerHint == HeaderHint.Class ||
+                    headerHint == HeaderHint.Requirement ||
+                    headerHint == HeaderHint.Architecture ||
+                    headerHint == HeaderHint.C4 ||
+                    headerHint == HeaderHint.Block
             val allowClassAssignDirective =
-                headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State
+                headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
             val allowTripleColonRewrite =
-                headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State
+                headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
 
             if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
                 // Flush pending kept run before the skipped line.
@@ -439,11 +471,15 @@ internal class MermaidSessionPipeline(
                     headerHint == HeaderHint.Flowchart ||
                         headerHint == HeaderHint.Er ||
                         headerHint == HeaderHint.State ||
-                        headerHint == HeaderHint.Class
+                        headerHint == HeaderHint.Class ||
+                        headerHint == HeaderHint.Requirement ||
+                        headerHint == HeaderHint.Architecture ||
+                        headerHint == HeaderHint.C4 ||
+                        headerHint == HeaderHint.Block
                 val allowClassAssignDirective =
-                    headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State
+                    headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
                 val allowTripleColonRewrite =
-                    headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State
+                    headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
 
                 if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
                     val parsed = MermaidStyleParsers.parseClassDefLine(trimmedLeading.trimEnd())
@@ -570,6 +606,9 @@ internal class MermaidSessionPipeline(
             is com.hrm.diagram.core.ir.XYChartIR -> ir.copy(styleHints = mergeHints(ir.styleHints, extras))
             is com.hrm.diagram.core.ir.QuadrantChartIR -> ir.copy(styleHints = mergeHints(ir.styleHints, extras))
             is com.hrm.diagram.core.ir.TreeIR -> ir.copy(styleHints = mergeHints(ir.styleHints, extras))
+            is com.hrm.diagram.core.ir.JourneyIR -> ir.copy(styleHints = mergeHints(ir.styleHints, extras))
+            is com.hrm.diagram.core.ir.SankeyIR -> ir.copy(styleHints = mergeHints(ir.styleHints, extras))
+            is com.hrm.diagram.core.ir.GitGraphIR -> ir.copy(styleHints = mergeHints(ir.styleHints, extras))
             else -> ir
         }
         return if (updated === ir) snapshot else snapshot.copy(ir = updated)

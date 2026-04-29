@@ -14,17 +14,17 @@
 | timeline | ✅ | title、section、events、`timeline TD/LR`、frontmatter `disableMulticolor` / `themeVariables` | 2 | 支持 `time : e1 : e2` 与续行 `: e3`；frontmatter 图级配置与主题变量已接入渲染 |
 | pie | ✅ | title、slice（`"Label" : number`）、streaming 一致性 | 2 | |
 | gauge | ✅ | title、min/max/value、streaming 一致性 | 2 | |
-| journey | ⬜ | section、task with score | 2 | |
+| journey | ✅ | title、section、task with score、actors | 2 | 采用阶段列 + 评分轨道渲染，任务卡会展示参与角色，并以折线串联步骤评分走势 |
 | mindmap | ✅ | 缩进树、默认节点、`[]`/`()`/`(( ))`/`)) ((`、`) (`、`{{ }}`、`::icon(...)` | 2 | 已支持 bang / cloud 与双侧布局；`DrawIcon` 会输出结构化图标命令，未集成宿主 icon font 时以回退字样显示；`:::` class 行仍忽略并记 warning |
 | xyChart | ✅ | `xychart`/`xychart-beta`、line/bar/scatter/area、x/yAxis、title、horizontal、frontmatter `showDataLabel` / `themeVariables` | 2 | 当前支持分类 x 轴和数值范围 x 轴；log/time axis 仍未实现 |
 | quadrantChart | ✅ | title、x/y-axis、quadrant-1..4、points、点内联样式、frontmatter `themeVariables` | 2 | 支持 `color/radius/stroke-color/stroke-width`；`classDef` / `:::class` 当前忽略并记 warning |
-| sankey | ⬜ | source,target,value | 2 | |
+| sankey | ✅ | `sankey`/`sankey-beta`、source,target,value | 2 | 支持基础 CSV 流量行与 streaming 一致性；当前未接入更细的 frontmatter/config 视觉开关 |
 | kanban | ✅ | column、card、`@{ assigned/ticket/priority }` metadata、frontmatter `ticketBaseUrl` | 2 | `priority` 已做 badge 化展示；`ticketBaseUrl` 会在渲染阶段生成外链命令 |
-| gitGraph | ⬜ | commit、branch、merge、cherry-pick、tag | 2 | |
-| requirementDiagram | ⬜ | requirement/element/relation | 3 | |
-| architectureDiagram | ⬜ | service、group、edge with port、icon | 3 | |
-| c4 | ⬜ | C4Context/Container/Component/Code/Deployment、System_Boundary | 3 | |
-| block | ⬜ | block-beta、columns、空槽、合并 | 3 | |
+| gitGraph | ✅ | `gitGraph`、commit、branch、checkout/switch、merge、cherry-pick、id/type/tag | 2 | 当前聚焦 LR 主布局；`commit/merge` 的 `id/type/tag` 已支持，`cherry-pick` 支持按已存在提交 id 生成摘樱桃提交 |
+| requirementDiagram | ✅ | direction、requirement/function/interface/performance/physical/designConstraint、element、relation、style/classDef/class/::: | 3 | 已支持 SysML requirement 基础块、`contains/copies/derives/satisfies/verifies/refines/traces` 关系、GraphIR 样式链路，以及 requirement / text / docRef 中的基础 markdown 保真渲染（强调/粗体/代码/链接文本） |
+| architectureDiagram | ✅ | service、group、nested group、junction、edge with port、`{group}` boundary edge、icon、style/classDef/class/::: | 3 | 已支持 `architecture-beta` 官方语法主链路：嵌套 group、service/junction、端口侧边 `T/B/L/R` 连线、`{group}` 边界锚点、内置 icon 与 `logos:*` / `mdi:*` 等 iconify 名称透传，以及 GraphIR 样式链路 |
+| c4 | ✅ | C4Context/Container/Component/Dynamic/Deployment、Person/System/Container/Component 家族、Boundary、Rel/BiRel/RelIndex/Rel_U/D/L/R/Back、AddElementTag、AddRelTag、UpdateElementStyle、UpdateRelStyle、`$tags`、`$link`、legend | 3 | 已支持 Mermaid C4 实验语法官方可用主链路：元素/边界嵌套、关系方向变体、`$tags` / `$link`、legend、`UpdateLayoutConfig`，以及 `RoundedBoxShape` / `EightSidedShape` / `DashedLine` / `DottedLine` / `BoldLine` helper；`sprite` 仍按 Mermaid 官方现状不纳入支持面 |
+| block | ✅ | block、block-beta、columns、`space[:n]`、width span（`id:2`）、nested `block ... end`、常用形状、block arrow、边、style/classDef/class/::: | 3 | 已支持显式网格布局、空槽、嵌套 block、列跨度、`-->` / `---` 连线、带标签连接（含非引号文本）、`style/classDef/class/:::` 样式链路，以及圆角框/圆/双圆/菱形/六边形/圆柱/子程序/平行四边形/梯形/非对称块/block arrow 等官方高频形状 |
 
 ## 文档参考
 - 官方：https://mermaid.js.org/intro/syntax-reference.html

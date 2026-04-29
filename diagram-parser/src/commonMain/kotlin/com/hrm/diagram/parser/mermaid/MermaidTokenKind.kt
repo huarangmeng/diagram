@@ -124,6 +124,13 @@ object MermaidTokenKind {
     const val QUADRANT_HEADER: Int = 140      // "quadrantChart"
     const val LABEL_CLOUD: Int = 141          // `)text(` → Cloud (mindmap)
     const val LABEL_BANG: Int = 142           // `))text((` → Bang (mindmap)
+    const val JOURNEY_HEADER: Int = 143       // "journey"
+    const val SANKEY_HEADER: Int = 144        // "sankey" / "sankey-beta"
+    const val GITGRAPH_HEADER: Int = 145      // "gitGraph"
+    const val REQUIREMENT_HEADER: Int = 146   // "requirementDiagram"
+    const val ARCHITECTURE_HEADER: Int = 147  // "architecture-beta"
+    const val C4_HEADER: Int = 148            // "C4Context" / "C4Container" / "C4Component" / "C4Dynamic" / "C4Deployment"
+    const val BLOCK_HEADER: Int = 149         // "block-beta" / "block"
 
     fun nameOf(kind: Int): String = when (kind) {
         NEWLINE -> "NEWLINE"
@@ -218,6 +225,13 @@ object MermaidTokenKind {
         QUADRANT_HEADER -> "QUADRANT_HEADER"
         LABEL_CLOUD -> "LABEL_CLOUD"
         LABEL_BANG -> "LABEL_BANG"
+        JOURNEY_HEADER -> "JOURNEY_HEADER"
+        SANKEY_HEADER -> "SANKEY_HEADER"
+        GITGRAPH_HEADER -> "GITGRAPH_HEADER"
+        REQUIREMENT_HEADER -> "REQUIREMENT_HEADER"
+        ARCHITECTURE_HEADER -> "ARCHITECTURE_HEADER"
+        C4_HEADER -> "C4_HEADER"
+        BLOCK_HEADER -> "BLOCK_HEADER"
         else -> "UNKNOWN($kind)"
     }
 }
