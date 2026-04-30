@@ -38,6 +38,15 @@
 | MERMAID-W011 | 无法识别的颜色值已忽略（支持 CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`、以及 hex） | mermaid themeVariables / style parser |
 | MERMAID-W012 | 不支持的样式 key 已忽略 | mermaid style parser |
 | PLANTUML-E001 | 缺失 `@enduml` 闭合 | block parser |
+| PLANTUML-E002 | sequence 语法不匹配（participant / message / note / fragment 行） | sequence parser |
+| PLANTUML-E003 | class 语法不匹配（class / member / relation / note 行） | class parser |
+| PLANTUML-E004 | state 语法不匹配（state / transition / note / composite 行） | state parser |
+| PLANTUML-E005 | component 语法不匹配（component / cluster / relation 行） | component parser |
+| PLANTUML-E006 | usecase 语法不匹配（actor / usecase / cluster / relation 行） | usecase parser |
+| PLANTUML-E007 | activity 语法不匹配（action / if / while / note 行） | activity parser |
+| PLANTUML-E008 | object 语法不匹配（object / property / relation 行） | object parser |
+| PLANTUML-E009 | deployment 语法不匹配（node / artifact / database / relation 行） | deployment parser |
+| PLANTUML-E010 | erd 语法不匹配（entity / attribute / crowfoot relation 行） | erd parser |
 | PLANTUML-W001 | 未识别 `skinparam`，已忽略 | lowering |
 | DOT-E001 | 词法错误：未闭合字符串 | lexer |
 | DOT-W001 | 不支持的属性已忽略 | attrs lowering |

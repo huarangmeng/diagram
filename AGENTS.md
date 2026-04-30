@@ -170,7 +170,19 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
   - ✅ `architectureDiagram` 已完成：支持 `architecture-beta` 的 group / nested group / service / junction / port-side edge / `{group}` boundary edge / icon；GraphIR 的 `style` / `classDef` / `class` / `:::` 样式链路同样可用，并兼容无 icon 简写与 iconify 名称透传；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
   - ✅ `c4` 已完成：支持 `C4Context/C4Container/C4Component/C4Dynamic/C4Deployment`、常用元素（`Person/System/Container/Component` 家族）、边界嵌套、`Rel/BiRel/RelIndex/Rel_*`、`AddElementTag/AddRelTag`、`UpdateElementStyle/UpdateRelStyle`、`UpdateLayoutConfig`、元素/关系/边界 `$tags` / `$link` / legend，以及 `RoundedBoxShape` / `EightSidedShape` / `DashedLine` / `DottedLine` / `BoldLine` helper；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
   - ✅ `block` 已完成：支持 `block` / `block-beta`、显式 `columns` 网格、`space[:n]`、列跨度、nested `block ... end`、常用形状、block arrow、`-->` / `---` 与带标签连线，以及 `style` / `classDef` / `class` / `:::` GraphIR 样式链路；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
-- ⬜ Phase 4 ~ 7：规划仍有效，但尚未进入实现主线；`composeApp` 中这些图型目前主要用于样例占位与后续验收清单。
+- 🟡 Phase 4（进行中）：
+  - 🟡 `PlantUML sequence`、`PlantUML class`、`PlantUML state`、`PlantUML component`、`PlantUML usecase`、`PlantUML activity`、`PlantUML object`、`PlantUML deployment` 与 `PlantUML erd` 最小可用链路已落地：`Diagram.session(SourceLanguage.PLANTUML)` 已切到真实 `PlantUmlSessionPipeline`，不再走 `StubSessionPipeline`。
+  - 🟡 `sequence` 当前已支持 `@startuml/@enduml`、participant/actor/control/boundary/database/collections/queue、`->`/`<-`/`->>`/`<<-`/`-->`/`<--`/`-->>`/`<<--`、note、activate/deactivate、`return`、`autonumber`、`group/alt/opt/loop/par/critical/break`，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `class` 当前已支持 class/interface/abstract class/enum、成员块、dotted member、`<|--`/`<|..`/`*--`/`o--`/`-->`/`..>`/`--`/`..` 关系、泛型 `<T>` 与定向 note，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `state` 当前已支持 state/state alias/state description、composite/nested composite、`[*]`/`[H]`/`[H*]`、`<<choice>>`/`<<fork>>`/`<<join>>`/`<<history>>`/`<<deep_history>>`、note、`-->`、方向声明与并行分区分隔线 `--` 的最小解析兼容，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `component` 当前已支持 component / `[Component] as X` / interface / port / portin / portout、`-->` / `<--` / `..>` / `<..` / `--` / `..` 关系，以及 package / cloud / node 嵌套，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `usecase` 当前已支持 actor / `:Actor:`、`(usecase)` / `usecase X` / `usecase "Label" as X`、`-->` / `<--` / `..>` / `<..` / `--` / `..` / `<|--` 关系，以及 package / rectangle 嵌套，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `activity` 当前已支持 `start` / `stop`、`:action;`、`if/else/endif`、`while/endwhile` 与 `note`，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `object` 当前已支持 object / `object "Label" as X`、属性块 `{ ... }`、`Obj : key = value`，以及 `-->` / `<--` / `..>` / `<..` / `--` / `..` / `<|--` / `*--` / `o--` 关系，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `deployment` 当前已支持 node / artifact / database / cloud / frame / package、`-->` / `<--` / `..>` / `<..` / `--` / `..` 关系与 cluster 嵌套，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - 🟡 `erd` 当前已支持 `entity`、属性块 `{ ... }`、`*`/`+`/`#` 属性标记、`<<PK/FK/UK>>`、crowfoot 关系如 `||--o{`，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
+  - ⚠️ 当前 `skinparam` 仅记录 `PLANTUML-W001` 后忽略；其中 `state` 的 `--` 仅做最小解析兼容，尚未建模真正 region 语义；`component` 尚未覆盖 `() interface` 简写、database/queue/frame/rectangle、真实 port 锚点与 note；`usecase` 尚未覆盖 note、`/` 分隔 actor 变体、真正的 include/extend 语义建模与更完整样式体系；`activity` 尚未覆盖 `elseif`、`repeat`、`fork/end fork`、swimlane `|name|` 与更完整活动图语法；`object` 尚未覆盖 note、map/json 风格对象、package/namespace、方法调用样式与更完整实例关系语义；`deployment` 尚未覆盖 note、actor/queue/storage 等更多部署元素、sprite/icon、port/anchor 语义与更完整实例拓扑；`erd` 尚未覆盖 note、复杂别名、更多关系装饰、非标准 attribute 语法与更完整数据库样式体系；Phase 5 图型仍待继续实现。
+- ⬜ Phase 5 ~ 7：规划仍有效，但尚未进入实现主线；`composeApp` 中这些图型目前主要用于样例占位与后续验收清单。
 - ⚠️ 工程基线：
   - ✅ 仓库级 `./gradlew allTests` 当前可通过，可作为后续开发的统一回归入口。
   - ✅ `diagram-core` / `diagram-parser` / `diagram-layout` / `diagram-render` 已具备成体系的 `commonTest` 覆盖，说明核心图表链路已进入“可迭代开发”阶段，而非仅有骨架。

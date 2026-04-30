@@ -9,6 +9,7 @@ import com.hrm.diagram.render.streaming.DiagramSession
 import com.hrm.diagram.render.streaming.SessionPipeline
 import com.hrm.diagram.render.streaming.StubSessionPipeline
 import com.hrm.diagram.render.streaming.mermaid.MermaidSessionPipeline
+import com.hrm.diagram.render.streaming.plantuml.PlantUmlSessionPipeline
 
 /**
  * Top-level entry point for the diagram framework. Verbose API surface lives in subpackages
@@ -24,7 +25,8 @@ object Diagram {
      *
      * If [pipeline] is omitted, dispatches to the best registered pipeline for [language]:
      * - [SourceLanguage.MERMAID] → [MermaidSessionPipeline] (Phase 1 flowchart subset)
-     * - PlantUML / DOT             → [StubSessionPipeline] (parsers land in later phases)
+     * - [SourceLanguage.PLANTUML] → [PlantUmlSessionPipeline] (Phase 4 sequence MVP)
+     * - [SourceLanguage.DOT]      → [StubSessionPipeline] (parsers land in later phases)
      */
     fun session(
         language: SourceLanguage,
@@ -39,6 +41,7 @@ object Diagram {
         textMeasurer: TextMeasurer,
     ): SessionPipeline = when (language) {
         SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = textMeasurer)
-        SourceLanguage.PLANTUML, SourceLanguage.DOT -> StubSessionPipeline()
+        SourceLanguage.PLANTUML -> PlantUmlSessionPipeline(textMeasurer = textMeasurer)
+        SourceLanguage.DOT -> StubSessionPipeline()
     }
 }
