@@ -44,17 +44,50 @@ class PlantUmlComponentParserTest {
         val ir = assertIs<GraphIR>(
             parse(
                 """
-                component "API" as Api
+                component "API" as Api {
+                  portin In
+                  portout Out
+                }
                 interface "HTTP" as Http
-                portin In
-                portout Out
+                () "gRPC" as Grpc
                 """.trimIndent() + "\n",
             ).snapshot(),
         )
         assertEquals(NodeShape.Component, ir.nodes.first { it.id == NodeId("Api") }.shape)
         assertEquals(NodeShape.Circle, ir.nodes.first { it.id == NodeId("Http") }.shape)
+        assertEquals(NodeShape.Circle, ir.nodes.first { it.id == NodeId("Grpc") }.shape)
         assertEquals("in", ir.nodes.first { it.id == NodeId("In") }.payload[PlantUmlComponentParser.PORT_DIR_KEY])
         assertEquals("out", ir.nodes.first { it.id == NodeId("Out") }.payload[PlantUmlComponentParser.PORT_DIR_KEY])
+        assertEquals("Api", ir.nodes.first { it.id == NodeId("In") }.payload[PlantUmlComponentParser.PORT_HOST_KEY])
+        assertEquals("Api", ir.nodes.first { it.id == NodeId("Out") }.payload[PlantUmlComponentParser.PORT_HOST_KEY])
+    }
+
+    @Test
+    fun database_queue_frame_rectangle_and_note_are_parsed() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                frame Runtime {
+                  rectangle Services {
+                    component Api
+                    database Db
+                    queue Jobs
+                  }
+                }
+                note right of Api
+                  handles ingress
+                  and validation
+                end note
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertEquals(NodeShape.Cylinder, ir.nodes.first { it.id == NodeId("Db") }.shape)
+        assertEquals("queue", ir.nodes.first { it.id == NodeId("Jobs") }.payload[PlantUmlComponentParser.KIND_KEY])
+        assertEquals(1, ir.clusters.size)
+        assertEquals("frame", (ir.clusters.single().label as RichLabel.Plain).text.substringBefore('\n'))
+        val note = ir.nodes.first { it.payload[PlantUmlComponentParser.KIND_KEY] == "note" }
+        assertEquals("Api", note.payload[PlantUmlComponentParser.NOTE_TARGET_KEY])
+        assertTrue(ir.edges.any { it.from == note.id && it.to == NodeId("Api") })
     }
 
     @Test

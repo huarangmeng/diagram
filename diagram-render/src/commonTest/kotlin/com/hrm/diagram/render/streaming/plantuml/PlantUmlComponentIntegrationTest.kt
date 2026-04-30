@@ -6,11 +6,14 @@ import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.parser.plantuml.PlantUmlComponentParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class PlantUmlComponentIntegrationTest {
@@ -20,12 +23,17 @@ class PlantUmlComponentIntegrationTest {
             """
             @startuml
             package Backend {
-              component "API" as Api
+              component "API" as Api {
+                portin In
+                portout Out
+              }
               interface "HTTP" as Http
-              portin In
+              () "gRPC" as Grpc
             }
-            Api --> Http : serves
             In ..> Api : input
+            Api --> Out : output
+            Out --> Http : serves
+            Out --> Grpc : streams
             @enduml
             """.trimIndent() + "\n"
 
@@ -38,6 +46,43 @@ class PlantUmlComponentIntegrationTest {
         assertTrue(one.drawCommands.isNotEmpty())
         assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
         assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+    }
+
+    @Test
+    fun ports_anchor_to_component_border_and_rewrite_edge_geometry() {
+        val snapshot = run(
+            """
+            @startuml
+            left to right direction
+            [Client]
+            component Api {
+              portin In
+              portout Out
+            }
+            [Worker]
+            Client --> In
+            In --> Api
+            Api --> Out
+            Out --> Worker
+            @enduml
+            """.trimIndent() + "\n",
+            chunkSize = 3,
+        )
+        val ir = assertIs<GraphIR>(snapshot.ir)
+        val laidOut = assertNotNull(snapshot.laidOut)
+        val apiRect = laidOut.nodePositions.getValue(NodeId("Api"))
+        val inRect = laidOut.nodePositions.getValue(NodeId("In"))
+        val outRect = laidOut.nodePositions.getValue(NodeId("Out"))
+        assertTrue(kotlin.math.abs(inRect.right - apiRect.left) <= inRect.size.width / 2f + 1f, "portin should hug Api left edge")
+        assertTrue(kotlin.math.abs(outRect.left - apiRect.right) <= outRect.size.width / 2f + 1f, "portout should hug Api right edge")
+        val inEdge = laidOut.edgeRoutes.first { it.from == NodeId("Client") && it.to == NodeId("In") }
+        val outEdge = laidOut.edgeRoutes.first { it.from == NodeId("Out") && it.to == NodeId("Worker") }
+        val inCenter = centerOf(inRect)
+        val outCenter = centerOf(outRect)
+        assertEquals(inCenter, inEdge.points.last())
+        assertEquals(outCenter, outEdge.points.first())
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+        assertTrue(ir.nodes.first { it.id == NodeId("In") }.payload[PlantUmlComponentParser.PORT_HOST_KEY] == "Api")
     }
 
     @Test
@@ -76,6 +121,42 @@ class PlantUmlComponentIntegrationTest {
         assertEquals(1, snapshot.laidOut!!.edgeRoutes.size)
     }
 
+    @Test
+    fun advanced_component_shapes_and_note_render_consistently() {
+        val src =
+            """
+            @startuml
+            frame Runtime {
+              rectangle Services {
+                component Api
+                database Db
+                queue Jobs
+              }
+            }
+            note right of Api
+              handles ingress
+              and validation
+            end note
+            Api --> Db : reads
+            Api ..> Jobs : enqueues
+            @enduml
+            """.trimIndent() + "\n"
+        val one = run(src, chunkSize = src.length)
+        val chunked = run(src, chunkSize = 4)
+        val oneIr = assertIs<GraphIR>(one.ir)
+        val chunkedIr = assertIs<GraphIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        val note = oneIr.nodes.first { it.payload[PlantUmlComponentParser.KIND_KEY] == "note" }
+        val laidOut = assertNotNull(one.laidOut)
+        val noteRect = laidOut.nodePositions.getValue(note.id)
+        val apiRect = laidOut.nodePositions.getValue(NodeId("Api"))
+        assertTrue(noteRect.left >= apiRect.right, "component note should stay to the right of Api")
+        assertNotNull(laidOut.clusterRects[NodeId("Runtime")])
+        assertNotNull(laidOut.clusterRects[NodeId("Services")])
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0
@@ -89,6 +170,9 @@ class PlantUmlComponentIntegrationTest {
             s.close()
         }
     }
+
+    private fun centerOf(rect: com.hrm.diagram.core.draw.Rect) =
+        com.hrm.diagram.core.draw.Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
 
     private fun drawSignature(cmds: List<DrawCommand>): List<DrawSig> = cmds.map { it.toSig() }
 

@@ -38,10 +38,17 @@ class PlantUmlErdParser {
         const val ER_KIND_KEY = "plantuml.erd.kind"
         const val ER_ENTITY_KIND = "entity"
         const val ER_ATTRIBUTE_KIND = "attribute"
+        const val ER_NOTE_KIND = "note"
         const val ER_ATTRIBUTE_TYPE_KEY = "plantuml.erd.attribute.type"
         const val ER_ATTRIBUTE_FLAGS_KEY = "plantuml.erd.attribute.flags"
+        const val ER_NOTE_TARGET_KEY = "plantuml.erd.note.target"
+        const val ER_NOTE_PLACEMENT_KEY = "plantuml.erd.note.placement"
         private val IDENT = Regex("[A-Za-z0-9_.:-]+")
         private val REL_OP = Regex("[|}{o.\\-]+")
+        private val ANCHORED_NOTE = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
+            RegexOption.IGNORE_CASE,
+        )
     }
 
     private val knownNodes: MutableSet<NodeId> = LinkedHashSet()
@@ -52,6 +59,7 @@ class PlantUmlErdParser {
     private var seq: Long = 0
     private var currentEntity: NodeId? = null
     private var direction: Direction? = null
+    private var noteSeq: Long = 0
 
     fun acceptLine(line: String): IrPatchBatch {
         seq++
@@ -87,6 +95,9 @@ class PlantUmlErdParser {
 
         if (trimmed.startsWith("entity ", ignoreCase = true)) {
             return parseEntityDecl(trimmed)
+        }
+        if (trimmed.startsWith("note ", ignoreCase = true)) {
+            return parseNoteLine(trimmed)
         }
         if (REL_OP.containsMatchIn(trimmed) && ':' !in trimmed.substringBefore(' ')) {
             return parseRelationshipLine(trimmed)
@@ -215,12 +226,39 @@ class PlantUmlErdParser {
         return IrPatchBatch(seq, patches)
     }
 
+    private fun parseNoteLine(line: String): IrPatchBatch {
+        val match = ANCHORED_NOTE.matchEntire(line)
+            ?: return errorBatch("Invalid erd note syntax (expected: note <side> of Entity : text)")
+        val placement = match.groupValues[1].lowercase()
+        val target = NodeId(match.groupValues[2])
+        val text = match.groupValues[3].trim()
+        if (text.isEmpty()) return errorBatch("Invalid erd note syntax (note text cannot be empty)")
+        val patches = ArrayList<IrPatch>()
+        registerEntity(target, target.value, patches)
+        registerNote(target, placement, text, patches)
+        return IrPatchBatch(seq, patches)
+    }
+
     private fun registerEntity(id: NodeId, label: String, out: MutableList<IrPatch>) {
-        if (id in knownNodes) return
+        val normalized = label.ifEmpty { id.value }
+        if (id in knownNodes) {
+            val index = nodes.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                val existing = nodes[index]
+                val current = (existing.label as? RichLabel.Plain)?.text.orEmpty()
+                if (current.isBlank() || current == id.value) {
+                    nodes[index] = existing.copy(
+                        label = RichLabel.Plain(normalized),
+                        payload = existing.payload + mapOf(ER_KIND_KEY to ER_ENTITY_KIND),
+                    )
+                }
+            }
+            return
+        }
         knownNodes += id
         val n = Node(
             id = id,
-            label = RichLabel.Plain(label.ifEmpty { id.value }),
+            label = RichLabel.Plain(normalized),
             shape = NodeShape.Box,
             style = NodeStyle(
                 fill = ArgbColor(0xFFE8F5E9.toInt()),
@@ -232,6 +270,44 @@ class PlantUmlErdParser {
         )
         nodes += n
         out += IrPatch.AddNode(n)
+    }
+
+    private fun registerNote(target: NodeId, placement: String, text: String, out: MutableList<IrPatch>) {
+        val noteId = NodeId("${target.value}::note:${noteSeq++}")
+        if (noteId !in knownNodes) {
+            knownNodes += noteId
+            val note = Node(
+                id = noteId,
+                label = RichLabel.Plain(text),
+                shape = NodeShape.Note,
+                style = NodeStyle(
+                    fill = ArgbColor(0xFFFFFDE7.toInt()),
+                    stroke = ArgbColor(0xFFF9A825.toInt()),
+                    strokeWidth = 1.25f,
+                    textColor = ArgbColor(0xFF5D4037.toInt()),
+                ),
+                payload = mapOf(
+                    ER_KIND_KEY to ER_NOTE_KIND,
+                    ER_NOTE_TARGET_KEY to target.value,
+                    ER_NOTE_PLACEMENT_KEY to placement,
+                ),
+            )
+            nodes += note
+            out += IrPatch.AddNode(note)
+        }
+        val edge = Edge(
+            from = noteId,
+            to = target,
+            label = null,
+            arrow = ArrowEnds.None,
+            style = EdgeStyle(
+                color = ArgbColor(0xFFF9A825.toInt()),
+                width = 1f,
+                dash = listOf(4f, 4f),
+            ),
+        )
+        edges += edge
+        out += IrPatch.AddEdge(edge)
     }
 
     private fun registerAttribute(entity: NodeId, type: String, name: String, flags: List<String>, out: MutableList<IrPatch>) {
@@ -273,6 +349,8 @@ class PlantUmlErdParser {
     private fun parseAliasSpec(body: String): AliasSpec? {
         val quotedAs = Regex("^\"([^\"]+)\"\\s+as\\s+([A-Za-z0-9_.:-]+)$").matchEntire(body)
         if (quotedAs != null) return AliasSpec(quotedAs.groupValues[2], quotedAs.groupValues[1])
+        val simpleAs = Regex("^([A-Za-z0-9_.:-]+)\\s+as\\s+([A-Za-z0-9_.:-]+)$").matchEntire(body)
+        if (simpleAs != null) return AliasSpec(simpleAs.groupValues[2], simpleAs.groupValues[1])
         val simple = IDENT.matchEntire(body)
         if (simple != null) return AliasSpec(simple.value, simple.value)
         return null

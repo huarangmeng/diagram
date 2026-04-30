@@ -25,12 +25,26 @@ import com.hrm.diagram.render.streaming.SessionPipeline
 internal class PlantUmlSessionPipeline(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) : SessionPipeline {
+    companion object {
+        private val ANCHORED_NOTE = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
+            RegexOption.IGNORE_CASE,
+        )
+        private val ANCHORED_NOTE_BLOCK = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*$",
+            RegexOption.IGNORE_CASE,
+        )
+    }
+
     private val diagnosticsAll: MutableList<Diagnostic> = ArrayList()
 
     private var rawPending: String = ""
     private var blockStarted: Boolean = false
     private var blockClosed: Boolean = false
     private val bufferedBodyLines: MutableList<String> = ArrayList()
+    private val bufferedSkinparamLines: MutableList<String> = ArrayList()
+    private var bufferingSkinparamBlock: Boolean = false
+    private var ignoredSkinparamBlock: Boolean = false
     private var subPipeline: PlantUmlSubPipeline? = null
 
     private enum class DiagramKind { Sequence, Class, State, Component, Usecase, Activity, Object, Deployment, Erd }
@@ -115,14 +129,26 @@ internal class PlantUmlSessionPipeline(
             blockClosed = true
             return
         }
+        if (bufferingSkinparamBlock) {
+            bufferedSkinparamLines += trimmed
+            if (trimmed == "}") bufferingSkinparamBlock = false
+            return
+        }
+        if (ignoredSkinparamBlock) {
+            if (trimmed == "}") ignoredSkinparamBlock = false
+            return
+        }
         if (trimmed.startsWith("skinparam", ignoreCase = true)) {
-            out += IrPatch.AddDiagnostic(
-                Diagnostic(
-                    severity = Severity.WARNING,
-                    message = "Unsupported 'skinparam' ignored",
-                    code = "PLANTUML-W001",
-                ),
-            )
+            val chosen = subPipeline
+            if (chosen is PlantUmlActivitySubPipeline || chosen is PlantUmlUsecaseSubPipeline) {
+                out += chosen.acceptLine(trimmed).patches
+            } else if (chosen != null) {
+                out += ignoredSkinparamWarning()
+                if (trimmed.endsWith("{")) ignoredSkinparamBlock = true
+            } else {
+                bufferedSkinparamLines += trimmed
+                if (trimmed.endsWith("{")) bufferingSkinparamBlock = true
+            }
             return
         }
 
@@ -158,6 +184,16 @@ internal class PlantUmlSessionPipeline(
             DiagramKind.Deployment -> PlantUmlDeploymentSubPipeline(textMeasurer)
             DiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer)
         }
+        if (bufferedSkinparamLines.isNotEmpty()) {
+            if (kind == DiagramKind.Activity || kind == DiagramKind.Usecase) {
+                for (line in bufferedSkinparamLines) {
+                    out += subPipeline!!.acceptLine(line).patches
+                }
+            } else {
+                repeat(bufferedSkinparamLines.size) { out += ignoredSkinparamWarning() }
+            }
+            bufferedSkinparamLines.clear()
+        }
         val pending = bufferedBodyLines.toList()
         bufferedBodyLines.clear()
         for (line in pending) {
@@ -179,17 +215,19 @@ internal class PlantUmlSessionPipeline(
         ) {
             return DiagramKind.Erd
         }
-        if (
-            lower.startsWith("artifact ") ||
-            lower.startsWith("database ") ||
-            lower.startsWith("frame ")
-        ) {
+        if (lower.startsWith("artifact ")) {
             return DiagramKind.Deployment
         }
         if (
             lower == "start" ||
             lower == "stop" ||
             lower == "end" ||
+            lower == "(*)" ||
+            lower == "(*top)" ||
+            lower == "}" ||
+            lower.startsWith("partition ") ||
+            line.trim().startsWith("===") ||
+            line.startsWith("#") ||
             (line.startsWith(":") && line.endsWith(";")) ||
             lower.startsWith("if ") ||
             lower.startsWith("if(") ||
@@ -198,7 +236,11 @@ internal class PlantUmlSessionPipeline(
             lower.startsWith("while ") ||
             lower.startsWith("while(") ||
             lower == "endwhile" ||
-            lower.startsWith("note ")
+            lower == "end note" ||
+            lower == "endnote" ||
+            lower.startsWith("note:") ||
+            (lower.startsWith("note ") && !ANCHORED_NOTE.matches(line) && !ANCHORED_NOTE_BLOCK.matches(line) && !line.contains(" of ")) ||
+            isLegacyActivityArrowCue(line)
         ) {
             return DiagramKind.Activity
         }
@@ -206,13 +248,29 @@ internal class PlantUmlSessionPipeline(
             lower.startsWith("usecase ") ||
             lower.startsWith("rectangle ") ||
             (line.startsWith("(") && line.contains(")")) ||
-            (line.startsWith(":") && line.endsWith(":")) ||
-            (line.contains("(") && line.contains(")") && (line.contains("--") || line.contains("..")))
+            (line.startsWith(":") && (line.endsWith(":") || line.endsWith(":/") || Regex("^:[^:]+:\\s+as\\s+[A-Za-z0-9_.:-]+$").matches(line) || Regex("^:[^:]+:/\\s+as\\s+[A-Za-z0-9_.:-]+$").matches(line))) ||
+            lower.startsWith("actor/") ||
+            (
+                line.contains("(") &&
+                    line.contains(")") &&
+                    (line.contains("--") || line.contains("..") || line.contains(".>") || line.contains("<."))
+                )
         ) {
             return DiagramKind.Usecase
         }
         if (
             lower.startsWith("component ") ||
+            lower.startsWith("()") ||
+            (
+                line.startsWith("[") &&
+                    line.contains("]") &&
+                    !line.contains("[*]") &&
+                    !line.contains("[H]") &&
+                    !line.contains("[H*]")
+                ) ||
+            lower.startsWith("database ") ||
+            lower.startsWith("queue ") ||
+            lower.startsWith("frame ") ||
             lower.startsWith("port ") ||
             lower.startsWith("portin ") ||
             lower.startsWith("portout ")
@@ -221,7 +279,6 @@ internal class PlantUmlSessionPipeline(
         }
         if (
             lower.startsWith("state ") ||
-            trimmedEqualsDirection(lower) ||
             line.contains("[*]") ||
             line.contains("[H]") ||
             line.contains("[H*]") ||
@@ -320,6 +377,12 @@ internal class PlantUmlSessionPipeline(
                 lower == "start" ||
                 lower == "stop" ||
                 lower == "end" ||
+                lower == "(*)" ||
+                lower == "(*top)" ||
+                lower == "}" ||
+                lower.startsWith("partition ") ||
+                line.trim().startsWith("===") ||
+                line.startsWith("#") ||
                 (line.startsWith(":") && line.endsWith(";")) ||
                 lower.startsWith("if ") ||
                 lower.startsWith("if(") ||
@@ -328,11 +391,15 @@ internal class PlantUmlSessionPipeline(
                 lower.startsWith("while ") ||
                 lower.startsWith("while(") ||
                 lower == "endwhile" ||
-                lower.startsWith("note ")
+                lower == "end note" ||
+                lower == "endnote" ||
+                lower.startsWith("note:") ||
+                (lower.startsWith("note ") && !ANCHORED_NOTE.matches(line) && !ANCHORED_NOTE_BLOCK.matches(line) && !line.contains(" of ")) ||
+                isLegacyActivityArrowCue(line)
             ) {
                 sawActivityCue = true
             }
-            if (lower.startsWith("actor ")) {
+            if (lower.startsWith("actor ") || lower.startsWith("actor/")) {
                 sawActorCue = true
             }
             if (lower.startsWith("package ")) {
@@ -342,13 +409,21 @@ internal class PlantUmlSessionPipeline(
                 lower.startsWith("usecase ") ||
                 lower.startsWith("rectangle ") ||
                 (line.startsWith("(") && line.contains(")")) ||
-                (line.startsWith(":") && line.endsWith(":")) ||
-                (line.contains("(") && line.contains(")") && (line.contains("--") || line.contains("..")))
+                (line.startsWith(":") && (line.endsWith(":") || line.endsWith(":/") || Regex("^:[^:]+:\\s+as\\s+[A-Za-z0-9_.:-]+$").matches(line) || Regex("^:[^:]+:/\\s+as\\s+[A-Za-z0-9_.:-]+$").matches(line))) ||
+                (
+                    line.contains("(") &&
+                        line.contains(")") &&
+                        (line.contains("--") || line.contains("..") || line.contains(".>") || line.contains("<."))
+                    )
             ) {
                 sawUsecaseCue = true
             }
             if (
                 lower.startsWith("component ") ||
+                lower.startsWith("()") ||
+                lower.startsWith("database ") ||
+                lower.startsWith("queue ") ||
+                lower.startsWith("frame ") ||
                 lower.startsWith("port ") ||
                 lower.startsWith("portin ") ||
                 lower.startsWith("portout ")
@@ -371,6 +446,7 @@ internal class PlantUmlSessionPipeline(
                 lower.startsWith("interface ") ||
                 lower.startsWith("enum ") ||
                 line.contains("<|--") ||
+                line.contains("--|>") ||
                 line.contains("<|..") ||
                 line.contains("..|>") ||
                 line.contains("*--") ||
@@ -408,12 +484,14 @@ internal class PlantUmlSessionPipeline(
         return when {
             sawObjectCue -> DiagramKind.Object
             sawErdCue -> DiagramKind.Erd
-            sawDeploymentCue -> DiagramKind.Deployment
             sawAmbiguousContainerCue && sawBracketArtifactCue && !sawComponentCue -> DiagramKind.Deployment
-            sawActivityCue -> DiagramKind.Activity
             sawComponentCue -> DiagramKind.Component
+            sawDeploymentCue -> DiagramKind.Deployment
+            sawActivityCue -> DiagramKind.Activity
             sawStateCue -> DiagramKind.State
             sawClassCue -> DiagramKind.Class
+            sawPackageCue && sawClassCue -> DiagramKind.Class
+            sawPackageCue && sawUsecaseCue -> DiagramKind.Usecase
             sawActorCue && sawUsecaseCue -> DiagramKind.Usecase
             sawUsecaseCue -> DiagramKind.Usecase
             sawSequenceCue -> DiagramKind.Sequence
@@ -429,6 +507,29 @@ internal class PlantUmlSessionPipeline(
             lower == "right to left direction" ||
             lower == "top to bottom direction" ||
             lower == "bottom to top direction"
+
+    private fun isLegacyActivityArrowCue(line: String): Boolean {
+        val trimmed = line.trim()
+        if (trimmed.startsWith("[*]") || trimmed.startsWith("[H]") || trimmed.startsWith("[H*]")) return false
+        return trimmed.startsWith("->") ||
+            trimmed.startsWith("-->") ||
+            trimmed.startsWith("-up->") ||
+            trimmed.startsWith("-down->") ||
+            trimmed.startsWith("-left->") ||
+            trimmed.startsWith("-right->") ||
+            trimmed.startsWith("(*)") ||
+            trimmed.startsWith("(*top)") ||
+            trimmed.startsWith("\"")
+    }
+
+    private fun ignoredSkinparamWarning(): IrPatch =
+        IrPatch.AddDiagnostic(
+            Diagnostic(
+                severity = Severity.WARNING,
+                message = "Unsupported 'skinparam' ignored",
+                code = "PLANTUML-W001",
+            ),
+        )
 
     @Suppress("unused")
     private fun unusedOffset(offset: Int) = offset

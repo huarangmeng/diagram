@@ -41,6 +41,9 @@ class PlantUmlComponentParser {
         const val ICON_KEY = "plantuml.component.icon"
         const val PARENT_KEY = "plantuml.component.parent"
         const val PORT_DIR_KEY = "plantuml.component.portDir"
+        const val PORT_HOST_KEY = "plantuml.component.portHost"
+        const val NOTE_TARGET_KEY = "plantuml.component.note.target"
+        const val NOTE_PLACEMENT_KEY = "plantuml.component.note.placement"
         val RELATION_OPERATORS = listOf("-->", "<--", "..>", "<..", "--", "..")
     }
 
@@ -56,6 +59,12 @@ class PlantUmlComponentParser {
         val portSideHint: String? = null,
     )
 
+    private data class PendingNote(
+        val target: NodeId?,
+        val placement: String,
+        val lines: MutableList<String> = ArrayList(),
+    )
+
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
@@ -64,11 +73,20 @@ class PlantUmlComponentParser {
 
     private var seq: Long = 0
     private var direction: Direction = Direction.LR
+    private var pendingNote: PendingNote? = null
+    private var noteSeq: Long = 0
 
     fun acceptLine(line: String): IrPatchBatch {
         seq++
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
+            return IrPatchBatch(seq, emptyList())
+        }
+        pendingNote?.let { note ->
+            if (trimmed.equals("end note", ignoreCase = true)) {
+                return flushPendingNote(note)
+            }
+            note.lines += trimmed
             return IrPatchBatch(seq, emptyList())
         }
         if (trimmed == "}") {
@@ -85,13 +103,19 @@ class PlantUmlComponentParser {
             trimmed.equals("bottom to top direction", ignoreCase = true) -> direction = Direction.BT
             trimmed.startsWith("[") -> parseNodeDecl("component $trimmed", "component", patches)
             trimmed.startsWith("component ", ignoreCase = true) -> parseNodeDecl(trimmed, "component", patches)
+            trimmed.startsWith("()", ignoreCase = true) -> parseShorthandInterface(trimmed, patches)
             trimmed.startsWith("interface ", ignoreCase = true) -> parseNodeDecl(trimmed, "interface", patches)
             trimmed.startsWith("port ", ignoreCase = true) -> parseNodeDecl(trimmed, "port", patches)
             trimmed.startsWith("portin ", ignoreCase = true) -> parseNodeDecl(trimmed, "portin", patches)
             trimmed.startsWith("portout ", ignoreCase = true) -> parseNodeDecl(trimmed, "portout", patches)
+            trimmed.startsWith("database ", ignoreCase = true) -> parseNodeDecl(trimmed, "database", patches)
+            trimmed.startsWith("queue ", ignoreCase = true) -> parseNodeDecl(trimmed, "queue", patches)
+            trimmed.startsWith("frame ", ignoreCase = true) -> parseClusterDecl(trimmed, "frame")
+            trimmed.startsWith("rectangle ", ignoreCase = true) -> parseClusterDecl(trimmed, "rectangle")
             trimmed.startsWith("package ", ignoreCase = true) -> parseClusterDecl(trimmed, "package")
             trimmed.startsWith("cloud ", ignoreCase = true) -> parseClusterDecl(trimmed, "cloud")
             trimmed.startsWith("node ", ignoreCase = true) -> parseClusterDecl(trimmed, "node")
+            trimmed.startsWith("note ", ignoreCase = true) -> parseNote(trimmed, patches)
             findRelationOperator(trimmed) != null -> parseEdge(trimmed, patches)
             else -> return errorBatch("Unsupported PlantUML component statement: $trimmed")
         }
@@ -100,6 +124,16 @@ class PlantUmlComponentParser {
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
+        if (pendingNote != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.ERROR,
+                    message = "Unclosed component note block before end of PlantUML block",
+                    code = "PLANTUML-E005",
+                ),
+            )
+            pendingNote = null
+        }
         if (clusterStack.isNotEmpty()) {
             out += addDiagnostic(
                 Diagnostic(
@@ -132,6 +166,20 @@ class PlantUmlComponentParser {
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
 
+    private fun parseShorthandInterface(line: String, out: MutableList<IrPatch>) {
+        val body = line.removePrefix("()").trim()
+        if (body.isEmpty()) {
+            diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML interface shorthand", "PLANTUML-E005")
+            return
+        }
+        val normalized = when {
+            body.startsWith("\"") || body.matches(Regex("[A-Za-z0-9_.:-]+\\s+as\\s+\"[^\"]+\"")) -> "interface $body"
+            body.matches(Regex("[A-Za-z0-9_.:-]+")) -> "interface $body"
+            else -> "interface \"$body\""
+        }
+        parseNodeDecl(normalized, "interface", out)
+    }
+
     private fun parseNodeDecl(line: String, keyword: String, out: MutableList<IrPatch>) {
         var body = line.substring(keyword.length).trim()
         val inlineCluster = body.endsWith("{")
@@ -156,6 +204,7 @@ class PlantUmlComponentParser {
                 parent?.let { put(PARENT_KEY, it.value) }
                 if (keyword == "portin") put(PORT_DIR_KEY, "in")
                 if (keyword == "portout") put(PORT_DIR_KEY, "out")
+                portHostFor(parent)?.let { put(PORT_HOST_KEY, it.value) }
                 spec.icon?.let { put(ICON_KEY, it) }
             },
         )
@@ -189,6 +238,39 @@ class PlantUmlComponentParser {
             parent = clusterStack.lastOrNull(),
         )
         if (opens) clusterStack.addLast(clusterId)
+    }
+
+    private fun parseNote(line: String, out: MutableList<IrPatch>) {
+        val inlineAnchored = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (inlineAnchored != null) {
+            val target = NodeId(inlineAnchored.groupValues[2])
+            ensureImplicitNode(target)
+            addAnchoredNote(target, inlineAnchored.groupValues[1].lowercase(), inlineAnchored.groupValues[3].trim(), out)
+            return
+        }
+        val blockAnchored = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (blockAnchored != null) {
+            val target = NodeId(blockAnchored.groupValues[2])
+            ensureImplicitNode(target)
+            pendingNote = PendingNote(target = target, placement = blockAnchored.groupValues[1].lowercase())
+            return
+        }
+        val standaloneQuoted = Regex("^note\\s+\"([^\"]+)\"$", RegexOption.IGNORE_CASE).matchEntire(line)
+        if (standaloneQuoted != null) {
+            addStandaloneNote(standaloneQuoted.groupValues[1], out)
+            return
+        }
+        if (line.equals("note", ignoreCase = true)) {
+            pendingNote = PendingNote(target = null, placement = "standalone")
+            return
+        }
+        diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML component note syntax", "PLANTUML-E005")
     }
 
     private fun parseEdge(line: String, out: MutableList<IrPatch>) {
@@ -258,6 +340,71 @@ class PlantUmlComponentParser {
         )
     }
 
+    private fun flushPendingNote(note: PendingNote): IrPatchBatch {
+        val patches = ArrayList<IrPatch>()
+        val text = note.lines.joinToString("\n").trim()
+        if (text.isEmpty()) {
+            patches += addDiagnostic(Diagnostic(Severity.ERROR, "Empty component note block", "PLANTUML-E005"))
+        } else if (note.target != null) {
+            addAnchoredNote(note.target, note.placement, text, patches)
+        } else {
+            addStandaloneNote(text, patches)
+        }
+        pendingNote = null
+        return IrPatchBatch(seq, patches)
+    }
+
+    private fun addAnchoredNote(target: NodeId, placement: String, text: String, out: MutableList<IrPatch>) {
+        val noteId = NodeId("${target.value}__note_${noteSeq++}")
+        val parent = clusterStack.lastOrNull()
+        val note = Node(
+            id = noteId,
+            label = RichLabel.Plain(text),
+            shape = NodeShape.Note,
+            style = styleFor("note"),
+            payload = buildMap {
+                put(KIND_KEY, "note")
+                put(NOTE_TARGET_KEY, target.value)
+                put(NOTE_PLACEMENT_KEY, placement)
+                parent?.let { put(PARENT_KEY, it.value) }
+            },
+        )
+        nodes[noteId] = note
+        out += IrPatch.AddNode(note)
+        val edge = Edge(
+            from = noteId,
+            to = target,
+            label = null,
+            kind = EdgeKind.Dashed,
+            arrow = ArrowEnds.None,
+            style = EdgeStyle(
+                color = ArgbColor(0xFFFFA000.toInt()),
+                width = 1f,
+                dash = listOf(4f, 4f),
+            ),
+        )
+        edges += edge
+        out += IrPatch.AddEdge(edge)
+    }
+
+    private fun addStandaloneNote(text: String, out: MutableList<IrPatch>) {
+        val noteId = NodeId("note_${noteSeq++}")
+        val parent = clusterStack.lastOrNull()
+        val note = Node(
+            id = noteId,
+            label = RichLabel.Plain(text),
+            shape = NodeShape.Note,
+            style = styleFor("note"),
+            payload = buildMap {
+                put(KIND_KEY, "note")
+                put(NOTE_PLACEMENT_KEY, "standalone")
+                parent?.let { put(PARENT_KEY, it.value) }
+            },
+        )
+        nodes[noteId] = note
+        out += IrPatch.AddNode(note)
+    }
+
     private fun buildClusters(parent: NodeId?): List<Cluster> =
         clusters.values
             .filter { it.parent == parent }
@@ -296,13 +443,25 @@ class PlantUmlComponentParser {
     private fun sanitizeId(text: String): String =
         text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "node_${seq}" }
 
+    private fun portHostFor(parent: NodeId?): NodeId? {
+        val clusterId = parent?.value ?: return null
+        if (!clusterId.endsWith("__cluster")) return null
+        val hostId = NodeId(clusterId.removeSuffix("__cluster"))
+        return if (hostId in nodes) hostId else null
+    }
+
     private fun kindFor(keyword: String): String = when (keyword.lowercase()) {
         "component" -> "component"
         "interface" -> "interface"
         "port", "portin", "portout" -> "port"
+        "database" -> "database"
+        "queue" -> "queue"
+        "note" -> "note"
         "package" -> "package"
         "cloud" -> "cloud"
         "node" -> "node"
+        "frame" -> "frame"
+        "rectangle" -> "rectangle"
         else -> keyword.lowercase()
     }
 
@@ -310,6 +469,9 @@ class PlantUmlComponentParser {
         "component" -> NodeShape.Component
         "interface" -> NodeShape.Circle
         "port", "portin", "portout" -> NodeShape.Circle
+        "database" -> NodeShape.Cylinder
+        "queue" -> NodeShape.Note
+        "note" -> NodeShape.Note
         else -> NodeShape.RoundedBox
     }
 
@@ -325,6 +487,24 @@ class PlantUmlComponentParser {
             stroke = ArgbColor(0xFF00838F.toInt()),
             strokeWidth = 1.5f,
             textColor = ArgbColor(0xFF006064.toInt()),
+        )
+        "database" -> NodeStyle(
+            fill = ArgbColor(0xFFE8F5E9.toInt()),
+            stroke = ArgbColor(0xFF2E7D32.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF1B5E20.toInt()),
+        )
+        "queue" -> NodeStyle(
+            fill = ArgbColor(0xFFF3E5F5.toInt()),
+            stroke = ArgbColor(0xFF8E24AA.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF4A148C.toInt()),
+        )
+        "note" -> NodeStyle(
+            fill = ArgbColor(0xFFFFF8E1.toInt()),
+            stroke = ArgbColor(0xFFFFA000.toInt()),
+            strokeWidth = 1.25f,
+            textColor = ArgbColor(0xFF5D4037.toInt()),
         )
         else -> NodeStyle(
             fill = ArgbColor(0xFFE8EAF6.toInt()),
@@ -343,6 +523,16 @@ class PlantUmlComponentParser {
         "node" -> ClusterStyle(
             fill = ArgbColor(0xFFF1F8E9.toInt()),
             stroke = ArgbColor(0xFF558B2F.toInt()),
+            strokeWidth = 1.5f,
+        )
+        "frame" -> ClusterStyle(
+            fill = ArgbColor(0xFFFFF8E1.toInt()),
+            stroke = ArgbColor(0xFFF9A825.toInt()),
+            strokeWidth = 1.5f,
+        )
+        "rectangle" -> ClusterStyle(
+            fill = ArgbColor(0xFFF3E5F5.toInt()),
+            stroke = ArgbColor(0xFF8E24AA.toInt()),
             strokeWidth = 1.5f,
         )
         else -> ClusterStyle(

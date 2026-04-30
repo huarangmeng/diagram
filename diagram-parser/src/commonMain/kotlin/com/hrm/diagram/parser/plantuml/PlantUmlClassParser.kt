@@ -1,8 +1,10 @@
 package com.hrm.diagram.parser.plantuml
 
+import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.ClassIR
 import com.hrm.diagram.core.ir.ClassMember
 import com.hrm.diagram.core.ir.ClassNode
+import com.hrm.diagram.core.ir.ClassNamespace
 import com.hrm.diagram.core.ir.ClassParam
 import com.hrm.diagram.core.ir.ClassRelation
 import com.hrm.diagram.core.ir.ClassRelationKind
@@ -23,24 +25,63 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
  *
  * Supported in this slice:
  * - `class` / `abstract class` / `interface` / `enum`
+ * - quoted alias form like `class "User Service" as UserService`
+ * - `package Foo { ... }`
  * - multiline member blocks
  * - dotted member form: `Foo : +bar(): Int`
- * - relations: `<|--`, `<|..`, `*--`, `o--`, `-->`, `..>`, `--`, `..`
+ * - relations: `<|--`, `--|>`, `<|..`, `..|>`, `*--`, `o--`, `-->`, `<--`, `..>`, `<..`, `--`, `..`
  * - `note (left|right|top|bottom) of Foo : text`
+ * - multiline note blocks terminated by `end note`
  */
+@DiagramApi
 class PlantUmlClassParser {
+    private data class AliasSpec(
+        val id: String,
+        val label: String,
+        val generics: String? = null,
+    )
+
+    private data class NamespaceDef(
+        val id: String,
+        val title: String,
+    )
+
+    private data class PendingNote(
+        val targetClass: NodeId?,
+        val placement: NotePlacement,
+        val lines: MutableList<String> = ArrayList(),
+    )
+
     private val classOrder: LinkedHashMap<NodeId, ClassNode> = LinkedHashMap()
     private val relations: MutableList<ClassRelation> = ArrayList()
     private val notes: MutableList<ClassNote> = ArrayList()
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val namespaces: LinkedHashMap<String, NamespaceDef> = LinkedHashMap()
+    private val namespaceMembers: LinkedHashMap<String, LinkedHashSet<NodeId>> = LinkedHashMap()
+    private val namespaceStack: ArrayDeque<String> = ArrayDeque()
 
     private var seq: Long = 0L
     private var currentBodyClass: NodeId? = null
+    private var pendingNote: PendingNote? = null
 
     fun acceptLine(line: String): IrPatchBatch {
         seq++
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
+            return IrPatchBatch(seq, emptyList())
+        }
+
+        pendingNote?.let { note ->
+            if (trimmed.equals("end note", ignoreCase = true)) {
+                notes += ClassNote(
+                    text = RichLabel.Plain(note.lines.joinToString("\n").trim()),
+                    targetClass = note.targetClass,
+                    placement = note.placement,
+                )
+                pendingNote = null
+                return IrPatchBatch(seq, emptyList())
+            }
+            note.lines += trimmed
             return IrPatchBatch(seq, emptyList())
         }
 
@@ -58,6 +99,8 @@ class PlantUmlClassParser {
             trimmed.startsWith("class ", ignoreCase = true) -> parseClassDecl(trimmed, "class", null)
             trimmed.startsWith("interface ", ignoreCase = true) -> parseClassDecl(trimmed, "interface", "interface")
             trimmed.startsWith("enum ", ignoreCase = true) -> parseClassDecl(trimmed, "enum", "enum")
+            trimmed.startsWith("package ", ignoreCase = true) -> parsePackageDecl(trimmed)
+            trimmed == "}" -> closeNamespace()
             trimmed.startsWith("note ", ignoreCase = true) -> parseNote(trimmed)
             isDottedMember(trimmed) -> parseDottedMember(trimmed)
             findRelationOperator(trimmed) != null -> parseRelation(trimmed)
@@ -67,6 +110,16 @@ class PlantUmlClassParser {
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
+        if (pendingNote != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.ERROR,
+                    message = "Unclosed class note block before end of PlantUML block",
+                    code = "PLANTUML-E003",
+                ),
+            )
+            pendingNote = null
+        }
         if (currentBodyClass != null) {
             out += addDiagnostic(
                 Diagnostic(
@@ -76,6 +129,16 @@ class PlantUmlClassParser {
                 ),
             )
             currentBodyClass = null
+        }
+        if (namespaceStack.isNotEmpty()) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.ERROR,
+                    message = "Unclosed class package body before end of PlantUML block",
+                    code = "PLANTUML-E003",
+                ),
+            )
+            namespaceStack.clear()
         }
         if (!blockClosed) {
             out += addDiagnostic(
@@ -92,6 +155,13 @@ class PlantUmlClassParser {
     fun snapshot(): ClassIR = ClassIR(
         classes = classOrder.values.toList(),
         relations = relations.toList(),
+        namespaces = namespaceMembers.entries.map { (id, members) ->
+            val title = namespaces[id]?.title ?: id
+            ClassNamespace(
+                id = title,
+                members = members.toList(),
+            )
+        },
         notes = notes.toList(),
         sourceLanguage = SourceLanguage.PLANTUML,
         styleHints = StyleHints(),
@@ -107,10 +177,9 @@ class PlantUmlClassParser {
         }
         if (body.isEmpty()) return errorBatch("Expected identifier after '$keyword'")
 
-        val namePart = body.substringBefore(' ')
-        val id = NodeId(namePart.substringBefore('<'))
-        val generics = Regex("<([^>]+)>").find(namePart)?.groupValues?.getOrNull(1)
-        ensureClass(id, name = id.value, generics = generics, stereotype = stereotype)
+        val spec = parseAliasSpec(body) ?: return errorBatch("Invalid class declaration: $line")
+        val id = NodeId(spec.id)
+        ensureClass(id, name = spec.label, generics = spec.generics, stereotype = stereotype)
         if (opensBody) currentBodyClass = id
         return IrPatchBatch(seq, emptyList())
     }
@@ -127,16 +196,21 @@ class PlantUmlClassParser {
                 "\\s*(?:\"([^\"]+)\")?\\s*([A-Za-z0-9_.:-]+)$",
         )
         val match = pattern.matchEntire(relationPart) ?: return errorBatch("Invalid class relation syntax: $line")
-        val from = NodeId(match.groupValues[1])
-        val fromCard = match.groupValues[2].ifEmpty { null }
-        val toCard = match.groupValues[3].ifEmpty { null }
-        val to = NodeId(match.groupValues[4])
+        val left = NodeId(match.groupValues[1])
+        val leftCard = match.groupValues[2].ifEmpty { null }
+        val rightCard = match.groupValues[3].ifEmpty { null }
+        val right = NodeId(match.groupValues[4])
+        val info = relationInfo(op)
+        val from = if (info.reverseDirection) right else left
+        val to = if (info.reverseDirection) left else right
+        val fromCard = if (info.reverseDirection) rightCard else leftCard
+        val toCard = if (info.reverseDirection) leftCard else rightCard
         ensureClass(from, from.value)
         ensureClass(to, to.value)
         relations += ClassRelation(
             from = from,
             to = to,
-            kind = relationKind(op),
+            kind = info.kind,
             fromCardinality = fromCard,
             toCardinality = toCard,
             label = label,
@@ -145,25 +219,61 @@ class PlantUmlClassParser {
     }
 
     private fun parseNote(line: String): IrPatchBatch {
-        val match = Regex(
+        val inlineAnchored = Regex(
             "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
             RegexOption.IGNORE_CASE,
-        ).matchEntire(line) ?: return errorBatch("Invalid class note syntax: $line")
-        val placement = when (match.groupValues[1].lowercase()) {
+        ).matchEntire(line)
+        if (inlineAnchored != null) {
+            val placement = parsePlacement(inlineAnchored.groupValues[1])
+            val target = NodeId(inlineAnchored.groupValues[2])
+            ensureClass(target, target.value)
+            notes += ClassNote(
+                text = RichLabel.Plain(inlineAnchored.groupValues[3].trim()),
+                targetClass = target,
+                placement = placement,
+            )
+            return IrPatchBatch(seq, emptyList())
+        }
+
+        val standaloneQuoted = Regex("^note\\s+\"([^\"]+)\"$", RegexOption.IGNORE_CASE).matchEntire(line)
+        if (standaloneQuoted != null) {
+            notes += ClassNote(
+                text = RichLabel.Plain(standaloneQuoted.groupValues[1]),
+                targetClass = null,
+                placement = NotePlacement.Standalone,
+            )
+            return IrPatchBatch(seq, emptyList())
+        }
+
+        val blockAnchored = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (blockAnchored != null) {
+            val placement = parsePlacement(blockAnchored.groupValues[1])
+            val target = NodeId(blockAnchored.groupValues[2])
+            ensureClass(target, target.value)
+            pendingNote = PendingNote(
+                targetClass = target,
+                placement = placement,
+            )
+            return IrPatchBatch(seq, emptyList())
+        }
+
+        if (line.equals("note", ignoreCase = true)) {
+            pendingNote = PendingNote(targetClass = null, placement = NotePlacement.Standalone)
+            return IrPatchBatch(seq, emptyList())
+        }
+
+        return errorBatch("Invalid class note syntax: $line")
+    }
+
+    private fun parsePlacement(raw: String): NotePlacement = when (raw.lowercase()) {
             "left" -> NotePlacement.LeftOf
             "right" -> NotePlacement.RightOf
             "top" -> NotePlacement.TopOf
             else -> NotePlacement.BottomOf
         }
-        val target = NodeId(match.groupValues[2])
-        ensureClass(target, target.value)
-        notes += ClassNote(
-            text = RichLabel.Plain(match.groupValues[3].trim()),
-            targetClass = target,
-            placement = placement,
-        )
-        return IrPatchBatch(seq, emptyList())
-    }
 
     private fun parseDottedMember(line: String): IrPatchBatch {
         val className = line.substringBefore(':').trim()
@@ -292,11 +402,19 @@ class PlantUmlClassParser {
         classOrder[id] = if (existing == null) {
             ClassNode(id = id, name = name, generics = generics, stereotype = stereotype)
         } else {
+            val mergedName = when {
+                name.isBlank() -> existing.name
+                name == id.value && existing.name != id.value -> existing.name
+                else -> name
+            }
             existing.copy(
-                name = if (name.isNotEmpty()) name else existing.name,
+                name = mergedName,
                 generics = generics ?: existing.generics,
                 stereotype = stereotype ?: existing.stereotype,
             )
+        }
+        for (namespaceId in namespaceStack) {
+            namespaceMembers.getOrPut(namespaceId) { LinkedHashSet() } += id
         }
     }
 
@@ -310,16 +428,78 @@ class PlantUmlClassParser {
         classOrder[id] = existing.copy(members = existing.members + member)
     }
 
-    private fun relationKind(op: String): ClassRelationKind = when (op) {
-        "<|--" -> ClassRelationKind.Inheritance
-        "<|.." -> ClassRelationKind.Realization
-        "*--" -> ClassRelationKind.Composition
-        "o--" -> ClassRelationKind.Aggregation
-        "-->" -> ClassRelationKind.Association
-        "..>" -> ClassRelationKind.Dependency
-        "--" -> ClassRelationKind.Link
-        ".." -> ClassRelationKind.LinkDashed
-        else -> ClassRelationKind.Link
+    private fun parsePackageDecl(line: String): IrPatchBatch {
+        var body = line.removePrefix("package").trim()
+        val opens = body.endsWith("{")
+        if (opens) body = body.removeSuffix("{").trim()
+        val spec = parsePackageSpec(body) ?: return errorBatch("Invalid class package declaration: $line")
+        namespaces[spec.id] = spec
+        namespaceMembers.getOrPut(spec.id) { LinkedHashSet() }
+        if (opens) namespaceStack.addLast(spec.id)
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun closeNamespace(): IrPatchBatch {
+        if (namespaceStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML class body")
+        namespaceStack.removeLast()
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun parseAliasSpec(body: String): AliasSpec? {
+        val quotedAs = Regex("^\"([^\"]+)\"\\s+as\\s+([A-Za-z0-9_.:-]+(?:<[^>]+>)?)$").matchEntire(body)
+        if (quotedAs != null) {
+            val idPart = quotedAs.groupValues[2]
+            return AliasSpec(id = idPart.substringBefore('<'), label = quotedAs.groupValues[1], generics = parseGenerics(idPart))
+        }
+        val identAsQuoted = Regex("^([A-Za-z0-9_.:-]+(?:<[^>]+>)?)\\s+as\\s+\"([^\"]+)\"$").matchEntire(body)
+        if (identAsQuoted != null) {
+            val idPart = identAsQuoted.groupValues[1]
+            return AliasSpec(id = idPart.substringBefore('<'), label = identAsQuoted.groupValues[2], generics = parseGenerics(idPart))
+        }
+        val simple = Regex("^([A-Za-z0-9_.:-]+(?:<[^>]+>)?)$").matchEntire(body)
+        if (simple != null) {
+            val idPart = simple.groupValues[1]
+            return AliasSpec(id = idPart.substringBefore('<'), label = idPart.substringBefore('<'), generics = parseGenerics(idPart))
+        }
+        return null
+    }
+
+    private fun parsePackageSpec(body: String): NamespaceDef? {
+        val quotedAs = Regex("^\"([^\"]+)\"\\s+as\\s+([A-Za-z0-9_.:-]+)$").matchEntire(body)
+        if (quotedAs != null) return NamespaceDef(id = quotedAs.groupValues[2], title = quotedAs.groupValues[1])
+        val quoted = Regex("^\"([^\"]+)\"$").matchEntire(body)
+        if (quoted != null) {
+            val title = quoted.groupValues[1]
+            return NamespaceDef(id = sanitizeId(title), title = title)
+        }
+        val simple = Regex("^([A-Za-z0-9_.:-]+)$").matchEntire(body)
+        if (simple != null) {
+            val id = simple.groupValues[1]
+            return NamespaceDef(id = id, title = id)
+        }
+        return null
+    }
+
+    private fun parseGenerics(raw: String): String? =
+        Regex("<([^>]+)>").find(raw)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun sanitizeId(value: String): String =
+        value.map { ch -> if (ch.isLetterOrDigit() || ch == '_' || ch == '-' || ch == '.') ch else '_' }.joinToString("")
+
+    private fun relationInfo(op: String): RelationInfo = when (op) {
+        "<|--" -> RelationInfo(ClassRelationKind.Inheritance, reverseDirection = true)
+        "--|>" -> RelationInfo(ClassRelationKind.Inheritance, reverseDirection = false)
+        "<|.." -> RelationInfo(ClassRelationKind.Realization, reverseDirection = true)
+        "..|>" -> RelationInfo(ClassRelationKind.Realization, reverseDirection = false)
+        "*--" -> RelationInfo(ClassRelationKind.Composition, reverseDirection = true)
+        "o--" -> RelationInfo(ClassRelationKind.Aggregation, reverseDirection = true)
+        "-->" -> RelationInfo(ClassRelationKind.Association, reverseDirection = false)
+        "<--" -> RelationInfo(ClassRelationKind.Association, reverseDirection = true)
+        "..>" -> RelationInfo(ClassRelationKind.Dependency, reverseDirection = false)
+        "<.." -> RelationInfo(ClassRelationKind.Dependency, reverseDirection = true)
+        "--" -> RelationInfo(ClassRelationKind.Link, reverseDirection = false)
+        ".." -> RelationInfo(ClassRelationKind.LinkDashed, reverseDirection = false)
+        else -> RelationInfo(ClassRelationKind.Link, reverseDirection = false)
     }
 
     private fun isDottedMember(line: String): Boolean {
@@ -344,7 +524,12 @@ class PlantUmlClassParser {
         return IrPatch.AddDiagnostic(diagnostic)
     }
 
+    private data class RelationInfo(
+        val kind: ClassRelationKind,
+        val reverseDirection: Boolean,
+    )
+
     private companion object {
-        val RELATION_OPERATORS = listOf("<|--", "<|..", "*--", "o--", "-->", "..>", "--", "..")
+        val RELATION_OPERATORS = listOf("<|--", "--|>", "<|..", "..|>", "*--", "o--", "-->", "<--", "..>", "<..", "--", "..")
     }
 }

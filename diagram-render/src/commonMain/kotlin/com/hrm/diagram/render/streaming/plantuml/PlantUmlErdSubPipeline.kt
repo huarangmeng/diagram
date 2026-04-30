@@ -24,6 +24,7 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.core.text.TextMetrics
 import com.hrm.diagram.layout.IncrementalLayout
+import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
@@ -39,6 +40,7 @@ internal class PlantUmlErdSubPipeline(
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val flagFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
     private val relationFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+    private val noteFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val attrBadge: MutableMap<NodeId, BadgeLayout?> = HashMap()
     private val relBadge: MutableMap<Int, RelationshipBadgeLayout?> = HashMap()
@@ -91,11 +93,12 @@ internal class PlantUmlErdSubPipeline(
             previousSnapshot.laidOut,
             ir,
             LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        val drawCommands = renderDraw(ir, laidOut, isFinal)
+        )
+        val adjusted = applyAnchoredNotes(ir, laidOut).copy(seq = seq)
+        val drawCommands = renderDraw(ir, adjusted, isFinal)
         return PlantUmlRenderState(
             ir = ir,
-            laidOut = laidOut,
+            laidOut = adjusted,
             drawCommands = drawCommands,
             diagnostics = parser.diagnosticsSnapshot(),
         )
@@ -112,7 +115,13 @@ internal class PlantUmlErdSubPipeline(
         val text = labelTextOf(n)
         val maxWrap = 260f
         val raw = textMeasurer.measure(text, fontForNode(n), maxWidth = maxWrap)
-        if (isFinal && !isAttributeNode(n) && attrs.isNotEmpty()) {
+        if (isNoteNode(n)) {
+            return Size(
+                (raw.width + 24f).coerceAtLeast(120f),
+                (raw.height + 20f).coerceAtLeast(48f),
+            )
+        }
+        if (isFinal && isEntityNode(n) && attrs.isNotEmpty()) {
             val embedded = buildEmbeddedLayout(text, raw, attrs, maxWrap)
             entityEmbedded[n.id] = embedded
             return embedded.size
@@ -126,6 +135,7 @@ internal class PlantUmlErdSubPipeline(
 
     private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
+        val nodeById = ir.nodes.associateBy { it.id }
         val fallbackEntityFill = Color(0xFFE8F5E9U.toInt())
         val fallbackEntityStroke = Color(0xFF2E7D32U.toInt())
         val fallbackEntityText = Color(0xFF1B5E20U.toInt())
@@ -140,22 +150,29 @@ internal class PlantUmlErdSubPipeline(
             val textColor = colorOf(n.style.textColor, fallbackEntityText)
             val strokeWidth = n.style.strokeWidth ?: if (isAttributeNode(n)) 1.25f else 1.5f
             val corner = if (isAttributeNode(n)) minOf(r.size.height / 2f, 16f) else 4f
-            out += DrawCommand.FillRect(rect = r, color = fill, corner = corner, z = 1)
-            out += DrawCommand.StrokeRect(rect = r, stroke = Stroke(width = strokeWidth), color = strokeColor, corner = corner, z = 2)
             val embedded = if (isFinal) entityEmbedded[n.id] else null
             when {
+                isNoteNode(n) -> drawNoteNode(out, n, r, fill, strokeColor, textColor, strokeWidth)
                 embedded != null -> drawEntityWithEmbeddedAttributes(out, r, fill, strokeColor, textColor, embedded)
-                isAttributeNode(n) -> drawAttributeNode(out, n, r, fill, strokeColor, textColor, attrBadge[n.id])
-                else -> out += DrawCommand.DrawText(
-                    text = labelTextOf(n),
-                    origin = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
-                    font = entityFont,
-                    color = textColor,
-                    maxWidth = r.size.width - 16f,
-                    anchorX = TextAnchorX.Center,
-                    anchorY = TextAnchorY.Middle,
-                    z = 3,
-                )
+                isAttributeNode(n) -> {
+                    out += DrawCommand.FillRect(rect = r, color = fill, corner = corner, z = 1)
+                    out += DrawCommand.StrokeRect(rect = r, stroke = Stroke(width = strokeWidth), color = strokeColor, corner = corner, z = 2)
+                    drawAttributeNode(out, n, r, fill, strokeColor, textColor, attrBadge[n.id])
+                }
+                else -> {
+                    out += DrawCommand.FillRect(rect = r, color = fill, corner = corner, z = 1)
+                    out += DrawCommand.StrokeRect(rect = r, stroke = Stroke(width = strokeWidth), color = strokeColor, corner = corner, z = 2)
+                    out += DrawCommand.DrawText(
+                        text = labelTextOf(n),
+                        origin = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
+                        font = entityFont,
+                        color = textColor,
+                        maxWidth = r.size.width - 16f,
+                        anchorX = TextAnchorX.Center,
+                        anchorY = TextAnchorY.Middle,
+                        z = 3,
+                    )
+                }
             }
         }
         for ((idx, route) in laidOut.edgeRoutes.withIndex()) {
@@ -176,10 +193,17 @@ internal class PlantUmlErdSubPipeline(
             }
             val path = PathCmd(ops)
             val edge = ir.edges.getOrNull(idx) ?: continue
-            val isAttributeLink = edge.label == null
+            val fromNode = nodeById[edge.from]
+            val toNode = nodeById[edge.to]
+            val isAttributeLink = edge.label == null && (fromNode?.let(::isAttributeNode) == true || toNode?.let(::isAttributeNode) == true)
+            val isNoteLink = edge.label == null && (fromNode?.let(::isNoteNode) == true || toNode?.let(::isNoteNode) == true)
             if (isFinal && isAttributeLink) continue
             val edgeColor = colorOf(edge.style.color, Color(0xFF455A64U.toInt()))
-            val edgeStroke = if (isAttributeLink) attributeLinkStroke else Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
+            val edgeStroke = when {
+                isAttributeLink -> attributeLinkStroke
+                isNoteLink -> Stroke(width = edge.style.width ?: 1f, dash = edge.style.dash ?: listOf(4f, 4f))
+                else -> Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
+            }
             out += DrawCommand.StrokePath(path = path, stroke = edgeStroke, color = edgeColor, z = 0)
             if (edge.arrow != ArrowEnds.None) {
                 val endTail = pts[pts.size - 2]
@@ -196,11 +220,76 @@ internal class PlantUmlErdSubPipeline(
                     }
                 }
             }
-            if (isAttributeLink) continue
+            if (isAttributeLink || isNoteLink) continue
             val labelBg = edge.style.labelBg?.let { Color(it.argb) } ?: fallbackRelationLabelBg
             drawRelationshipBadge(out, relBadge[idx], pts[pts.size / 2], labelBg, relationLabelText, edgeColor)
         }
         return out
+    }
+
+    private fun applyAnchoredNotes(ir: GraphIR, laidOut: LaidOutDiagram): LaidOutDiagram {
+        val noteNodes = ir.nodes.filter(::isNoteNode)
+        if (noteNodes.isEmpty()) return laidOut
+        val nodePositions = LinkedHashMap(laidOut.nodePositions)
+        val edgeRoutes = laidOut.edgeRoutes.toMutableList()
+        for (note in noteNodes) {
+            val target = note.payload[PlantUmlErdParser.ER_NOTE_TARGET_KEY]?.let(::NodeId) ?: continue
+            val placement = note.payload[PlantUmlErdParser.ER_NOTE_PLACEMENT_KEY].orEmpty()
+            val targetRect = nodePositions[target] ?: continue
+            val noteRect = nodePositions[note.id] ?: continue
+            val anchored = anchoredNoteRect(noteRect.size, targetRect, placement)
+            nodePositions[note.id] = anchored
+            val edgeIndex = ir.edges.indexOfFirst { it.from == note.id && it.to == target }
+            if (edgeIndex >= 0) {
+                val route = EdgeRoute(
+                    from = note.id,
+                    to = target,
+                    points = anchoredNoteRoute(anchored, targetRect, placement),
+                    kind = RouteKind.Polyline,
+                )
+                if (edgeIndex < edgeRoutes.size) edgeRoutes[edgeIndex] = route else edgeRoutes += route
+            }
+        }
+        val boundsLeft = minOf(laidOut.bounds.left, nodePositions.values.minOfOrNull { it.left } ?: laidOut.bounds.left)
+        val boundsTop = minOf(laidOut.bounds.top, nodePositions.values.minOfOrNull { it.top } ?: laidOut.bounds.top)
+        val boundsRight = maxOf(laidOut.bounds.right, nodePositions.values.maxOfOrNull { it.right } ?: laidOut.bounds.right)
+        val boundsBottom = maxOf(laidOut.bounds.bottom, nodePositions.values.maxOfOrNull { it.bottom } ?: laidOut.bounds.bottom)
+        return laidOut.copy(
+            nodePositions = nodePositions,
+            edgeRoutes = edgeRoutes,
+            bounds = Rect.ltrb(boundsLeft, boundsTop, boundsRight, boundsBottom),
+        )
+    }
+
+    private fun anchoredNoteRect(size: Size, targetRect: Rect, placement: String): Rect {
+        val gap = 18f
+        return when (placement.lowercase()) {
+            "left" -> Rect(Point(targetRect.left - size.width - gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
+            "top" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.top - size.height - gap), size)
+            "bottom" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.bottom + gap), size)
+            else -> Rect(Point(targetRect.right + gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
+        }
+    }
+
+    private fun anchoredNoteRoute(noteRect: Rect, targetRect: Rect, placement: String): List<Point> {
+        return when (placement.lowercase()) {
+            "left" -> listOf(
+                Point(noteRect.right, (noteRect.top + noteRect.bottom) / 2f),
+                Point(targetRect.left, (targetRect.top + targetRect.bottom) / 2f),
+            )
+            "top" -> listOf(
+                Point((noteRect.left + noteRect.right) / 2f, noteRect.bottom),
+                Point((targetRect.left + targetRect.right) / 2f, targetRect.top),
+            )
+            "bottom" -> listOf(
+                Point((noteRect.left + noteRect.right) / 2f, noteRect.top),
+                Point((targetRect.left + targetRect.right) / 2f, targetRect.bottom),
+            )
+            else -> listOf(
+                Point(noteRect.left, (noteRect.top + noteRect.bottom) / 2f),
+                Point(targetRect.right, (targetRect.top + targetRect.bottom) / 2f),
+            )
+        }
     }
 
     private fun drawAttributeNode(
@@ -242,6 +331,42 @@ internal class PlantUmlErdSubPipeline(
             maxWidth = rect.size.width - 16f,
             anchorX = TextAnchorX.Center,
             anchorY = TextAnchorY.Middle,
+            z = 4,
+        )
+    }
+
+    private fun drawNoteNode(
+        out: MutableList<DrawCommand>,
+        node: Node,
+        rect: Rect,
+        fill: Color,
+        strokeColor: Color,
+        textColor: Color,
+        strokeWidth: Float,
+    ) {
+        val fold = minOf(14f, rect.size.width * 0.18f, rect.size.height * 0.28f)
+        out += DrawCommand.FillRect(rect = rect, color = fill, corner = 8f, z = 1)
+        out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = strokeWidth), color = strokeColor, corner = 8f, z = 2)
+        out += DrawCommand.StrokePath(
+            path = PathCmd(
+                listOf(
+                    PathOp.MoveTo(Point(rect.right - fold, rect.top)),
+                    PathOp.LineTo(Point(rect.right - fold, rect.top + fold)),
+                    PathOp.LineTo(Point(rect.right, rect.top + fold)),
+                ),
+            ),
+            stroke = Stroke(width = 1f),
+            color = strokeColor,
+            z = 3,
+        )
+        out += DrawCommand.DrawText(
+            text = labelTextOf(node),
+            origin = Point(rect.left + 12f, rect.top + 10f),
+            font = noteFont,
+            color = textColor,
+            maxWidth = rect.size.width - 24f,
+            anchorX = TextAnchorX.Start,
+            anchorY = TextAnchorY.Top,
             z = 4,
         )
     }
@@ -387,17 +512,24 @@ internal class PlantUmlErdSubPipeline(
         }
     }
 
-    private fun labelTextOf(n: Node): String =
-        when (val label = n.label) {
+    private fun labelTextOf(n: Node): String {
+        return when (val label = n.label) {
             is RichLabel.Plain -> label.text.takeIf { it.isNotEmpty() } ?: n.id.value
             is RichLabel.Markdown -> label.source.takeIf { it.isNotEmpty() } ?: n.id.value
             is RichLabel.Html -> label.html.takeIf { it.isNotEmpty() } ?: n.id.value
         }
+    }
 
     private fun fontForNode(node: Node): FontSpec = if (isAttributeNode(node)) attributeFont else entityFont
 
     private fun isAttributeNode(node: Node): Boolean =
         node.payload[PlantUmlErdParser.ER_KIND_KEY] == PlantUmlErdParser.ER_ATTRIBUTE_KIND
+
+    private fun isEntityNode(node: Node): Boolean =
+        node.payload[PlantUmlErdParser.ER_KIND_KEY] == PlantUmlErdParser.ER_ENTITY_KIND
+
+    private fun isNoteNode(node: Node): Boolean =
+        node.payload[PlantUmlErdParser.ER_KIND_KEY] == PlantUmlErdParser.ER_NOTE_KIND
 
     private fun attributeFlagsOf(node: Node): List<String> =
         node.payload[PlantUmlErdParser.ER_ATTRIBUTE_FLAGS_KEY]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()

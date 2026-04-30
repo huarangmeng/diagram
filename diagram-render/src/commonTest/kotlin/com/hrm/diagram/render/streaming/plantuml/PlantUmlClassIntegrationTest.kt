@@ -71,6 +71,34 @@ class PlantUmlClassIntegrationTest {
         assertNotNull(snapshot.laidOut?.clusterRects?.get(NodeId("note#0")))
     }
 
+    @Test
+    fun package_alias_and_multiline_note_render_without_dispatch_errors() {
+        val snapshot = run(
+            """
+            @startuml
+            package Domain {
+              class "User Service" as UserService
+              class Repository
+              UserService --|> Repository
+            }
+            note left of UserService
+              Handles user-facing orchestration
+              And keeps service boundary explicit
+            end note
+            @enduml
+            """.trimIndent() + "\n",
+            chunkSize = 4,
+        )
+        val ir = snapshot.ir as? ClassIR
+        assertNotNull(ir)
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+        assertEquals("User Service", ir.classes.first { it.id == NodeId("UserService") }.name)
+        assertEquals(1, ir.namespaces.size)
+        val laidOut = assertNotNull(snapshot.laidOut)
+        assertNotNull(laidOut.clusterRects[NodeId("ns#Domain")])
+        assertNotNull(laidOut.clusterRects[NodeId("note#0")])
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

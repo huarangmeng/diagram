@@ -82,6 +82,23 @@ class PlantUmlErdParserTest {
     }
 
     @Test
+    fun parses_anchored_note_and_simple_alias() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                entity Customer as C { *id }
+                note right of C : VIP customers only
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertTrue(ir.nodes.any { it.id == NodeId("C") && it.payload[PlantUmlErdParser.ER_KIND_KEY] == PlantUmlErdParser.ER_ENTITY_KIND })
+        val note = ir.nodes.first { it.payload[PlantUmlErdParser.ER_KIND_KEY] == PlantUmlErdParser.ER_NOTE_KIND }
+        assertEquals("C", note.payload[PlantUmlErdParser.ER_NOTE_TARGET_KEY])
+        assertEquals("right", note.payload[PlantUmlErdParser.ER_NOTE_PLACEMENT_KEY])
+        assertTrue(ir.edges.any { it.from == note.id && it.to == NodeId("C") })
+    }
+
+    @Test
     fun supports_direction() {
         val ir = parse("top to bottom direction\nentity Customer { *id }\n").snapshot()
         assertEquals(Direction.TB, ir.styleHints.direction)

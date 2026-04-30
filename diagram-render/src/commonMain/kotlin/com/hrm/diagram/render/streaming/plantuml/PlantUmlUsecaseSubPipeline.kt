@@ -12,6 +12,9 @@ import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.Cluster
+import com.hrm.diagram.core.ir.ClusterStyle
+import com.hrm.diagram.core.ir.ArgbColor
+import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
@@ -19,6 +22,7 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
@@ -30,6 +34,23 @@ import kotlin.math.sqrt
 internal class PlantUmlUsecaseSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : PlantUmlSubPipeline {
+    private data class UsecasePalette(
+        val actorFill: ArgbColor?,
+        val actorStroke: ArgbColor?,
+        val actorText: ArgbColor?,
+        val usecaseFill: ArgbColor?,
+        val usecaseStroke: ArgbColor?,
+        val usecaseText: ArgbColor?,
+        val noteFill: ArgbColor?,
+        val noteStroke: ArgbColor?,
+        val noteText: ArgbColor?,
+        val rectangleFill: ArgbColor?,
+        val rectangleStroke: ArgbColor?,
+        val packageFill: ArgbColor?,
+        val packageStroke: ArgbColor?,
+        val edgeColor: ArgbColor?,
+    )
+
     private val parser = PlantUmlUsecaseParser()
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
@@ -45,7 +66,7 @@ internal class PlantUmlUsecaseSubPipeline(
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
+        val ir = applyPalette(parser.snapshot())
         measureNodes(ir)
         val baseLaid = layout.layout(
             previousSnapshot.laidOut,
@@ -55,7 +76,10 @@ internal class PlantUmlUsecaseSubPipeline(
         val clusterRects = LinkedHashMap<NodeId, Rect>()
         for (cluster in ir.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
         val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
-        val laidOut = baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
+        val laidOut = applyAnchoredNotes(
+            ir,
+            baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq),
+        )
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
@@ -77,6 +101,13 @@ internal class PlantUmlUsecaseSubPipeline(
                     nodeSizes[node.id] = Size(
                         width = (metrics.width + 28f).coerceAtLeast(72f),
                         height = (metrics.height + 96f).coerceAtLeast(116f),
+                    )
+                }
+                "note" -> {
+                    val metrics = textMeasurer.measure(label, labelFont, maxWidth = 180f)
+                    nodeSizes[node.id] = Size(
+                        width = (metrics.width + 30f).coerceAtLeast(120f),
+                        height = (metrics.height + 24f).coerceAtLeast(54f),
                     )
                 }
                 else -> {
@@ -157,11 +188,13 @@ internal class PlantUmlUsecaseSubPipeline(
         val rect = laidOut.nodePositions[node.id] ?: return
         when (node.payload[PlantUmlUsecaseParser.KIND_KEY]) {
             "actor" -> drawActor(node, rect, out)
+            "note" -> drawNote(node, rect, out)
             else -> drawUsecase(node, rect, out)
         }
     }
 
     private fun drawActor(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+        val fill = node.style.fill?.let { Color(it.argb) }
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF455A64.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF263238.toInt())
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
@@ -169,6 +202,7 @@ internal class PlantUmlUsecaseSubPipeline(
         val top = rect.top + 8f
         val headRadius = 11f
         val headRect = Rect.ltrb(cx - headRadius, top, cx + headRadius, top + headRadius * 2f)
+        fill?.let { out += DrawCommand.FillRect(rect = headRect, color = it, corner = headRadius, z = 2) }
         out += DrawCommand.StrokeRect(rect = headRect, stroke = stroke, color = strokeColor, corner = headRadius, z = 3)
         val bodyTop = headRect.bottom
         val bodyBottom = rect.bottom - 28f
@@ -189,6 +223,19 @@ internal class PlantUmlUsecaseSubPipeline(
             color = strokeColor,
             z = 3,
         )
+        if (node.payload[PlantUmlUsecaseParser.ACTOR_VARIANT_KEY] == "business") {
+            out += DrawCommand.StrokePath(
+                path = PathCmd(
+                    listOf(
+                        PathOp.MoveTo(Point(cx - 12f, bodyTop + 2f)),
+                        PathOp.LineTo(Point(cx + 12f, bodyTop + 28f)),
+                    ),
+                ),
+                stroke = Stroke(width = 1.25f),
+                color = strokeColor,
+                z = 4,
+            )
+        }
         out += DrawCommand.DrawText(
             text = labelTextOf(node),
             origin = Point(cx, rect.bottom - 12f),
@@ -218,6 +265,38 @@ internal class PlantUmlUsecaseSubPipeline(
             anchorX = TextAnchorX.Center,
             anchorY = TextAnchorY.Middle,
             z = 5,
+        )
+    }
+
+    private fun drawNote(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFFFF8E1.toInt())
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFFFFA000.toInt())
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF5D4037.toInt())
+        val stroke = Stroke(width = node.style.strokeWidth ?: 1.25f)
+        out += DrawCommand.FillRect(rect = rect, color = fill, corner = 8f, z = 3)
+        out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = 8f, z = 4)
+        val fold = 14f
+        out += DrawCommand.StrokePath(
+            path = PathCmd(
+                listOf(
+                    PathOp.MoveTo(Point(rect.right - fold, rect.top)),
+                    PathOp.LineTo(Point(rect.right - fold, rect.top + fold)),
+                    PathOp.LineTo(Point(rect.right, rect.top + fold)),
+                ),
+            ),
+            stroke = Stroke(width = 1.2f),
+            color = strokeColor,
+            z = 5,
+        )
+        out += DrawCommand.DrawText(
+            text = labelTextOf(node),
+            origin = Point(rect.left + 12f, rect.top + 10f),
+            font = labelFont,
+            color = textColor,
+            maxWidth = rect.size.width - 24f,
+            anchorX = TextAnchorX.Start,
+            anchorY = TextAnchorY.Top,
+            z = 6,
         )
     }
 
@@ -323,4 +402,174 @@ internal class PlantUmlUsecaseSubPipeline(
         val parts = text.split('\n', limit = 2)
         return if (parts.size == 2) parts[0] to parts[1] else "package" to text
     }
+
+    private fun applyPalette(ir: GraphIR): GraphIR {
+        val palette = paletteOf(ir)
+        val nodes = ir.nodes.map { node ->
+            when (node.payload[PlantUmlUsecaseParser.KIND_KEY]) {
+                "actor" -> node.copy(
+                    style = node.style.copy(
+                        fill = palette.actorFill ?: node.style.fill,
+                        stroke = palette.actorStroke ?: node.style.stroke,
+                        textColor = palette.actorText ?: node.style.textColor,
+                    ),
+                )
+                "note" -> node.copy(
+                    style = node.style.copy(
+                        fill = palette.noteFill ?: node.style.fill,
+                        stroke = palette.noteStroke ?: node.style.stroke,
+                        textColor = palette.noteText ?: node.style.textColor,
+                    ),
+                )
+                else -> node.copy(
+                    style = node.style.copy(
+                        fill = palette.usecaseFill ?: node.style.fill,
+                        stroke = palette.usecaseStroke ?: node.style.stroke,
+                        textColor = palette.usecaseText ?: node.style.textColor,
+                    ),
+                )
+            }
+        }
+        val edges = ir.edges.map { edge ->
+            edge.copy(
+                style = edge.style.copy(
+                    color = when {
+                        edge.from.value.contains("__note_") -> palette.noteStroke ?: edge.style.color
+                        else -> palette.edgeColor ?: edge.style.color
+                    },
+                ),
+            )
+        }
+        val clusters = ir.clusters.map { applyClusterPalette(it, palette) }
+        return ir.copy(nodes = nodes, edges = edges, clusters = clusters)
+    }
+
+    private fun applyClusterPalette(cluster: Cluster, palette: UsecasePalette): Cluster {
+        val kind = parseClusterLabel(cluster).first.lowercase()
+        val (fill, stroke) = when (kind) {
+            "rectangle" -> palette.rectangleFill to palette.rectangleStroke
+            else -> palette.packageFill to palette.packageStroke
+        }
+        return cluster.copy(
+            style = ClusterStyle(
+                fill = fill ?: cluster.style.fill,
+                stroke = stroke ?: cluster.style.stroke,
+                strokeWidth = cluster.style.strokeWidth,
+            ),
+            nestedClusters = cluster.nestedClusters.map { applyClusterPalette(it, palette) },
+        )
+    }
+
+    private fun paletteOf(ir: GraphIR): UsecasePalette {
+        val extras = ir.styleHints.extras
+        fun c(key: String): ArgbColor? = extras[key]?.let(::parsePlantUmlColor)
+        return UsecasePalette(
+            actorFill = c(PlantUmlUsecaseParser.STYLE_ACTOR_FILL_KEY),
+            actorStroke = c(PlantUmlUsecaseParser.STYLE_ACTOR_STROKE_KEY),
+            actorText = c(PlantUmlUsecaseParser.STYLE_ACTOR_TEXT_KEY),
+            usecaseFill = c(PlantUmlUsecaseParser.STYLE_USECASE_FILL_KEY),
+            usecaseStroke = c(PlantUmlUsecaseParser.STYLE_USECASE_STROKE_KEY),
+            usecaseText = c(PlantUmlUsecaseParser.STYLE_USECASE_TEXT_KEY),
+            noteFill = c(PlantUmlUsecaseParser.STYLE_NOTE_FILL_KEY),
+            noteStroke = c(PlantUmlUsecaseParser.STYLE_NOTE_STROKE_KEY),
+            noteText = c(PlantUmlUsecaseParser.STYLE_NOTE_TEXT_KEY),
+            rectangleFill = c(PlantUmlUsecaseParser.STYLE_RECTANGLE_FILL_KEY),
+            rectangleStroke = c(PlantUmlUsecaseParser.STYLE_RECTANGLE_STROKE_KEY),
+            packageFill = c(PlantUmlUsecaseParser.STYLE_PACKAGE_FILL_KEY),
+            packageStroke = c(PlantUmlUsecaseParser.STYLE_PACKAGE_STROKE_KEY),
+            edgeColor = c(PlantUmlUsecaseParser.STYLE_EDGE_COLOR_KEY),
+        )
+    }
+
+    private fun parsePlantUmlColor(text: String): ArgbColor? {
+        val raw = text.trim()
+        if (!raw.startsWith("#")) return namedColor(raw)
+        val hex = raw.removePrefix("#")
+        return when (hex.length) {
+            3 -> parseHex("FF${hex.map { "$it$it" }.joinToString("")}")
+            6 -> parseHex("FF$hex")
+            8 -> parseHex(hex)
+            else -> null
+        }
+    }
+
+    private fun parseHex(argb: String): ArgbColor? = argb.toLongOrNull(16)?.let { ArgbColor(it.toInt()) }
+
+    private fun namedColor(name: String): ArgbColor? = when (name.lowercase()) {
+        "lightskyblue" -> ArgbColor(0xFF87CEFA.toInt())
+        "palegreen" -> ArgbColor(0xFF98FB98.toInt())
+        "lightgreen" -> ArgbColor(0xFF90EE90.toInt())
+        "lightblue" -> ArgbColor(0xFFADD8E6.toInt())
+        "lightyellow" -> ArgbColor(0xFFFFFFE0.toInt())
+        "lightgray", "lightgrey" -> ArgbColor(0xFFD3D3D3.toInt())
+        "orange" -> ArgbColor(0xFFFFA500.toInt())
+        "red" -> ArgbColor(0xFFFF0000.toInt())
+        "green" -> ArgbColor(0xFF008000.toInt())
+        "blue" -> ArgbColor(0xFF0000FF.toInt())
+        "yellow" -> ArgbColor(0xFFFFFF00.toInt())
+        "gray", "grey" -> ArgbColor(0xFF808080.toInt())
+        "saddlebrown" -> ArgbColor(0xFF8B4513.toInt())
+        "silver" -> ArgbColor(0xFFC0C0C0.toInt())
+        "peru" -> ArgbColor(0xFFCD853F.toInt())
+        "navy" -> ArgbColor(0xFF000080.toInt())
+        "ivory" -> ArgbColor(0xFFFFFFF0.toInt())
+        else -> null
+    }
+
+    private fun applyAnchoredNotes(ir: GraphIR, laidOut: LaidOutDiagram): LaidOutDiagram {
+        val noteNodes = ir.nodes.filter { it.payload[PlantUmlUsecaseParser.KIND_KEY] == "note" }
+        if (noteNodes.isEmpty()) return laidOut
+        val nodePositions = LinkedHashMap(laidOut.nodePositions)
+        val edgeRoutes = laidOut.edgeRoutes.toMutableList()
+        for (note in noteNodes) {
+            val target = note.payload[PlantUmlUsecaseParser.NOTE_TARGET_KEY]?.let(::NodeId) ?: continue
+            val placement = note.payload[PlantUmlUsecaseParser.NOTE_PLACEMENT_KEY].orEmpty()
+            val targetRect = nodePositions[target] ?: continue
+            val noteRect = nodePositions[note.id] ?: continue
+            val anchored = anchoredNoteRect(noteRect.size, targetRect, placement)
+            nodePositions[note.id] = anchored
+            val edgeIndex = ir.edges.indexOfFirst { it.from == note.id && it.to == target }
+            if (edgeIndex >= 0) {
+                val route = EdgeRoute(
+                    from = note.id,
+                    to = target,
+                    points = anchoredNoteRoute(anchored, targetRect, placement),
+                    kind = RouteKind.Polyline,
+                )
+                if (edgeIndex < edgeRoutes.size) edgeRoutes[edgeIndex] = route else edgeRoutes += route
+            }
+        }
+        val bounds = computeBounds(nodePositions.values + laidOut.clusterRects.values)
+        return laidOut.copy(nodePositions = nodePositions, edgeRoutes = edgeRoutes, bounds = bounds)
+    }
+
+    private fun anchoredNoteRect(size: Size, targetRect: Rect, placement: String): Rect {
+        val gap = 18f
+        return when (placement.lowercase()) {
+            "left" -> Rect(Point(targetRect.left - size.width - gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
+            "top" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.top - size.height - gap), size)
+            "bottom" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.bottom + gap), size)
+            else -> Rect(Point(targetRect.right + gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
+        }
+    }
+
+    private fun anchoredNoteRoute(noteRect: Rect, targetRect: Rect, placement: String): List<Point> =
+        when (placement.lowercase()) {
+            "left" -> listOf(
+                Point(noteRect.right, (noteRect.top + noteRect.bottom) / 2f),
+                Point(targetRect.left, (targetRect.top + targetRect.bottom) / 2f),
+            )
+            "top" -> listOf(
+                Point((noteRect.left + noteRect.right) / 2f, noteRect.bottom),
+                Point((targetRect.left + targetRect.right) / 2f, targetRect.top),
+            )
+            "bottom" -> listOf(
+                Point((noteRect.left + noteRect.right) / 2f, noteRect.top),
+                Point((targetRect.left + targetRect.right) / 2f, targetRect.bottom),
+            )
+            else -> listOf(
+                Point(noteRect.left, (noteRect.top + noteRect.bottom) / 2f),
+                Point(targetRect.right, (targetRect.top + targetRect.bottom) / 2f),
+            )
+        }
 }

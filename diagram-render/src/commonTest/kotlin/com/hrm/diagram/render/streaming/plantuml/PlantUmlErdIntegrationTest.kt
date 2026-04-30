@@ -2,10 +2,12 @@ package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.parser.plantuml.PlantUmlErdParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class PlantUmlErdIntegrationTest {
@@ -67,6 +69,43 @@ class PlantUmlErdIntegrationTest {
         val ir = assertIs<GraphIR>(snapshot.ir)
         assertTrue(ir.edges.any { it.label != null })
         assertTrue(snapshot.laidOut!!.edgeRoutes.isNotEmpty())
+    }
+
+    @Test
+    fun anchored_note_renders_and_stays_bound_to_entity() {
+        val snapshot = run(
+            """
+            @startuml
+            entity Customer as C {
+              *id : uuid
+            }
+            note right of C : VIP customers only
+            @enduml
+            """.trimIndent() + "\n",
+            3,
+        )
+        val ir = assertIs<GraphIR>(snapshot.ir)
+        val note = ir.nodes.first { it.payload[PlantUmlErdParser.ER_KIND_KEY] == PlantUmlErdParser.ER_NOTE_KIND }
+        val laidOut = assertNotNull(snapshot.laidOut)
+        val entityRect = laidOut.nodePositions.getValue(com.hrm.diagram.core.ir.NodeId("C"))
+        val noteRect = laidOut.nodePositions.getValue(note.id)
+        assertTrue(noteRect.left >= entityRect.right, "note should be placed to the right of its target entity")
+        assertTrue(laidOut.edgeRoutes.any { it.from == note.id && it.to == com.hrm.diagram.core.ir.NodeId("C") })
+    }
+
+    @Test
+    fun note_first_chunk_is_dispatched_to_erd_instead_of_activity() {
+        val snapshot = run(
+            """
+            @startuml
+            note right of Customer : imported from CRM
+            entity Customer { *id }
+            @enduml
+            """.trimIndent() + "\n",
+            4,
+        )
+        assertIs<GraphIR>(snapshot.ir)
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->

@@ -43,12 +43,15 @@ class PlantUmlUsecaseParserTest {
         val ir = assertIs<GraphIR>(
             parse(
                 """
-                actor "Customer" as User
+                actor/ "Customer" as User
+                :Back Office:/ as Staff
                 usecase "Login" as LoginUc
                 """.trimIndent() + "\n",
             ).snapshot(),
         )
         assertEquals("actor", ir.nodes.first { it.id == NodeId("User") }.payload[PlantUmlUsecaseParser.KIND_KEY])
+        assertEquals("business", ir.nodes.first { it.id == NodeId("User") }.payload[PlantUmlUsecaseParser.ACTOR_VARIANT_KEY])
+        assertEquals("business", ir.nodes.first { it.id == NodeId("Staff") }.payload[PlantUmlUsecaseParser.ACTOR_VARIANT_KEY])
         assertEquals("usecase", ir.nodes.first { it.id == NodeId("LoginUc") }.payload[PlantUmlUsecaseParser.KIND_KEY])
     }
 
@@ -95,14 +98,18 @@ class PlantUmlUsecaseParserTest {
                 actor User
                 usecase Pay
                 User --> Pay : starts
-                (Pay) ..> (Notify) : <<include>>
+                (Pay) .> (Notify) : include
+                (OptionalAuth) <. (Pay) : extends
                 """.trimIndent() + "\n",
             ).snapshot(),
         )
-        assertEquals(2, ir.edges.size)
+        assertEquals(3, ir.edges.size)
         assertEquals(ArrowEnds.ToOnly, ir.edges[0].arrow)
         assertEquals(EdgeKind.Dashed, ir.edges[1].kind)
         assertEquals(RichLabel.Plain("<<include>>"), ir.edges[1].label)
+        assertEquals(ArrowEnds.ToOnly, ir.edges[1].arrow)
+        assertEquals(RichLabel.Plain("<<extend>>"), ir.edges[2].label)
+        assertEquals(ArrowEnds.FromOnly, ir.edges[2].arrow)
     }
 
     @Test
@@ -122,5 +129,68 @@ class PlantUmlUsecaseParserTest {
             User --> LoginUc : starts
             """.trimIndent() + "\n"
         assertEquals(parse(src).snapshot(), parse(src, chunkSize = 1).snapshot())
+    }
+
+    @Test
+    fun anchored_note_is_parsed() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                actor User
+                usecase "Login" as LoginUc
+                note right of LoginUc
+                  visible to customer
+                  before checkout
+                end note
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        val note = ir.nodes.first { it.payload[PlantUmlUsecaseParser.KIND_KEY] == "note" }
+        assertEquals("LoginUc", note.payload[PlantUmlUsecaseParser.NOTE_TARGET_KEY])
+        assertEquals("right", note.payload[PlantUmlUsecaseParser.NOTE_PLACEMENT_KEY])
+        assertTrue(ir.edges.any { it.from == note.id && it.to == NodeId("LoginUc") })
+    }
+
+    @Test
+    fun usecase_skinparam_entries_are_stored_in_style_hints() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                skinparam actor {
+                  BackgroundColor Ivory
+                  BorderColor Navy
+                  FontColor SaddleBrown
+                }
+                skinparam usecase {
+                  BackgroundColor LightYellow
+                  BorderColor Orange
+                  FontColor Navy
+                }
+                skinparam note {
+                  BackgroundColor Ivory
+                  BorderColor Orange
+                  FontColor Navy
+                }
+                skinparam rectangle {
+                  BackgroundColor PaleGreen
+                  BorderColor Green
+                }
+                skinparam package {
+                  BackgroundColor LightGray
+                  BorderColor Silver
+                }
+                skinparam ArrowColor Peru
+                actor User
+                (Checkout) as CheckoutUc
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_FILL_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_STROKE_KEY])
+        assertEquals("LightYellow", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_USECASE_FILL_KEY])
+        assertEquals("Orange", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("PaleGreen", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_RECTANGLE_FILL_KEY])
+        assertEquals("Silver", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_PACKAGE_STROKE_KEY])
+        assertEquals("Peru", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_EDGE_COLOR_KEY])
     }
 }

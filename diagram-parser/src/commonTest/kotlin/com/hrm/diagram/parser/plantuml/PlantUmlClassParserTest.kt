@@ -51,6 +51,14 @@ class PlantUmlClassParserTest {
     }
 
     @Test
+    fun quoted_alias_declaration_is_parsed() {
+        val ir = parse("class \"User Service\" as UserService\n").snapshot()
+        val c = ir.classes.single()
+        assertEquals(NodeId("UserService"), c.id)
+        assertEquals("User Service", c.name)
+    }
+
+    @Test
     fun multiline_body_members_are_parsed() {
         val ir = parse(
             """
@@ -80,22 +88,32 @@ class PlantUmlClassParserTest {
         val src =
             """
             Animal <|-- Dog
+            Service --|> Api
             House o-- Room
             Order *-- Line
             Service ..> Client
+            Client <.. Http
             Api --> Db
             """.trimIndent() + "\n"
-        val kinds = parse(src).snapshot().relations.map { it.kind }
+        val rels = parse(src).snapshot().relations
         assertEquals(
             listOf(
+                ClassRelationKind.Inheritance,
                 ClassRelationKind.Inheritance,
                 ClassRelationKind.Aggregation,
                 ClassRelationKind.Composition,
                 ClassRelationKind.Dependency,
+                ClassRelationKind.Dependency,
                 ClassRelationKind.Association,
             ),
-            kinds,
+            rels.map { it.kind },
         )
+        assertEquals(NodeId("Dog"), rels[0].from)
+        assertEquals(NodeId("Animal"), rels[0].to)
+        assertEquals(NodeId("Service"), rels[1].from)
+        assertEquals(NodeId("Api"), rels[1].to)
+        assertEquals(NodeId("Room"), rels[2].from)
+        assertEquals(NodeId("House"), rels[2].to)
     }
 
     @Test
@@ -105,6 +123,28 @@ class PlantUmlClassParserTest {
         assertEquals(NodeId("Foo"), ir.notes[0].targetClass)
         assertEquals(NotePlacement.RightOf, ir.notes[0].placement)
         assertEquals(RichLabel.Plain("hello"), ir.notes[0].text)
+    }
+
+    @Test
+    fun multiline_note_block_and_package_are_parsed() {
+        val ir = parse(
+            """
+            package Domain {
+              class "User Service" as UserService
+              class Repository
+            }
+            note left of UserService
+              first line
+              second line
+            end note
+            """.trimIndent() + "\n",
+        ).snapshot()
+        assertEquals(1, ir.namespaces.size)
+        assertEquals("Domain", ir.namespaces.single().id)
+        assertEquals(2, ir.namespaces.single().members.size)
+        assertEquals(1, ir.notes.size)
+        assertEquals(NodeId("UserService"), ir.notes.single().targetClass)
+        assertEquals(RichLabel.Plain("first line\nsecond line"), ir.notes.single().text)
     }
 
     @Test
