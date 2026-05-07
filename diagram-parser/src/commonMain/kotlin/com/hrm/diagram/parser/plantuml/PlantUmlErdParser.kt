@@ -39,6 +39,7 @@ class PlantUmlErdParser {
         const val ER_ENTITY_KIND = "entity"
         const val ER_ATTRIBUTE_KIND = "attribute"
         const val ER_NOTE_KIND = "note"
+        const val ER_ATTRIBUTE_NAME_KEY = "plantuml.erd.attribute.name"
         const val ER_ATTRIBUTE_TYPE_KEY = "plantuml.erd.attribute.type"
         const val ER_ATTRIBUTE_FLAGS_KEY = "plantuml.erd.attribute.flags"
         const val ER_NOTE_TARGET_KEY = "plantuml.erd.note.target"
@@ -48,6 +49,13 @@ class PlantUmlErdParser {
         private val ANCHORED_NOTE = Regex(
             "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
             RegexOption.IGNORE_CASE,
+        )
+        private val ATTRIBUTE_TOKEN = Regex(""""[^"]+"|\S+""")
+        private val COMMON_ATTRIBUTE_TYPES = setOf(
+            "string", "text", "uuid", "int", "integer", "long", "bigint", "smallint",
+            "decimal", "numeric", "float", "double", "real", "boolean", "bool", "date",
+            "datetime", "timestamp", "timestamptz", "time", "json", "jsonb", "blob", "clob",
+            "varchar", "char", "binary", "varbinary",
         )
     }
 
@@ -189,9 +197,11 @@ class PlantUmlErdParser {
             flags += stereotypeFlags
             work = work.replace(Regex("\\s*<<[^>]+>>"), "").trim()
         }
-        val name = work.substringBefore(':').trim()
-        val type = work.substringAfter(':', "").trim()
-        if (name.isEmpty()) return errorBatch("Invalid attribute line (expected: [*|+|#]name [: type] [<<PK/FK/UK>>])")
+        work = work.replace(Regex("""\s*\{[^}]+\}"""), "").trim()
+        val parsed = parseAttributeSpec(work)
+            ?: return errorBatch("Invalid attribute line (expected: [*|+|#]name [: type] [<<PK/FK/UK>>])")
+        val name = parsed.first
+        val type = parsed.second
         val patches = ArrayList<IrPatch>()
         registerAttribute(entity, type, name, flags.distinct(), patches)
         return IrPatchBatch(seq, patches)
@@ -311,7 +321,7 @@ class PlantUmlErdParser {
     }
 
     private fun registerAttribute(entity: NodeId, type: String, name: String, flags: List<String>, out: MutableList<IrPatch>) {
-        val attrId = NodeId("${entity.value}::${name}")
+        val attrId = NodeId("${entity.value}::${sanitizeId(name)}")
         if (attrId !in knownNodes) {
             knownNodes += attrId
             val normalizedFlags = flags.map { it.uppercase() }
@@ -324,6 +334,7 @@ class PlantUmlErdParser {
                 style = attributeStyleFor(normalizedFlags),
                 payload = buildMap {
                     put(ER_KIND_KEY, ER_ATTRIBUTE_KIND)
+                    put(ER_ATTRIBUTE_NAME_KEY, name)
                     if (type.isNotBlank()) put(ER_ATTRIBUTE_TYPE_KEY, type)
                     if (normalizedFlags.isNotEmpty()) put(ER_ATTRIBUTE_FLAGS_KEY, normalizedFlags.joinToString(","))
                 },
@@ -347,11 +358,19 @@ class PlantUmlErdParser {
     }
 
     private fun parseAliasSpec(body: String): AliasSpec? {
-        val quotedAs = Regex("^\"([^\"]+)\"\\s+as\\s+([A-Za-z0-9_.:-]+)$").matchEntire(body)
+        val normalized = body.replace(Regex("\\s*<<[^>]+>>"), "").trim()
+        val quotedAs = Regex("^\"([^\"]+)\"\\s+as\\s+([A-Za-z0-9_.:-]+)$").matchEntire(normalized)
         if (quotedAs != null) return AliasSpec(quotedAs.groupValues[2], quotedAs.groupValues[1])
-        val simpleAs = Regex("^([A-Za-z0-9_.:-]+)\\s+as\\s+([A-Za-z0-9_.:-]+)$").matchEntire(body)
+        val simpleAs = Regex("^([A-Za-z0-9_.:-]+)\\s+as\\s+([A-Za-z0-9_.:-]+)$").matchEntire(normalized)
         if (simpleAs != null) return AliasSpec(simpleAs.groupValues[2], simpleAs.groupValues[1])
-        val simple = IDENT.matchEntire(body)
+        val aliasQuoted = Regex("^([A-Za-z0-9_.:-]+)\\s+as\\s+\"([^\"]+)\"$").matchEntire(normalized)
+        if (aliasQuoted != null) return AliasSpec(aliasQuoted.groupValues[1], aliasQuoted.groupValues[2])
+        val quotedOnly = Regex("^\"([^\"]+)\"$").matchEntire(normalized)
+        if (quotedOnly != null) {
+            val label = quotedOnly.groupValues[1]
+            return AliasSpec(sanitizeId(label), label)
+        }
+        val simple = IDENT.matchEntire(normalized)
         if (simple != null) return AliasSpec(simple.value, simple.value)
         return null
     }
@@ -360,6 +379,44 @@ class PlantUmlErdParser {
         val parts = inner.split(';').map { it.trim() }.filter { it.isNotEmpty() }
         return if (parts.isNotEmpty()) parts else listOf(inner)
     }
+
+    private fun parseAttributeSpec(text: String): Pair<String, String>? {
+        val colonIndex = text.indexOf(':')
+        if (colonIndex >= 0) {
+            val name = normalizeToken(text.substring(0, colonIndex))
+            val type = text.substring(colonIndex + 1).trim()
+            return name.takeIf { it.isNotEmpty() }?.let { it to type }
+        }
+        val tokens = ATTRIBUTE_TOKEN.findAll(text).map { it.value }.toList()
+        if (tokens.isEmpty()) return null
+        if (tokens.size == 1) return normalizeToken(tokens.single()).takeIf { it.isNotEmpty() }?.let { it to "" }
+        val first = tokens.first()
+        val last = tokens.last()
+        val typeFirst = looksLikeTypeToken(first) && !looksLikeTypeToken(last)
+        return if (typeFirst) {
+            val type = normalizeToken(first)
+            val name = normalizeToken(tokens.drop(1).joinToString(" "))
+            name.takeIf { it.isNotEmpty() }?.let { it to type }
+        } else {
+            val name = normalizeToken(tokens.dropLast(1).joinToString(" "))
+            val type = normalizeToken(last)
+            name.takeIf { it.isNotEmpty() }?.let { it to type }
+        }
+    }
+
+    private fun normalizeToken(text: String): String =
+        text.trim().removePrefix("\"").removeSuffix("\"").trim()
+
+    private fun looksLikeTypeToken(token: String): Boolean {
+        val normalized = normalizeToken(token).lowercase()
+        val base = normalized.substringBefore('(').substringBefore('[')
+        return normalized in COMMON_ATTRIBUTE_TYPES ||
+            base in COMMON_ATTRIBUTE_TYPES ||
+            normalized.endsWith("[]")
+    }
+
+    private fun sanitizeId(text: String): String =
+        text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "entity_$seq" }
 
     private fun attributeStyleFor(flags: List<String>): NodeStyle = when {
         "PK" in flags -> NodeStyle(

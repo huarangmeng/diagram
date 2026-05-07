@@ -64,6 +64,83 @@ class PlantUmlSequenceIntegrationTest {
         assertTrue(snapshot.drawCommands.isNotEmpty())
     }
 
+    @Test
+    fun sequence_create_destroy_ref_box_and_autonumber_render_consistently() {
+        val src =
+            """
+            @startuml
+            box "Clients" LightBlue
+            actor Alice
+            participant Bob
+            end box
+            autonumber 10 5
+            Alice -> Bob: first
+            autonumber stop
+            create Carol
+            Alice -> Carol: born
+            ref over Alice,Carol : Shared flow
+            autonumber resume 30 3
+            destroy Bob
+            Carol -> Bob: bye
+            @enduml
+            """.trimIndent() + "\n"
+        val one = run(src, chunkSize = src.length)
+        val chunked = run(src, chunkSize = 5)
+        val oneIr = assertIs<SequenceIR>(one.ir)
+        val chunkedIr = assertIs<SequenceIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertEquals(drawSignature(one.drawCommands), drawSignature(chunked.drawCommands))
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertTrue(oneIr.messages.any { it.kind == com.hrm.diagram.core.ir.MessageKind.Create })
+        assertTrue(oneIr.messages.any { it.kind == com.hrm.diagram.core.ir.MessageKind.Destroy })
+        assertTrue(
+            one.drawCommands.filterIsInstance<DrawCommand.FillRect>().any {
+                (it.color.argb and 0x00FFFFFF) == 0x00ADD8E6 && (it.color.argb ushr 24) > 0
+            },
+            "expected translucent box background",
+        )
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().any { it.color.argb == 0xFFADD8E6.toInt() }, "expected box border color")
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().size >= 3, "expected message and marker strokes")
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("10 first") })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("bye") })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Shared flow" })
+    }
+
+    @Test
+    fun sequence_complex_arrow_decorations_render_consistently() {
+        val src =
+            """
+            @startuml
+            participant Alice
+            participant Bob
+            participant Carol
+            Alice o-> Bob: tail
+            Bob -->>o Carol: stream
+            Alice x<- Carol: reject
+            @enduml
+            """.trimIndent() + "\n"
+        val one = run(src, chunkSize = src.length)
+        val chunked = run(src, chunkSize = 4)
+        val oneIr = assertIs<SequenceIR>(one.ir)
+        val chunkedIr = assertIs<SequenceIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertEquals(drawSignature(one.drawCommands), drawSignature(chunked.drawCommands))
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertTrue(
+            one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().any {
+                it.corner == 5f && it.rect.size.width <= 12f && it.rect.size.height <= 12f
+            },
+            "expected open-circle marker",
+        )
+        assertTrue(
+            one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().any { it.path.ops.size == 4 },
+            "expected cross marker path",
+        )
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "stream" })
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

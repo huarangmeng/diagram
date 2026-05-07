@@ -140,7 +140,7 @@ internal class PlantUmlSessionPipeline(
         }
         if (trimmed.startsWith("skinparam", ignoreCase = true)) {
             val chosen = subPipeline
-            if (chosen is PlantUmlActivitySubPipeline || chosen is PlantUmlUsecaseSubPipeline) {
+            if (chosen is PlantUmlActivitySubPipeline || chosen is PlantUmlUsecaseSubPipeline || chosen is PlantUmlStateSubPipeline) {
                 out += chosen.acceptLine(trimmed).patches
             } else if (chosen != null) {
                 out += ignoredSkinparamWarning()
@@ -160,7 +160,7 @@ internal class PlantUmlSessionPipeline(
 
         bufferedBodyLines += trimmed
         val kind = classifyImmediate(trimmed)
-        if (kind != null) {
+        if (kind != null && !shouldDeferImmediate(kind, trimmed)) {
             attachSubPipeline(kind, out)
         }
     }
@@ -185,7 +185,7 @@ internal class PlantUmlSessionPipeline(
             DiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer)
         }
         if (bufferedSkinparamLines.isNotEmpty()) {
-            if (kind == DiagramKind.Activity || kind == DiagramKind.Usecase) {
+            if (kind == DiagramKind.Activity || kind == DiagramKind.Usecase || kind == DiagramKind.State) {
                 for (line in bufferedSkinparamLines) {
                     out += subPipeline!!.acceptLine(line).patches
                 }
@@ -216,6 +216,9 @@ internal class PlantUmlSessionPipeline(
             return DiagramKind.Erd
         }
         if (lower.startsWith("artifact ")) {
+            return DiagramKind.Deployment
+        }
+        if (lower.startsWith("storage ")) {
             return DiagramKind.Deployment
         }
         if (
@@ -310,6 +313,12 @@ internal class PlantUmlSessionPipeline(
             lower.startsWith("activate ") ||
             lower.startsWith("deactivate ") ||
             lower.startsWith("autonumber") ||
+            lower.startsWith("create ") ||
+            lower.startsWith("destroy ") ||
+            lower.startsWith("ref ") ||
+            lower.startsWith("box") ||
+            lower == "end box" ||
+            lower == "endbox" ||
             lower.startsWith("return") ||
             lower.startsWith("loop ") ||
             lower.startsWith("alt ") ||
@@ -329,11 +338,30 @@ internal class PlantUmlSessionPipeline(
         return null
     }
 
+    private fun shouldDeferImmediate(kind: DiagramKind, line: String): Boolean {
+        val lower = line.lowercase()
+        val sawAmbiguousContainerCue = bufferedBodyLines.any {
+            val candidate = it.lowercase()
+            candidate.startsWith("node ") || candidate.startsWith("cloud ")
+        }
+        if (!sawAmbiguousContainerCue) return false
+        return when (kind) {
+            DiagramKind.Component,
+            DiagramKind.Sequence,
+                ->
+                lower.startsWith("database ") ||
+                    lower.startsWith("queue ") ||
+                    lower.startsWith("frame ")
+            else -> false
+        }
+    }
+
     private fun detectBufferedKind(): DiagramKind? {
         var sawStateCue = false
         var sawClassCue = false
         var sawSequenceCue = false
         var sawComponentCue = false
+        var sawExplicitComponentCue = false
         var sawUsecaseCue = false
         var sawPackageCue = false
         var sawActorCue = false
@@ -363,7 +391,8 @@ internal class PlantUmlSessionPipeline(
             if (
                 lower.startsWith("artifact ") ||
                 lower.startsWith("database ") ||
-                lower.startsWith("frame ")
+                lower.startsWith("frame ") ||
+                lower.startsWith("storage ")
             ) {
                 sawDeploymentCue = true
             }
@@ -421,6 +450,15 @@ internal class PlantUmlSessionPipeline(
             if (
                 lower.startsWith("component ") ||
                 lower.startsWith("()") ||
+                lower.startsWith("port ") ||
+                lower.startsWith("portin ") ||
+                lower.startsWith("portout ")
+            ) {
+                sawExplicitComponentCue = true
+            }
+            if (
+                lower.startsWith("component ") ||
+                lower.startsWith("()") ||
                 lower.startsWith("database ") ||
                 lower.startsWith("queue ") ||
                 lower.startsWith("frame ") ||
@@ -467,6 +505,12 @@ internal class PlantUmlSessionPipeline(
                 lower.startsWith("activate ") ||
                 lower.startsWith("deactivate ") ||
                 lower.startsWith("autonumber") ||
+                lower.startsWith("create ") ||
+                lower.startsWith("destroy ") ||
+                lower.startsWith("ref ") ||
+                lower.startsWith("box") ||
+                lower == "end box" ||
+                lower == "endbox" ||
                 lower.startsWith("return") ||
                 lower.startsWith("loop ") ||
                 lower.startsWith("alt ") ||
@@ -484,7 +528,8 @@ internal class PlantUmlSessionPipeline(
         return when {
             sawObjectCue -> DiagramKind.Object
             sawErdCue -> DiagramKind.Erd
-            sawAmbiguousContainerCue && sawBracketArtifactCue && !sawComponentCue -> DiagramKind.Deployment
+            sawAmbiguousContainerCue && sawBracketArtifactCue && !sawExplicitComponentCue -> DiagramKind.Deployment
+            sawAmbiguousContainerCue && sawActorCue && !sawUsecaseCue && !sawExplicitComponentCue -> DiagramKind.Deployment
             sawComponentCue -> DiagramKind.Component
             sawDeploymentCue -> DiagramKind.Deployment
             sawActivityCue -> DiagramKind.Activity

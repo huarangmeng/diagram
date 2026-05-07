@@ -39,6 +39,8 @@ class PlantUmlDeploymentParser {
     companion object {
         const val KIND_KEY = "plantuml.deployment.kind"
         const val PARENT_KEY = "plantuml.deployment.parent"
+        const val NOTE_TARGET_KEY = "plantuml.deployment.note.target"
+        const val NOTE_PLACEMENT_KEY = "plantuml.deployment.note.placement"
         val RELATION_OPERATORS = listOf("-->", "<--", "..>", "<..", "--", "..")
         private val IDENTIFIER = Regex("[A-Za-z0-9_.:-]+")
     }
@@ -50,6 +52,12 @@ class PlantUmlDeploymentParser {
         val parent: NodeId?,
     )
 
+    private data class PendingNote(
+        val target: NodeId?,
+        val placement: String,
+        val lines: MutableList<String> = ArrayList(),
+    )
+
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
@@ -58,11 +66,21 @@ class PlantUmlDeploymentParser {
 
     private var seq: Long = 0
     private var direction: Direction = Direction.LR
+    private var pendingNote: PendingNote? = null
+    private var noteSeq: Long = 0
 
     fun acceptLine(line: String): IrPatchBatch {
         seq++
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
+            return IrPatchBatch(seq, emptyList())
+        }
+        pendingNote?.let { note ->
+            if (trimmed.equals("end note", ignoreCase = true) || trimmed.equals("endnote", ignoreCase = true)) {
+                pendingNote = null
+                return flushPendingNote(note)
+            }
+            note.lines += trimmed
             return IrPatchBatch(seq, emptyList())
         }
         if (trimmed == "}") {
@@ -78,12 +96,17 @@ class PlantUmlDeploymentParser {
             trimmed.equals("top to bottom direction", ignoreCase = true) -> direction = Direction.TB
             trimmed.equals("bottom to top direction", ignoreCase = true) -> direction = Direction.BT
             trimmed.startsWith("[") -> parseNodeDecl("artifact $trimmed", "artifact", patches)
+            trimmed.startsWith("actor ", ignoreCase = true) -> parseNodeDecl(trimmed, "actor", patches)
+            trimmed.startsWith("actor/", ignoreCase = true) -> parseNodeDecl("actor " + trimmed.removePrefix("actor/").trim(), "actor", patches)
             trimmed.startsWith("artifact ", ignoreCase = true) -> parseNodeDecl(trimmed, "artifact", patches)
             trimmed.startsWith("database ", ignoreCase = true) -> parseKeyword(trimmed, "database", patches)
+            trimmed.startsWith("storage ", ignoreCase = true) -> parseKeyword(trimmed, "storage", patches)
+            trimmed.startsWith("queue ", ignoreCase = true) -> parseKeyword(trimmed, "queue", patches)
             trimmed.startsWith("node ", ignoreCase = true) -> parseKeyword(trimmed, "node", patches)
             trimmed.startsWith("cloud ", ignoreCase = true) -> parseKeyword(trimmed, "cloud", patches)
             trimmed.startsWith("frame ", ignoreCase = true) -> parseKeyword(trimmed, "frame", patches)
             trimmed.startsWith("package ", ignoreCase = true) -> parseKeyword(trimmed, "package", patches)
+            trimmed.startsWith("note ", ignoreCase = true) -> parseNote(trimmed, patches)
             findRelationOperator(trimmed) != null -> parseEdge(trimmed, patches)
             else -> return errorBatch("Unsupported PlantUML deployment statement: $trimmed")
         }
@@ -92,6 +115,16 @@ class PlantUmlDeploymentParser {
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
+        if (pendingNote != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.ERROR,
+                    message = "Unclosed deployment note block before end of PlantUML block",
+                    code = "PLANTUML-E009",
+                ),
+            )
+            pendingNote = null
+        }
         if (clusterStack.isNotEmpty()) {
             out += addDiagnostic(
                 Diagnostic(
@@ -235,6 +268,100 @@ class PlantUmlDeploymentParser {
         out += IrPatch.AddEdge(edge)
     }
 
+    private fun parseNote(line: String, out: MutableList<IrPatch>) {
+        val anchoredInline = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (anchoredInline != null) {
+            val target = NodeId(anchoredInline.groupValues[2])
+            ensureImplicitArtifact(target)
+            addAnchoredNote(target, anchoredInline.groupValues[1].lowercase(), anchoredInline.groupValues[3].trim(), out)
+            return
+        }
+        val anchoredBlock = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (anchoredBlock != null) {
+            val target = NodeId(anchoredBlock.groupValues[2])
+            ensureImplicitArtifact(target)
+            pendingNote = PendingNote(target = target, placement = anchoredBlock.groupValues[1].lowercase())
+            return
+        }
+        val standaloneQuoted = Regex("^note\\s+\"([^\"]+)\"$", RegexOption.IGNORE_CASE).matchEntire(line)
+        if (standaloneQuoted != null) {
+            addStandaloneNote(standaloneQuoted.groupValues[1], out)
+            return
+        }
+        if (line.equals("note", ignoreCase = true)) {
+            pendingNote = PendingNote(target = null, placement = "standalone")
+            return
+        }
+        diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML deployment note syntax", "PLANTUML-E009")
+    }
+
+    private fun flushPendingNote(note: PendingNote): IrPatchBatch {
+        val out = ArrayList<IrPatch>()
+        val text = note.lines.joinToString("\n").trim()
+        if (text.isEmpty()) {
+            out += addDiagnostic(Diagnostic(Severity.ERROR, "Empty deployment note block", "PLANTUML-E009"))
+        } else if (note.target != null) {
+            addAnchoredNote(note.target, note.placement, text, out)
+        } else {
+            addStandaloneNote(text, out)
+        }
+        return IrPatchBatch(seq, out)
+    }
+
+    private fun addAnchoredNote(target: NodeId, placement: String, text: String, out: MutableList<IrPatch>) {
+        val parent = clusterStack.lastOrNull()
+        val note = Node(
+            id = NodeId("${target.value}__note_${noteSeq++}"),
+            label = RichLabel.Plain(text),
+            shape = NodeShape.Note,
+            style = styleFor("note"),
+            payload = buildMap {
+                put(KIND_KEY, "note")
+                put(NOTE_TARGET_KEY, target.value)
+                put(NOTE_PLACEMENT_KEY, placement)
+                parent?.let { put(PARENT_KEY, it.value) }
+            },
+        )
+        nodes[note.id] = note
+        out += IrPatch.AddNode(note)
+        val edge = Edge(
+            from = note.id,
+            to = target,
+            kind = EdgeKind.Dashed,
+            arrow = ArrowEnds.None,
+            style = EdgeStyle(
+                color = ArgbColor(0xFFFFA000.toInt()),
+                width = 1f,
+                dash = listOf(4f, 4f),
+            ),
+        )
+        edges += edge
+        out += IrPatch.AddEdge(edge)
+    }
+
+    private fun addStandaloneNote(text: String, out: MutableList<IrPatch>) {
+        val parent = clusterStack.lastOrNull()
+        val note = Node(
+            id = NodeId("note_${noteSeq++}"),
+            label = RichLabel.Plain(text),
+            shape = NodeShape.Note,
+            style = styleFor("note"),
+            payload = buildMap {
+                put(KIND_KEY, "note")
+                put(NOTE_PLACEMENT_KEY, "standalone")
+                parent?.let { put(PARENT_KEY, it.value) }
+            },
+        )
+        nodes[note.id] = note
+        out += IrPatch.AddNode(note)
+    }
+
     private fun parseEndpoint(raw: String): NodeId? {
         val clean = raw.removePrefix("[").removeSuffix("]").removePrefix("(").removeSuffix(")").trim()
         if (!clean.matches(IDENTIFIER)) return null
@@ -291,15 +418,25 @@ class PlantUmlDeploymentParser {
         text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "node_$seq" }
 
     private fun shapeFor(keyword: String): NodeShape = when (keyword.lowercase()) {
+        "actor" -> NodeShape.Actor
         "artifact" -> NodeShape.Note
         "database" -> NodeShape.Cylinder
+        "storage" -> NodeShape.Cylinder
         "cloud" -> NodeShape.Cloud
+        "queue" -> NodeShape.Note
+        "note" -> NodeShape.Note
         "node" -> NodeShape.Package
         "frame", "package" -> NodeShape.Box
         else -> NodeShape.Box
     }
 
     private fun styleFor(keyword: String): NodeStyle = when (keyword.lowercase()) {
+        "actor" -> NodeStyle(
+            fill = ArgbColor(0xFFFFFFFF.toInt()),
+            stroke = ArgbColor(0xFF546E7A.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF263238.toInt()),
+        )
         "artifact" -> NodeStyle(
             fill = ArgbColor(0xFFFFF8E1.toInt()),
             stroke = ArgbColor(0xFFEF6C00.toInt()),
@@ -312,11 +449,29 @@ class PlantUmlDeploymentParser {
             strokeWidth = 1.5f,
             textColor = ArgbColor(0xFF01579B.toInt()),
         )
+        "storage" -> NodeStyle(
+            fill = ArgbColor(0xFFE8EAF6.toInt()),
+            stroke = ArgbColor(0xFF3949AB.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF1A237E.toInt()),
+        )
         "cloud" -> NodeStyle(
             fill = ArgbColor(0xFFF3E5F5.toInt()),
             stroke = ArgbColor(0xFF8E24AA.toInt()),
             strokeWidth = 1.5f,
             textColor = ArgbColor(0xFF6A1B9A.toInt()),
+        )
+        "queue" -> NodeStyle(
+            fill = ArgbColor(0xFFF3E5F5.toInt()),
+            stroke = ArgbColor(0xFF8E24AA.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF4A148C.toInt()),
+        )
+        "note" -> NodeStyle(
+            fill = ArgbColor(0xFFFFF8E1.toInt()),
+            stroke = ArgbColor(0xFFFFA000.toInt()),
+            strokeWidth = 1.25f,
+            textColor = ArgbColor(0xFF5D4037.toInt()),
         )
         else -> NodeStyle(
             fill = ArgbColor(0xFFE8F5E9.toInt()),

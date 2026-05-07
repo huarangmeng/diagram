@@ -2,6 +2,7 @@ package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.parser.plantuml.PlantUmlObjectParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -66,6 +67,47 @@ class PlantUmlObjectIntegrationTest {
         val ir = assertIs<GraphIR>(snapshot.ir)
         assertEquals(1, ir.edges.size)
         assertEquals(1, snapshot.laidOut!!.edgeRoutes.size)
+    }
+
+    @Test
+    fun object_note_package_and_map_json_render_consistently() {
+        val src =
+            """
+            @startuml
+            package "Domain" {
+              namespace "Orders" {
+                object Order {
+                  id = 1
+                }
+                map Cache {
+                  key => value
+                }
+                json Payload {
+                  orderId: 1
+                }
+                note right of Order
+                  aggregate
+                  root
+                end note
+              }
+            }
+            Order --> Cache
+            Payload ..> Order
+            @enduml
+            """.trimIndent() + "\n"
+        val one = run(src, src.length)
+        val chunked = run(src, 4)
+        val oneIr = assertIs<GraphIR>(one.ir)
+        val chunkedIr = assertIs<GraphIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(oneIr.clusters.isNotEmpty())
+        assertTrue(one.drawCommands.isNotEmpty())
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertTrue(one.laidOut!!.clusterRects.isNotEmpty())
+        assertTrue(oneIr.nodes.any { it.payload[PlantUmlObjectParser.KIND_KEY] == "note" })
+        assertTrue(oneIr.nodes.any { it.payload[PlantUmlObjectParser.KIND_KEY] == "map" })
+        assertTrue(oneIr.nodes.any { it.payload[PlantUmlObjectParser.KIND_KEY] == "json" })
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->

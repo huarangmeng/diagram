@@ -122,6 +122,63 @@ class PlantUmlSequenceParserTest {
     }
 
     @Test
+    fun create_destroy_and_autonumber_resume_are_parsed() {
+        val ir = parse(
+            """
+            autonumber 10 5
+            Alice -> Bob: first
+            autonumber stop
+            create Carol
+            Alice -> Carol: born
+            autonumber resume 30 3
+            Carol -> Bob: sync
+            destroy Bob
+            Carol -> Bob: bye
+            """.trimIndent() + "\n",
+        )
+        assertEquals("10 first", (ir.messages[0].label as RichLabel.Plain).text)
+        assertEquals(MessageKind.Create, ir.messages[1].kind)
+        assertEquals("born", (ir.messages[1].label as RichLabel.Plain).text)
+        assertEquals("30 sync", (ir.messages[2].label as RichLabel.Plain).text)
+        assertEquals(MessageKind.Destroy, ir.messages[3].kind)
+        assertEquals("33 bye", (ir.messages[3].label as RichLabel.Plain).text)
+    }
+
+    @Test
+    fun ref_and_box_are_stored_in_style_hints() {
+        val ir = parse(
+            """
+            box "Clients" LightBlue
+            participant Alice
+            participant Bob
+            end box
+            ref over Alice,Bob : Shared flow
+            """.trimIndent() + "\n",
+        )
+        assertTrue(ir.styleHints.extras[PlantUmlSequenceParser.BOXES_KEY].orEmpty().contains("Clients"))
+        assertTrue(((ir.messages.single().label as RichLabel.Plain).text).startsWith(PlantUmlSequenceParser.REF_PREFIX))
+    }
+
+    @Test
+    fun complex_arrow_decorations_are_stored() {
+        val ir = parse(
+            """
+            Alice o-> Bob: tail
+            Bob -->>o Carol: stream
+            Alice x<- Carol: reject
+            """.trimIndent() + "\n",
+        )
+        val decorations = sequenceDecorations(ir)
+        assertEquals(MessageKind.Sync, ir.messages[0].kind)
+        assertEquals(MessageKind.Reply, ir.messages[1].kind)
+        assertEquals(NodeId("Carol"), ir.messages[2].from)
+        assertEquals(NodeId("Alice"), ir.messages[2].to)
+        assertEquals(SequenceDecoration("o", null, "filled"), decorations[0])
+        assertEquals(SequenceDecoration(null, "o", null), decorations[1])
+        assertEquals(SequenceDecoration(null, "x", null), decorations[2])
+    }
+
+    @Test
     fun streaming_equivalence() {
         val src =
             """
@@ -138,4 +195,22 @@ class PlantUmlSequenceParserTest {
         val streamed = parse(src, chunkSize = 1)
         assertEquals(oneShot, streamed)
     }
+
+    private fun sequenceDecorations(ir: SequenceIR): Map<Int, SequenceDecoration> {
+        val raw = ir.styleHints.extras[PlantUmlSequenceParser.DECORATIONS_KEY].orEmpty()
+        if (raw.isEmpty()) return emptyMap()
+        return Regex("""(\d+)\|([^|]*)\|([^|]*)\|([^|]*)""").findAll(raw).associate { match ->
+            match.groupValues[1].toInt() to SequenceDecoration(
+                tail = match.groupValues[2].ifEmpty { null },
+                head = match.groupValues[3].ifEmpty { null },
+                headStyle = match.groupValues[4].ifEmpty { null },
+            )
+        }
+    }
+
+    private data class SequenceDecoration(
+        val tail: String?,
+        val head: String?,
+        val headStyle: String?,
+    )
 }

@@ -32,6 +32,9 @@ import kotlin.math.sqrt
 class StateDiagramLayout(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) : IncrementalLayout<StateIR> {
+    private companion object {
+        const val REGION_PREFIX = "__plantuml_state_region__#"
+    }
 
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
@@ -282,16 +285,24 @@ class StateDiagramLayout(
             val childMaxW = s.children.mapNotNull { sizes[it]?.first }.maxOrNull() ?: 0f
             val childMaxH = s.children.mapNotNull { sizes[it]?.second }.maxOrNull() ?: 0f
             val nC = s.children.size
+            val regionChildrenOnly = s.children.all { isRegionId(it) }
             val cols: Int; val rows: Int
-            if (isHorizontal) {
+            if (regionChildrenOnly) {
+                cols = 1
+                rows = nC.coerceAtLeast(1)
+            } else if (isHorizontal) {
                 rows = ceil(sqrt(nC.toFloat())).toInt().coerceAtLeast(1)
                 cols = ceil(nC.toFloat() / rows).toInt().coerceAtLeast(1)
             } else {
                 cols = ceil(sqrt(nC.toFloat())).toInt().coerceAtLeast(1)
                 rows = ceil(nC.toFloat() / cols).toInt().coerceAtLeast(1)
             }
-            val innerGap = 24f
-            val titleH = textMeasurer.measure(displayName(s), nodeFont).height + 8f
+            val innerGap = if (regionChildrenOnly) 18f else 24f
+            val titleH = if (isRegionId(s.id)) {
+                0f
+            } else {
+                textMeasurer.measure(displayName(s), nodeFont).height + 8f
+            }
             val padInside = 12f
             val innerW = cols * childMaxW + (cols - 1).coerceAtLeast(0) * innerGap + 2 * padInside
             val innerH = rows * childMaxH + (rows - 1).coerceAtLeast(0) * innerGap + 2 * padInside
@@ -351,6 +362,8 @@ class StateDiagramLayout(
     }
 
     private fun displayName(s: StateNode): String = s.description ?: s.name
+
+    private fun isRegionId(id: NodeId): Boolean = id.value.startsWith(REGION_PREFIX)
 
     private fun centerOf(r: Rect): Point = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f)
 

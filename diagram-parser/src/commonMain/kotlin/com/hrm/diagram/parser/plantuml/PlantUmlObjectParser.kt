@@ -9,6 +9,8 @@ import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.EdgeKind
 import com.hrm.diagram.core.ir.EdgeStyle
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.Cluster
+import com.hrm.diagram.core.ir.ClusterStyle
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
@@ -37,6 +39,9 @@ class PlantUmlObjectParser {
     companion object {
         const val KIND_KEY = "plantuml.object.kind"
         const val MEMBERS_KEY = "plantuml.object.members"
+        const val PARENT_KEY = "plantuml.object.parent"
+        const val NOTE_TARGET_KEY = "plantuml.object.note.target"
+        const val NOTE_PLACEMENT_KEY = "plantuml.object.note.placement"
         val RELATION_OPERATORS = listOf("<|--", "*--", "o--", "-->", "<--", "..>", "<..", "--", "..")
         val IDENTIFIER = Regex("[A-Za-z0-9_.:-]+")
     }
@@ -46,11 +51,30 @@ class PlantUmlObjectParser {
         val label: String,
     )
 
+    private data class PendingNote(
+        val target: NodeId?,
+        val placement: String,
+        val lines: MutableList<String> = ArrayList(),
+    )
+
+    private data class ClusterBuilder(
+        val id: NodeId,
+        val kind: String,
+        val title: String,
+        val children: MutableList<NodeId> = ArrayList(),
+        val nested: MutableList<ClusterBuilder> = ArrayList(),
+    )
+
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
+    private val rootClusters: MutableList<ClusterBuilder> = ArrayList()
+    private val clusterStack: ArrayDeque<ClusterBuilder> = ArrayDeque()
 
     private var currentObject: NodeId? = null
+    private var pendingNote: PendingNote? = null
+    private var noteSeq: Int = 0
+    private var clusterSeq: Int = 0
     private var seq: Long = 0
     private var direction: Direction = Direction.LR
 
@@ -58,6 +82,14 @@ class PlantUmlObjectParser {
         seq++
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
+            return IrPatchBatch(seq, emptyList())
+        }
+        pendingNote?.let { note ->
+            if (trimmed.equals("end note", ignoreCase = true) || trimmed.equals("endnote", ignoreCase = true)) {
+                pendingNote = null
+                return flushPendingNote(note)
+            }
+            note.lines += trimmed
             return IrPatchBatch(seq, emptyList())
         }
         currentObject?.let { current ->
@@ -85,7 +117,13 @@ class PlantUmlObjectParser {
                 direction = Direction.BT
                 IrPatchBatch(seq, emptyList())
             }
+            trimmed.startsWith("package ", ignoreCase = true) -> parseClusterDecl(trimmed, "package")
+            trimmed.startsWith("namespace ", ignoreCase = true) -> parseClusterDecl(trimmed, "namespace")
             trimmed.startsWith("object ", ignoreCase = true) -> parseObjectDecl(trimmed)
+            trimmed.startsWith("map ", ignoreCase = true) -> parseObjectDecl(trimmed, keyword = "map", kind = "map")
+            trimmed.startsWith("json ", ignoreCase = true) -> parseObjectDecl(trimmed, keyword = "json", kind = "json")
+            trimmed.startsWith("note ", ignoreCase = true) -> parseNote(trimmed)
+            trimmed == "}" -> closeCluster()
             findRelationOperator(trimmed) != null -> parseRelation(trimmed)
             isDottedMember(trimmed) -> parseDottedMember(trimmed)
             else -> errorBatch("Unsupported PlantUML object statement: $trimmed")
@@ -94,6 +132,16 @@ class PlantUmlObjectParser {
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
+        if (pendingNote != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.ERROR,
+                    message = "Unclosed object note block before end of PlantUML block",
+                    code = "PLANTUML-E008",
+                ),
+            )
+            pendingNote = null
+        }
         if (currentObject != null) {
             out += addDiagnostic(
                 Diagnostic(
@@ -103,6 +151,16 @@ class PlantUmlObjectParser {
                 ),
             )
             currentObject = null
+        }
+        if (clusterStack.isNotEmpty()) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.ERROR,
+                    message = "Unclosed object package/namespace block before end of PlantUML block",
+                    code = "PLANTUML-E008",
+                ),
+            )
+            clusterStack.clear()
         }
         if (!blockClosed) {
             out += addDiagnostic(
@@ -119,18 +177,19 @@ class PlantUmlObjectParser {
     fun snapshot(): GraphIR = GraphIR(
         nodes = nodes.values.toList(),
         edges = edges.toList(),
+        clusters = rootClusters.map { it.build() },
         sourceLanguage = SourceLanguage.PLANTUML,
         styleHints = StyleHints(direction = direction),
     )
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
 
-    private fun parseObjectDecl(line: String): IrPatchBatch {
-        var body = line.removePrefix("object").trim()
+    private fun parseObjectDecl(line: String, keyword: String = "object", kind: String = "object"): IrPatchBatch {
+        var body = line.removePrefix(keyword).trim()
         val opens = body.endsWith("{")
         if (opens) body = body.removeSuffix("{").trim()
         val spec = parseAliasSpec(body) ?: return errorBatch("Invalid PlantUML object declaration: $line")
-        ensureNode(spec.id, spec.label)
+        ensureNode(spec.id, spec.label, kind = kind)
         if (opens) currentObject = NodeId(spec.id)
         return IrPatchBatch(seq, emptyList())
     }
@@ -141,19 +200,20 @@ class PlantUmlObjectParser {
         val objectName = line.substring(0, idx).trim()
         val member = line.substring(idx + 1).trim()
         if (objectName.isEmpty() || member.isEmpty()) return errorBatch("Invalid object property syntax: $line")
-        ensureNode(objectName, objectName)
+        ensureNode(objectName, objectName, kind = "object")
         return parseMemberInto(NodeId(objectName), member)
     }
 
     private fun parseMemberInto(id: NodeId, line: String): IrPatchBatch {
         val member = line.removePrefix(":").removeSuffix(";").trim()
         if (member.isEmpty()) return errorBatch("Invalid empty object property")
-        val existing = nodes[id] ?: Node(id = id, label = RichLabel.Plain(id.value), shape = NodeShape.Box, style = objectStyle())
+        val existing = nodes[id] ?: Node(id = id, label = RichLabel.Plain(id.value), shape = NodeShape.Box, style = objectStyle("object"))
+        val kind = existing.payload[KIND_KEY].orEmpty().ifEmpty { "object" }
         val members = existing.payload[MEMBERS_KEY].orEmpty().split('\n').filter { it.isNotEmpty() }.toMutableList()
         members += member
         nodes[id] = existing.copy(
             payload = existing.payload + mapOf(
-                KIND_KEY to "object",
+                KIND_KEY to kind,
                 MEMBERS_KEY to members.joinToString("\n"),
             ),
         )
@@ -170,8 +230,8 @@ class PlantUmlObjectParser {
         val fromRaw = match.groupValues[1].trim()
         val toRaw = match.groupValues[2].trim()
         if (!fromRaw.matches(IDENTIFIER) || !toRaw.matches(IDENTIFIER)) return errorBatch("Invalid object relation endpoints: $line")
-        ensureNode(fromRaw, fromRaw)
-        ensureNode(toRaw, toRaw)
+        ensureNode(fromRaw, fromRaw, kind = "object")
+        ensureNode(toRaw, toRaw, kind = "object")
         val edge = Edge(
             from = NodeId(fromRaw),
             to = NodeId(toRaw),
@@ -198,20 +258,127 @@ class PlantUmlObjectParser {
         return IrPatchBatch(seq, listOf(IrPatch.AddEdge(edge)))
     }
 
-    private fun ensureNode(idText: String, label: String) {
+    private fun parseClusterDecl(line: String, keyword: String): IrPatchBatch {
+        var body = line.removePrefix(keyword).trim()
+        if (!body.endsWith("{")) return errorBatch("Expected '{' after $keyword declaration")
+        body = body.removeSuffix("{").trim()
+        val title = body.removePrefix("\"").removeSuffix("\"").trim().ifEmpty { keyword }
+        val id = NodeId("${keyword}_${sanitizeId(title)}_${clusterSeq++}")
+        val builder = ClusterBuilder(id = id, kind = keyword, title = title)
+        clusterStack.lastOrNull()?.nested?.add(builder) ?: rootClusters.add(builder)
+        clusterStack.addLast(builder)
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun closeCluster(): IrPatchBatch {
+        if (clusterStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML object body")
+        clusterStack.removeLast()
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun parseNote(line: String): IrPatchBatch {
+        val anchoredInline = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (anchoredInline != null) {
+            val target = NodeId(anchoredInline.groupValues[2])
+            ensureNode(target.value, target.value, kind = "object")
+            return addAnchoredNote(target, anchoredInline.groupValues[1].lowercase(), anchoredInline.groupValues[3].trim())
+        }
+        val anchoredBlock = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (anchoredBlock != null) {
+            val target = NodeId(anchoredBlock.groupValues[2])
+            ensureNode(target.value, target.value, kind = "object")
+            pendingNote = PendingNote(target = target, placement = anchoredBlock.groupValues[1].lowercase())
+            return IrPatchBatch(seq, emptyList())
+        }
+        val standaloneQuoted = Regex("^note\\s+\"([^\"]+)\"$", RegexOption.IGNORE_CASE).matchEntire(line)
+        if (standaloneQuoted != null) return addStandaloneNote(standaloneQuoted.groupValues[1])
+        if (line.equals("note", ignoreCase = true)) {
+            pendingNote = PendingNote(target = null, placement = "standalone")
+            return IrPatchBatch(seq, emptyList())
+        }
+        return errorBatch("Invalid PlantUML object note syntax: $line")
+    }
+
+    private fun flushPendingNote(note: PendingNote): IrPatchBatch {
+        val text = note.lines.joinToString("\n").trim()
+        if (text.isEmpty()) return errorBatch("Invalid empty object note")
+        return if (note.target != null) addAnchoredNote(note.target, note.placement, text) else addStandaloneNote(text)
+    }
+
+    private fun addAnchoredNote(target: NodeId, placement: String, text: String): IrPatchBatch {
+        val noteId = NodeId("${target.value}__note_${noteSeq++}")
+        val node = Node(
+            id = noteId,
+            label = RichLabel.Plain(text),
+            shape = NodeShape.Note,
+            style = objectStyle("note"),
+            payload = buildMap {
+                put(KIND_KEY, "note")
+                put(NOTE_TARGET_KEY, target.value)
+                put(NOTE_PLACEMENT_KEY, placement)
+                clusterStack.lastOrNull()?.let { put(PARENT_KEY, it.id.value) }
+            },
+        )
+        nodes[noteId] = node
+        clusterStack.lastOrNull()?.children?.add(noteId)
+        val edge = Edge(
+            from = noteId,
+            to = target,
+            kind = EdgeKind.Dashed,
+            arrow = ArrowEnds.None,
+            style = EdgeStyle(
+                color = ArgbColor(0xFFFFA000.toInt()),
+                width = 1.25f,
+                dash = listOf(4f, 4f),
+            ),
+        )
+        edges += edge
+        return IrPatchBatch(seq, listOf(IrPatch.AddNode(node), IrPatch.AddEdge(edge)))
+    }
+
+    private fun addStandaloneNote(text: String): IrPatchBatch {
+        val noteId = NodeId("note_${noteSeq++}")
+        val node = Node(
+            id = noteId,
+            label = RichLabel.Plain(text),
+            shape = NodeShape.Note,
+            style = objectStyle("note"),
+            payload = buildMap {
+                put(KIND_KEY, "note")
+                clusterStack.lastOrNull()?.let { put(PARENT_KEY, it.id.value) }
+            },
+        )
+        nodes[noteId] = node
+        clusterStack.lastOrNull()?.children?.add(noteId)
+        return IrPatchBatch(seq, listOf(IrPatch.AddNode(node)))
+    }
+
+    private fun ensureNode(idText: String, label: String, kind: String) {
         val id = NodeId(idText)
         val existing = nodes[id]
+        val effectiveKind = existing?.payload?.get(KIND_KEY).orEmpty().ifEmpty { kind }
         val base = Node(
             id = id,
             label = RichLabel.Plain(label),
-            shape = NodeShape.Box,
-            style = objectStyle(),
-            payload = mapOf(KIND_KEY to "object"),
+            shape = if (effectiveKind == "note") NodeShape.Note else NodeShape.Box,
+            style = objectStyle(effectiveKind),
+            payload = buildMap {
+                put(KIND_KEY, effectiveKind)
+                val parent = existing?.payload?.get(PARENT_KEY) ?: clusterStack.lastOrNull()?.id?.value
+                if (parent != null) put(PARENT_KEY, parent)
+            },
         )
         nodes[id] = if (existing == null) base else existing.copy(
             label = if (label.isNotEmpty()) base.label else existing.label,
             payload = existing.payload + base.payload,
         )
+        if (existing == null) clusterStack.lastOrNull()?.children?.add(id)
     }
 
     private fun parseAliasSpec(body: String): AliasSpec? {
@@ -224,12 +391,32 @@ class PlantUmlObjectParser {
         return null
     }
 
-    private fun objectStyle(): NodeStyle = NodeStyle(
-        fill = ArgbColor(0xFFF3E5F5.toInt()),
-        stroke = ArgbColor(0xFF6A1B9A.toInt()),
-        strokeWidth = 1.5f,
-        textColor = ArgbColor(0xFF4A148C.toInt()),
-    )
+    private fun objectStyle(kind: String): NodeStyle = when (kind) {
+        "map" -> NodeStyle(
+            fill = ArgbColor(0xFFE8F5E9.toInt()),
+            stroke = ArgbColor(0xFF2E7D32.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF1B5E20.toInt()),
+        )
+        "json" -> NodeStyle(
+            fill = ArgbColor(0xFFE3F2FD.toInt()),
+            stroke = ArgbColor(0xFF1565C0.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF0D47A1.toInt()),
+        )
+        "note" -> NodeStyle(
+            fill = ArgbColor(0xFFFFF8E1.toInt()),
+            stroke = ArgbColor(0xFFFFA000.toInt()),
+            strokeWidth = 1.25f,
+            textColor = ArgbColor(0xFF6D4C41.toInt()),
+        )
+        else -> NodeStyle(
+            fill = ArgbColor(0xFFF3E5F5.toInt()),
+            stroke = ArgbColor(0xFF6A1B9A.toInt()),
+            strokeWidth = 1.5f,
+            textColor = ArgbColor(0xFF4A148C.toInt()),
+        )
+    }
 
     private fun isDottedMember(line: String): Boolean =
         ':' in line && findRelationOperator(line) == null && IDENTIFIER.matches(line.substringBefore(':').trim())
@@ -248,4 +435,18 @@ class PlantUmlObjectParser {
         diagnostics += diagnostic
         return IrPatch.AddDiagnostic(diagnostic)
     }
+
+    private fun ClusterBuilder.build(): Cluster = Cluster(
+        id = id,
+        label = RichLabel.Plain("$kind\n$title"),
+        children = children.toList(),
+        nestedClusters = nested.map { it.build() },
+        style = ClusterStyle(
+            fill = ArgbColor(0xFFF5F5F5.toInt()),
+            stroke = ArgbColor(0xFF90A4AE.toInt()),
+            strokeWidth = 1.5f,
+        ),
+    )
+
+    private fun sanitizeId(text: String): String = text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "cluster" }
 }

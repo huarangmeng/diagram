@@ -10,9 +10,12 @@ import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
+import com.hrm.diagram.core.ir.ArgbColor
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.StateIR
 import com.hrm.diagram.core.ir.StateKind
+import com.hrm.diagram.core.ir.StateNode
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
@@ -26,6 +29,22 @@ import kotlin.math.sqrt
 internal class PlantUmlStateSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : PlantUmlSubPipeline {
+    private data class StatePalette(
+        val stateFill: ArgbColor?,
+        val stateStroke: ArgbColor?,
+        val stateText: ArgbColor?,
+        val noteFill: ArgbColor?,
+        val noteStroke: ArgbColor?,
+        val noteText: ArgbColor?,
+        val compositeFill: ArgbColor?,
+        val compositeStroke: ArgbColor?,
+        val edgeColor: ArgbColor?,
+    )
+
+    private companion object {
+        const val REGION_PREFIX = "__plantuml_state_region__#"
+    }
+
     private val parser = PlantUmlStateParser()
     private val layout = StateDiagramLayout(textMeasurer)
 
@@ -54,15 +73,17 @@ internal class PlantUmlStateSubPipeline(
 
     private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val boxFill = Color(0xFFE8F5E9U.toInt())
-        val boxStroke = Color(0xFF2E7D32U.toInt())
-        val compositeFill = Color(0xFFF1F8E9U.toInt())
-        val compositeStroke = Color(0xFF33691EU.toInt())
-        val textColor = Color(0xFF1B5E20U.toInt())
-        val edgeColor = Color(0xFF455A64U.toInt())
-        val noteFill = Color(0xFFFFF8E1U.toInt())
-        val noteStroke = Color(0xFFFFA000U.toInt())
-        val pseudoFill = Color(0xFF000000U.toInt())
+        val palette = paletteOf(ir)
+        val boxFill = Color((palette.stateFill ?: ArgbColor(0xFFE8F5E9U.toInt())).argb)
+        val boxStroke = Color((palette.stateStroke ?: ArgbColor(0xFF2E7D32U.toInt())).argb)
+        val compositeFill = Color((palette.compositeFill ?: palette.stateFill ?: ArgbColor(0xFFF1F8E9U.toInt())).argb)
+        val compositeStroke = Color((palette.compositeStroke ?: palette.stateStroke ?: ArgbColor(0xFF33691EU.toInt())).argb)
+        val textColor = Color((palette.stateText ?: ArgbColor(0xFF1B5E20U.toInt())).argb)
+        val edgeColor = Color((palette.edgeColor ?: ArgbColor(0xFF455A64U.toInt())).argb)
+        val noteFill = Color((palette.noteFill ?: ArgbColor(0xFFFFF8E1U.toInt())).argb)
+        val noteStroke = Color((palette.noteStroke ?: ArgbColor(0xFFFFA000U.toInt())).argb)
+        val noteTextColor = Color((palette.noteText ?: palette.stateText ?: ArgbColor(0xFF1B5E20U.toInt())).argb)
+        val pseudoFill = boxStroke
 
         val solid = Stroke(width = 1.5f)
         val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
@@ -71,6 +92,7 @@ internal class PlantUmlStateSubPipeline(
 
         for (s in ir.states) {
             if (s.kind != StateKind.Composite) continue
+            if (isRegionState(s)) continue
             val r = laidOut.nodePositions[s.id] ?: continue
             out += DrawCommand.FillRect(rect = r, color = compositeFill, corner = 8f, z = 0)
             out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = compositeStroke, corner = 8f, z = 1)
@@ -87,6 +109,8 @@ internal class PlantUmlStateSubPipeline(
                 )
             }
         }
+
+        drawRegionSeparators(ir, laidOut, compositeStroke, out)
 
         for (s in ir.states) {
             val r = laidOut.nodePositions[s.id] ?: continue
@@ -167,7 +191,7 @@ internal class PlantUmlStateSubPipeline(
                     text = text,
                     origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
                     font = nodeFont,
-                    color = textColor,
+                    color = noteTextColor,
                     maxWidth = rect.right - rect.left - 8f,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Middle,
@@ -253,4 +277,93 @@ internal class PlantUmlStateSubPipeline(
             z = 4,
         )
     }
+
+    private fun drawRegionSeparators(
+        ir: StateIR,
+        laidOut: LaidOutDiagram,
+        color: Color,
+        out: MutableList<DrawCommand>,
+    ) {
+        val byId = ir.states.associateBy { it.id }
+        val stroke = Stroke(width = 1.25f)
+        for (state in ir.states) {
+            if (state.kind != StateKind.Composite) continue
+            val regions = state.children.mapNotNull { childId ->
+                val child = byId[childId]
+                val rect = laidOut.nodePositions[childId]
+                if (child != null && rect != null && isRegionState(child)) childId to rect else null
+            }
+            if (regions.size < 2) continue
+            val parentRect = laidOut.nodePositions[state.id] ?: continue
+            for (index in 1 until regions.size) {
+                val previous = regions[index - 1].second
+                val current = regions[index].second
+                val y = (previous.bottom + current.top) / 2f
+                out += DrawCommand.StrokePath(
+                    path = PathCmd(
+                        listOf(
+                            PathOp.MoveTo(Point(parentRect.left + 10f, y)),
+                            PathOp.LineTo(Point(parentRect.right - 10f, y)),
+                        ),
+                    ),
+                    stroke = stroke,
+                    color = color,
+                    z = 3,
+                )
+            }
+        }
+    }
+
+    private fun paletteOf(ir: StateIR): StatePalette {
+        val extras = ir.styleHints.extras
+        fun c(key: String): ArgbColor? = extras[key]?.let(::parsePlantUmlColor)
+        return StatePalette(
+            stateFill = c(PlantUmlStateParser.STYLE_STATE_FILL_KEY),
+            stateStroke = c(PlantUmlStateParser.STYLE_STATE_STROKE_KEY),
+            stateText = c(PlantUmlStateParser.STYLE_STATE_TEXT_KEY),
+            noteFill = c(PlantUmlStateParser.STYLE_NOTE_FILL_KEY),
+            noteStroke = c(PlantUmlStateParser.STYLE_NOTE_STROKE_KEY),
+            noteText = c(PlantUmlStateParser.STYLE_NOTE_TEXT_KEY),
+            compositeFill = c(PlantUmlStateParser.STYLE_COMPOSITE_FILL_KEY),
+            compositeStroke = c(PlantUmlStateParser.STYLE_COMPOSITE_STROKE_KEY),
+            edgeColor = c(PlantUmlStateParser.STYLE_EDGE_COLOR_KEY),
+        )
+    }
+
+    private fun parsePlantUmlColor(text: String): ArgbColor? {
+        val raw = text.trim()
+        if (!raw.startsWith("#")) return namedColor(raw)
+        val hex = raw.removePrefix("#")
+        return when (hex.length) {
+            3 -> parseHex("FF${hex.map { "$it$it" }.joinToString("")}")
+            6 -> parseHex("FF$hex")
+            8 -> parseHex(hex)
+            else -> null
+        }
+    }
+
+    private fun parseHex(argb: String): ArgbColor? = argb.toLongOrNull(16)?.let { ArgbColor(it.toInt()) }
+
+    private fun namedColor(name: String): ArgbColor? = when (name.lowercase()) {
+        "lightskyblue" -> ArgbColor(0xFF87CEFA.toInt())
+        "palegreen" -> ArgbColor(0xFF98FB98.toInt())
+        "lightgreen" -> ArgbColor(0xFF90EE90.toInt())
+        "lightblue" -> ArgbColor(0xFFADD8E6.toInt())
+        "lightyellow" -> ArgbColor(0xFFFFFFE0.toInt())
+        "lightgray", "lightgrey" -> ArgbColor(0xFFD3D3D3.toInt())
+        "orange" -> ArgbColor(0xFFFFA500.toInt())
+        "red" -> ArgbColor(0xFFFF0000.toInt())
+        "green" -> ArgbColor(0xFF008000.toInt())
+        "blue" -> ArgbColor(0xFF0000FF.toInt())
+        "yellow" -> ArgbColor(0xFFFFFF00.toInt())
+        "gray", "grey" -> ArgbColor(0xFF808080.toInt())
+        "saddlebrown" -> ArgbColor(0xFF8B4513.toInt())
+        "silver" -> ArgbColor(0xFFC0C0C0.toInt())
+        "peru" -> ArgbColor(0xFFCD853F.toInt())
+        "navy" -> ArgbColor(0xFF000080.toInt())
+        "ivory" -> ArgbColor(0xFFFFFFF0.toInt())
+        else -> null
+    }
+
+    private fun isRegionState(state: StateNode): Boolean = state.id.value.startsWith(REGION_PREFIX)
 }

@@ -21,16 +21,50 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
  * parsed participant/message and reports mismatches as diagnostics instead of throwing.
  */
 class PlantUmlSequenceParser {
+    companion object {
+        const val REF_PREFIX = "__plantuml_sequence_ref__::"
+        const val BOXES_KEY = "plantuml.sequence.boxes"
+        const val DECORATIONS_KEY = "plantuml.sequence.decorations"
+        val ARROWS = listOf("-->>", "<<--", "->>", "<<-", "-->", "<--", "->", "<-")
+        private val DECORATED_ARROW = Regex("""([ox]?)(-->>|<<--|->>|<<-|-->|<--|->|<-)([ox]?)""", RegexOption.IGNORE_CASE)
+    }
+
+    private data class BoxBuilder(
+        val title: String?,
+        val color: String?,
+        val participants: LinkedHashSet<NodeId> = LinkedHashSet(),
+    )
+
+    private data class ParsedArrow(
+        val core: String,
+        val index: Int,
+        val prefixDecoration: String?,
+        val suffixDecoration: String?,
+    )
+
+    private data class MessageDecoration(
+        val tail: String? = null,
+        val head: String? = null,
+        val headStyle: String? = null,
+    )
+
     private val participantOrder: LinkedHashMap<NodeId, Participant> = LinkedHashMap()
     private val messages: MutableList<com.hrm.diagram.core.ir.SequenceMessage> = ArrayList()
     private val fragments: MutableList<SequenceFragment> = ArrayList()
     private val fragmentStack: ArrayDeque<FragmentBuilder> = ArrayDeque()
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val boxes: MutableList<BoxBuilder> = ArrayList()
+    private val boxStack: ArrayDeque<BoxBuilder> = ArrayDeque()
+    private val decorationsByMessageIndex: MutableMap<Int, MessageDecoration> = LinkedHashMap()
 
     private var seq: Long = 0L
     private var finalized: Boolean = false
     private var autonumberStart: Int? = null
     private var autonumberStep: Int = 1
+    private var autonumberCurrent: Int = 1
+    private var autonumberActive: Boolean = false
+    private var pendingCreate: NodeId? = null
+    private var pendingDestroy: NodeId? = null
 
     fun acceptLine(line: String): IrPatchBatch {
         seq++
@@ -63,6 +97,25 @@ class PlantUmlSequenceParser {
     fun snapshot(): SequenceIR {
         val extras = HashMap<String, String>()
         autonumberStart?.let { extras["plantuml.autonumber"] = "$it,$autonumberStep" }
+        if (boxes.isNotEmpty()) {
+            extras[BOXES_KEY] = boxes.joinToString("||") { box ->
+                listOf(
+                    box.title.orEmpty().replace("|", "\\|"),
+                    box.color.orEmpty(),
+                    box.participants.joinToString(",") { it.value },
+                ).joinToString("|")
+            }
+        }
+        if (decorationsByMessageIndex.isNotEmpty()) {
+            extras[DECORATIONS_KEY] = decorationsByMessageIndex.entries.joinToString("||") { (index, decoration) ->
+                listOf(
+                    index.toString(),
+                    decoration.tail.orEmpty(),
+                    decoration.head.orEmpty(),
+                    decoration.headStyle.orEmpty(),
+                ).joinToString("|")
+            }
+        }
         return SequenceIR(
             participants = participantOrder.values.toList(),
             messages = messages.toList(),
@@ -86,9 +139,15 @@ class PlantUmlSequenceParser {
             lower.startsWith("collections ") -> parseParticipant(line, ParticipantKind.Collections, "collections")
             lower.startsWith("queue ") -> parseParticipant(line, ParticipantKind.Queue, "queue")
             lower.startsWith("note ") -> parseNote(line)
+            lower.startsWith("ref ") -> parseRef(line)
             lower.startsWith("activate ") -> parseActivate(line, activate = true)
             lower.startsWith("deactivate ") -> parseActivate(line, activate = false)
             lower == "autonumber" || lower.startsWith("autonumber ") -> parseAutonumber(line)
+            lower == "newpage" -> IrPatchBatch(seq, emptyList())
+            lower.startsWith("create ") -> parseCreateDestroy(line, create = true)
+            lower.startsWith("destroy ") -> parseCreateDestroy(line, create = false)
+            lower.startsWith("box") -> parseBoxStart(line)
+            lower == "end box" || lower == "endbox" -> parseBoxEnd()
             lower == "end" -> popFragment()
             lower == "else" || lower.startsWith("else ") -> addBranch()
             lower == "and" || lower.startsWith("and ") -> addBranch()
@@ -147,6 +206,7 @@ class PlantUmlSequenceParser {
             label = if (!label.isEmpty) label else existing?.label ?: RichLabel.Empty,
             kind = kind,
         )
+        boxStack.lastOrNull()?.participants?.add(id)
         return IrPatchBatch(seq, emptyList())
     }
 
@@ -190,6 +250,27 @@ class PlantUmlSequenceParser {
         return errorBatch("Invalid note statement: $line")
     }
 
+    private fun parseRef(line: String): IrPatchBatch {
+        val over = Regex(
+            "^ref\\s+over\\s+([A-Za-z0-9_.:-]+)(?:\\s*,\\s*([A-Za-z0-9_.:-]+))?(?:\\s*:\\s*(.*))?$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line) ?: return errorBatch("Invalid ref statement: $line")
+        val from = NodeId(over.groupValues[1])
+        val to = over.groupValues[2].takeIf { it.isNotEmpty() }?.let(::NodeId) ?: from
+        val label = over.groupValues[3].trim()
+        ensureParticipant(from)
+        ensureParticipant(to)
+        addMessage(
+            com.hrm.diagram.core.ir.SequenceMessage(
+                from = from,
+                to = to,
+                kind = MessageKind.Note,
+                label = RichLabel.Plain("$REF_PREFIX$label"),
+            ),
+        )
+        return IrPatchBatch(seq, emptyList())
+    }
+
     private fun parseActivate(line: String, activate: Boolean): IrPatchBatch {
         val id = line.substringAfter(' ').trim()
         if (id.isEmpty()) return errorBatch("Expected identifier after ${if (activate) "activate" else "deactivate"}")
@@ -209,10 +290,54 @@ class PlantUmlSequenceParser {
 
     private fun parseAutonumber(line: String): IrPatchBatch {
         val parts = line.split(Regex("\\s+")).drop(1)
+        if (parts.firstOrNull()?.equals("stop", ignoreCase = true) == true) {
+            autonumberActive = false
+            return IrPatchBatch(seq, emptyList())
+        }
+        if (parts.firstOrNull()?.equals("resume", ignoreCase = true) == true) {
+            autonumberActive = true
+            parts.getOrNull(1)?.toIntOrNull()?.let {
+                autonumberCurrent = it
+                autonumberStart = it
+            }
+            parts.getOrNull(2)?.toIntOrNull()?.let { autonumberStep = it }
+            return IrPatchBatch(seq, emptyList())
+        }
         autonumberStart = 1
         autonumberStep = 1
         parts.getOrNull(0)?.toIntOrNull()?.let { autonumberStart = it }
         parts.getOrNull(1)?.toIntOrNull()?.let { autonumberStep = it }
+        autonumberCurrent = autonumberStart ?: 1
+        autonumberActive = true
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun parseCreateDestroy(line: String, create: Boolean): IrPatchBatch {
+        val idText = line.substringAfter(' ').trim()
+        if (idText.isEmpty()) return errorBatch("Expected identifier after ${if (create) "create" else "destroy"}")
+        val id = NodeId(idText)
+        ensureParticipant(id)
+        if (create) {
+            pendingCreate = id
+        } else {
+            pendingDestroy = id
+        }
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun parseBoxStart(line: String): IrPatchBatch {
+        val body = line.substringAfter("box", "").trim()
+        val colorMatch = Regex("(#[A-Za-z0-9]{3,8}|[A-Za-z]+)$").find(body)
+        val color = colorMatch?.value
+        val titleRaw = if (colorMatch != null) body.removeSuffix(colorMatch.value).trim() else body
+        val title = titleRaw.removePrefix("\"").removeSuffix("\"").trim().ifEmpty { null }
+        boxStack.addLast(BoxBuilder(title = title, color = color))
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun parseBoxEnd(): IrPatchBatch {
+        val box = boxStack.removeLastOrNull() ?: return errorBatch("'end box' without matching 'box'")
+        boxes += box
         return IrPatchBatch(seq, emptyList())
     }
 
@@ -233,11 +358,11 @@ class PlantUmlSequenceParser {
 
     private fun parseMessage(line: String): IrPatchBatch {
         val arrow = findArrow(line) ?: return errorBatch("Invalid PlantUML sequence arrow: $line")
-        val arrowIndex = line.indexOf(arrow)
+        val arrowIndex = arrow.index
         if (arrowIndex <= 0) return errorBatch("Missing message source in: $line")
 
         val rawLeft = line.substring(0, arrowIndex).trim()
-        val rawTail = line.substring(arrowIndex + arrow.length).trim()
+        val rawTail = line.substring(arrowIndex + arrow.core.length + (arrow.prefixDecoration?.length ?: 0) + (arrow.suffixDecoration?.length ?: 0)).trim()
         val colonIndex = rawTail.indexOf(':')
         val rawTarget = if (colonIndex >= 0) rawTail.substring(0, colonIndex).trim() else rawTail
         val label = if (colonIndex >= 0) rawTail.substring(colonIndex + 1).trim().toRichLabel() else RichLabel.Empty
@@ -256,21 +381,31 @@ class PlantUmlSequenceParser {
         }
         if (targetText.isEmpty()) return errorBatch("Missing message target in: $line")
 
-        val reversed = arrow.startsWith("<")
+        val reversed = arrow.core.startsWith("<")
         val from = if (reversed) NodeId(targetText) else NodeId(rawLeft)
         val to = if (reversed) NodeId(rawLeft) else NodeId(targetText)
         ensureParticipant(from)
         ensureParticipant(to)
+        val explicitCreate = pendingCreate?.let { it == to } == true
+        val explicitDestroy = pendingDestroy?.let { it == to } == true
+        if (explicitCreate) pendingCreate = null
+        if (explicitDestroy) pendingDestroy = null
+        val kind = when {
+            explicitCreate -> MessageKind.Create
+            explicitDestroy -> MessageKind.Destroy
+            else -> arrowKindFor(arrow.core)
+        }
         addMessage(
             com.hrm.diagram.core.ir.SequenceMessage(
                 from = from,
                 to = to,
-                label = label,
-                kind = arrowKindFor(arrow),
+                label = applyAutonumber(label),
+                kind = kind,
                 activate = activate,
                 deactivate = deactivate,
             ),
         )
+        decorationFor(arrow, reversed, kind)?.let { decorationsByMessageIndex[messages.lastIndex] = it }
         return IrPatchBatch(seq, emptyList())
     }
 
@@ -301,11 +436,20 @@ class PlantUmlSequenceParser {
         if (id !in participantOrder) {
             participantOrder[id] = Participant(id = id)
         }
+        boxStack.lastOrNull()?.participants?.add(id)
     }
 
     private fun addMessage(message: com.hrm.diagram.core.ir.SequenceMessage) {
         messages += message
         fragmentStack.lastOrNull()?.currentBranch?.add(message)
+    }
+
+    private fun applyAutonumber(label: RichLabel): RichLabel {
+        if (!autonumberActive) return label
+        val prefix = autonumberCurrent.toString()
+        autonumberCurrent += autonumberStep
+        val text = (label as? RichLabel.Plain)?.text.orEmpty()
+        return RichLabel.Plain(if (text.isEmpty()) prefix else "$prefix $text")
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
@@ -322,11 +466,31 @@ class PlantUmlSequenceParser {
     private fun String.toRichLabel(): RichLabel =
         if (isEmpty()) RichLabel.Empty else RichLabel.Plain(this)
 
-    private fun findArrow(line: String): String? {
-        for (candidate in ARROWS) {
-            if (line.contains(candidate)) return candidate
+    private fun findArrow(line: String): ParsedArrow? =
+        DECORATED_ARROW.find(line)?.let { match ->
+            ParsedArrow(
+                core = match.groupValues[2],
+                index = match.range.first,
+                prefixDecoration = match.groupValues[1].ifEmpty { null }?.lowercase(),
+                suffixDecoration = match.groupValues[3].ifEmpty { null }?.lowercase(),
+            )
         }
-        return null
+
+    private fun decorationFor(arrow: ParsedArrow, reversed: Boolean, kind: MessageKind): MessageDecoration? {
+        val tail = if (reversed) arrow.suffixDecoration else arrow.prefixDecoration
+        val head = if (reversed) arrow.prefixDecoration else arrow.suffixDecoration
+        val headStyle = when {
+            head != null || kind == MessageKind.Destroy -> null
+            arrow.core == "-->>" || arrow.core == "<<--" -> "open"
+            kind == MessageKind.Async -> "open"
+            kind == MessageKind.Sync || kind == MessageKind.Reply || kind == MessageKind.Create -> "filled"
+            else -> null
+        }
+        return if (tail == null && head == null && headStyle == null) {
+            null
+        } else {
+            MessageDecoration(tail = tail, head = head, headStyle = headStyle)
+        }
     }
 
     private class FragmentBuilder(
@@ -346,9 +510,5 @@ class PlantUmlSequenceParser {
         )
 
         private fun String.toRichLabel(): RichLabel = RichLabel.Plain(this)
-    }
-
-    private companion object {
-        val ARROWS = listOf("-->>", "<<--", "->>", "<<-", "-->", "<--", "->", "<-")
     }
 }

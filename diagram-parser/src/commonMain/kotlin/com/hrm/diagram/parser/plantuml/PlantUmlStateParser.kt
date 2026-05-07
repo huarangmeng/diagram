@@ -30,18 +30,48 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
  */
 @DiagramApi
 class PlantUmlStateParser {
+    companion object {
+        const val REGION_PREFIX = "__plantuml_state_region__#"
+        const val STYLE_STATE_FILL_KEY = "plantuml.state.style.state.fill"
+        const val STYLE_STATE_STROKE_KEY = "plantuml.state.style.state.stroke"
+        const val STYLE_STATE_TEXT_KEY = "plantuml.state.style.state.text"
+        const val STYLE_NOTE_FILL_KEY = "plantuml.state.style.note.fill"
+        const val STYLE_NOTE_STROKE_KEY = "plantuml.state.style.note.stroke"
+        const val STYLE_NOTE_TEXT_KEY = "plantuml.state.style.note.text"
+        const val STYLE_COMPOSITE_FILL_KEY = "plantuml.state.style.composite.fill"
+        const val STYLE_COMPOSITE_STROKE_KEY = "plantuml.state.style.composite.stroke"
+        const val STYLE_EDGE_COLOR_KEY = "plantuml.state.style.edge.color"
+        private val SUPPORTED_SKINPARAM_SCOPES = setOf("state", "note")
+    }
+
+    private data class CompositeFrame(
+        val stateId: NodeId,
+        val regions: MutableList<NodeId> = mutableListOf(),
+        var activeContainer: NodeId = stateId,
+    )
+
+    private data class PendingNote(
+        val targetState: NodeId?,
+        val placement: NotePlacement,
+        val lines: MutableList<String> = ArrayList(),
+    )
+
     private val states: LinkedHashMap<NodeId, StateNode> = LinkedHashMap()
     private val transitions: MutableList<StateTransition> = ArrayList()
     private val notes: MutableList<StateNote> = ArrayList()
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
-    private val compositeStack: ArrayDeque<NodeId> = ArrayDeque()
+    private val compositeStack: ArrayDeque<CompositeFrame> = ArrayDeque()
+    private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
 
     private var seq: Long = 0
     private var initCounter: Int = 0
     private var finalCounter: Int = 0
     private var historyCounter: Int = 0
     private var deepHistoryCounter: Int = 0
+    private var regionCounter: Int = 0
     private var direction: Direction? = null
+    private var pendingNote: PendingNote? = null
+    private var pendingSkinparamScope: String? = null
 
     fun acceptLine(line: String): IrPatchBatch {
         seq++
@@ -50,18 +80,36 @@ class PlantUmlStateParser {
             return IrPatchBatch(seq, emptyList())
         }
 
+        pendingNote?.let { note ->
+            if (trimmed.equals("end note", ignoreCase = true) || trimmed.equals("endnote", ignoreCase = true)) {
+                pendingNote = null
+                val text = note.lines.joinToString("\n").trim()
+                if (text.isEmpty()) return errorBatch("Empty PlantUML state note block")
+                notes += StateNote(text = RichLabel.Plain(text), targetState = note.targetState, placement = note.placement)
+                return IrPatchBatch(seq, emptyList())
+            }
+            note.lines += trimmed
+            return IrPatchBatch(seq, emptyList())
+        }
+        pendingSkinparamScope?.let { scope ->
+            if (trimmed == "}") {
+                pendingSkinparamScope = null
+                return IrPatchBatch(seq, emptyList())
+            }
+            return applySkinparamEntry(scope, trimmed)
+        }
+
         if (trimmed == "}") {
             if (compositeStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML state body")
             compositeStack.removeLast()
             return IrPatchBatch(seq, emptyList())
         }
         if (trimmed == "--") {
-            // PlantUML parallel region separator. Region-aware IR is not modeled yet, but the
-            // line is accepted so a minimal subset keeps flowing instead of erroring.
-            return IrPatchBatch(seq, emptyList())
+            return openParallelRegion()
         }
 
         return when {
+            trimmed.startsWith("skinparam", ignoreCase = true) -> applySkinparam(trimmed)
             trimmed.startsWith("state ", ignoreCase = true) -> parseStateDecl(trimmed)
             trimmed.startsWith("note ", ignoreCase = true) -> parseNote(trimmed)
             trimmed.equals("left to right direction", ignoreCase = true) -> parseDirection(Direction.LR)
@@ -75,6 +123,26 @@ class PlantUmlStateParser {
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
+        if (pendingNote != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.ERROR,
+                    message = "Unclosed state note block before end of PlantUML block",
+                    code = "PLANTUML-E004",
+                ),
+            )
+            pendingNote = null
+        }
+        if (pendingSkinparamScope != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.WARNING,
+                    message = "Unsupported or unclosed 'skinparam ${pendingSkinparamScope!!}' block ignored",
+                    code = "PLANTUML-W001",
+                ),
+            )
+            pendingSkinparamScope = null
+        }
         if (compositeStack.isNotEmpty()) {
             out += addDiagnostic(
                 Diagnostic(
@@ -102,7 +170,7 @@ class PlantUmlStateParser {
         transitions = transitions.toList(),
         notes = notes.toList(),
         sourceLanguage = SourceLanguage.PLANTUML,
-        styleHints = StyleHints(direction = direction),
+        styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
@@ -148,7 +216,7 @@ class PlantUmlStateParser {
         val declaredKind = stereoToKind(stereotype)
         val effectiveKind = if (opensBody) StateKind.Composite else declaredKind ?: StateKind.Simple
         ensureState(id, name = name, description = description, kind = effectiveKind)
-        if (opensBody) compositeStack.addLast(id)
+        if (opensBody) compositeStack.addLast(CompositeFrame(stateId = id))
         return IrPatchBatch(seq, emptyList())
     }
 
@@ -178,9 +246,9 @@ class PlantUmlStateParser {
 
         if (from.kind == StateKind.Simple) ensureState(from.id, from.id.value)
         if (to.kind == StateKind.Simple) ensureState(to.id, to.id.value)
-        compositeStack.lastOrNull()?.let { parent ->
-            if (parent != from.id) addChildIfMissing(parent, from.id)
-            if (parent != to.id) addChildIfMissing(parent, to.id)
+        currentContainer()?.let { container ->
+            if (container != from.id) addChildIfMissing(container, from.id)
+            if (container != to.id) addChildIfMissing(container, to.id)
         }
 
         val parsed = splitEventGuardAction(labelText)
@@ -239,6 +307,22 @@ class PlantUmlStateParser {
     }
 
     private fun parseNote(line: String): IrPatchBatch {
+        val blockAnchored = Regex(
+            "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*$",
+            RegexOption.IGNORE_CASE,
+        ).matchEntire(line)
+        if (blockAnchored != null) {
+            val placement = when (blockAnchored.groupValues[1].lowercase()) {
+                "left" -> NotePlacement.LeftOf
+                "right" -> NotePlacement.RightOf
+                "top" -> NotePlacement.TopOf
+                else -> NotePlacement.BottomOf
+            }
+            val target = NodeId(blockAnchored.groupValues[2])
+            ensureState(target, target.value)
+            pendingNote = PendingNote(targetState = target, placement = placement)
+            return IrPatchBatch(seq, emptyList())
+        }
         val anchored = Regex(
             "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
             RegexOption.IGNORE_CASE,
@@ -267,9 +351,99 @@ class PlantUmlStateParser {
             notes += StateNote(text = RichLabel.Plain(text), placement = NotePlacement.Standalone)
             return IrPatchBatch(seq, emptyList())
         }
+        if (line.equals("note", ignoreCase = true)) {
+            pendingNote = PendingNote(targetState = null, placement = NotePlacement.Standalone)
+            return IrPatchBatch(seq, emptyList())
+        }
 
         return errorBatch("Invalid PlantUML state note syntax: $line")
     }
+
+    private fun openParallelRegion(): IrPatchBatch {
+        val frame = compositeStack.lastOrNull() ?: return errorBatch("'--' without matching composite state")
+        if (frame.regions.isEmpty()) {
+            val first = createSyntheticRegion(frame.stateId)
+            val parent = states[frame.stateId] ?: return errorBatch("Invalid composite state region context")
+            val directChildren = parent.children.filter { it != first }
+            states[frame.stateId] = parent.copy(children = listOf(first))
+            val regionNode = states[first] ?: return errorBatch("Invalid synthesized state region")
+            states[first] = regionNode.copy(children = directChildren)
+            frame.regions += first
+            frame.activeContainer = first
+        }
+        val next = createSyntheticRegion(frame.stateId)
+        frame.regions += next
+        frame.activeContainer = next
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun createSyntheticRegion(parent: NodeId): NodeId {
+        val id = NodeId("$REGION_PREFIX${parent.value}#${++regionCounter}")
+        if (states[id] == null) {
+            states[id] = StateNode(id = id, name = "", kind = StateKind.Composite)
+        }
+        addChildIfMissing(parent, id)
+        return id
+    }
+
+    private fun applySkinparam(line: String): IrPatchBatch {
+        val body = line.substringAfter(" ", "").trim()
+        val normalized = body.substringBefore(' ', body).substringBefore('{').trim().lowercase()
+        if (body.endsWith("{") && normalized in SUPPORTED_SKINPARAM_SCOPES) {
+            pendingSkinparamScope = normalized
+            return IrPatchBatch(seq, emptyList())
+        }
+        if (normalized in SUPPORTED_SKINPARAM_SCOPES && body.length > normalized.length) {
+            return applySkinparamEntry(normalized, body.substring(normalized.length).trim())
+        }
+        val key = body.substringBefore(' ', "").trim()
+        val value = body.substringAfter(' ', "").trim()
+        return when (key.lowercase()) {
+            "statebackgroundcolor" -> storeSkinparam(STYLE_STATE_FILL_KEY, value)
+            "statebordercolor" -> storeSkinparam(STYLE_STATE_STROKE_KEY, value)
+            "statefontcolor" -> storeSkinparam(STYLE_STATE_TEXT_KEY, value)
+            "notebackgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
+            "notebordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
+            "notefontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+            "arrowcolor" -> storeSkinparam(STYLE_EDGE_COLOR_KEY, value)
+            else -> warnUnsupportedSkinparam(line)
+        }
+    }
+
+    private fun applySkinparamEntry(scope: String, line: String): IrPatchBatch {
+        val key = line.substringBefore(' ', "").trim()
+        val value = line.substringAfter(' ', "").trim()
+        return when (scope.lowercase()) {
+            "state" -> when (key.lowercase()) {
+                "backgroundcolor" -> {
+                    storeSkinparam(STYLE_STATE_FILL_KEY, value)
+                    storeSkinparam(STYLE_COMPOSITE_FILL_KEY, value)
+                }
+                "bordercolor" -> {
+                    storeSkinparam(STYLE_STATE_STROKE_KEY, value)
+                    storeSkinparam(STYLE_COMPOSITE_STROKE_KEY, value)
+                }
+                "fontcolor" -> storeSkinparam(STYLE_STATE_TEXT_KEY, value)
+                else -> warnUnsupportedSkinparam("skinparam state $line")
+            }
+            "note" -> when (key.lowercase()) {
+                "backgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
+                "bordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
+                "fontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+                else -> warnUnsupportedSkinparam("skinparam note $line")
+            }
+            else -> warnUnsupportedSkinparam("skinparam $scope $line")
+        }
+    }
+
+    private fun storeSkinparam(key: String, value: String): IrPatchBatch {
+        if (value.isBlank()) return warnUnsupportedSkinparam("skinparam $key")
+        styleExtras[key] = value
+        return IrPatchBatch(seq, emptyList())
+    }
+
+    private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
+        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun parseDirection(dir: Direction): IrPatchBatch {
         direction = dir
@@ -285,7 +459,7 @@ class PlantUmlStateParser {
         val existing = states[id]
         if (existing == null) {
             states[id] = StateNode(id = id, name = name, description = description, kind = kind)
-            compositeStack.lastOrNull()?.let { parent -> if (parent != id) addChildIfMissing(parent, id) }
+            currentContainer()?.let { parent -> if (parent != id) addChildIfMissing(parent, id) }
         } else {
             val mergedKind = if (existing.kind == StateKind.Simple) kind else existing.kind
             states[id] = existing.copy(
@@ -301,6 +475,8 @@ class PlantUmlStateParser {
         if (p.children.contains(child)) return
         states[parent] = p.copy(children = p.children + child)
     }
+
+    private fun currentContainer(): NodeId? = compositeStack.lastOrNull()?.activeContainer
 
     private fun errorBatch(message: String): IrPatchBatch =
         IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E004"))))

@@ -314,7 +314,7 @@ internal class PlantUmlErdSubPipeline(
                 z = 4,
             )
         }
-        val name = labelTextOf(node).substringBefore(':').trim()
+        val name = node.payload[PlantUmlErdParser.ER_ATTRIBUTE_NAME_KEY].orEmpty().ifEmpty { labelTextOf(node).substringBefore(':').trim() }
         val type = node.payload[PlantUmlErdParser.ER_ATTRIBUTE_TYPE_KEY]
         val valueText = buildString {
             append(name)
@@ -434,7 +434,7 @@ internal class PlantUmlErdSubPipeline(
         val badgeGap = 8f
         val rows = attrs.map { attr ->
             val type = attr.payload[PlantUmlErdParser.ER_ATTRIBUTE_TYPE_KEY]
-            val name = labelTextOf(attr).substringBefore(':').trim()
+            val name = attr.payload[PlantUmlErdParser.ER_ATTRIBUTE_NAME_KEY].orEmpty().ifEmpty { labelTextOf(attr).substringBefore(':').trim() }
             val flags = attributeFlagsOf(attr)
             val badge = if (flags.isEmpty()) null else BadgeLayout(flags.joinToString(" / "), textMeasurer.measure(flags.joinToString(" / "), flagFont))
             val rowText = if (!type.isNullOrBlank()) "$name: $type" else name

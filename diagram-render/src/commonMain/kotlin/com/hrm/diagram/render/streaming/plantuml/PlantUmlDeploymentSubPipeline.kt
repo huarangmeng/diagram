@@ -57,8 +57,12 @@ internal class PlantUmlDeploymentSubPipeline(
         )
         val clusterRects = LinkedHashMap<NodeId, Rect>()
         for (cluster in ir.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
-        val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
-        val laidOut = baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
+        val laidOutWithClusters = baseLaid.copy(
+            clusterRects = clusterRects,
+            bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values),
+            seq = seq,
+        )
+        val laidOut = applyAnchoredNotes(ir, laidOutWithClusters)
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
@@ -77,9 +81,11 @@ internal class PlantUmlDeploymentSubPipeline(
             val kind = node.payload[PlantUmlDeploymentParser.KIND_KEY]
             val metrics = textMeasurer.measure(label, labelFont, maxWidth = 180f)
             nodeSizes[node.id] = when (kind) {
+                "actor" -> Size((metrics.width + 36f).coerceAtLeast(120f), (metrics.height + 68f).coerceAtLeast(92f))
                 "database" -> Size((metrics.width + 42f).coerceAtLeast(136f), (metrics.height + 34f).coerceAtLeast(64f))
+                "storage" -> Size((metrics.width + 42f).coerceAtLeast(136f), (metrics.height + 34f).coerceAtLeast(64f))
                 "cloud" -> Size((metrics.width + 48f).coerceAtLeast(152f), (metrics.height + 34f).coerceAtLeast(72f))
-                "artifact" -> Size((metrics.width + 34f).coerceAtLeast(124f), (metrics.height + 28f).coerceAtLeast(56f))
+                "artifact", "queue", "note" -> Size((metrics.width + 34f).coerceAtLeast(124f), (metrics.height + 28f).coerceAtLeast(56f))
                 else -> Size((metrics.width + 36f).coerceAtLeast(140f), (metrics.height + 28f).coerceAtLeast(60f))
             }
         }
@@ -158,6 +164,16 @@ internal class PlantUmlDeploymentSubPipeline(
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF2E7D32.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF1B5E20.toInt())
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
+        when (node.payload[PlantUmlDeploymentParser.KIND_KEY]) {
+            "actor" -> {
+                drawActor(node, rect, out)
+                return
+            }
+            "note" -> {
+                drawNote(node, rect, out)
+                return
+            }
+        }
         when (node.shape) {
             NodeShape.Cylinder -> drawCylinder(rect, fill, strokeColor, stroke, out)
             NodeShape.Cloud -> drawCloud(rect, fill, strokeColor, stroke, out)
@@ -244,6 +260,67 @@ internal class PlantUmlDeploymentSubPipeline(
         out += DrawCommand.StrokePath(path = path, stroke = stroke, color = strokeColor, z = 5)
     }
 
+    private fun applyAnchoredNotes(ir: GraphIR, laidOut: LaidOutDiagram): LaidOutDiagram {
+        val notes = ir.nodes.filter { it.payload[PlantUmlDeploymentParser.KIND_KEY] == "note" && it.payload.containsKey(PlantUmlDeploymentParser.NOTE_TARGET_KEY) }
+        if (notes.isEmpty()) return laidOut
+        val nodePositions = LinkedHashMap(laidOut.nodePositions)
+        val edgeRoutes = laidOut.edgeRoutes.toMutableList()
+        for (note in notes) {
+            val target = note.payload[PlantUmlDeploymentParser.NOTE_TARGET_KEY]?.let(::NodeId) ?: continue
+            val placement = note.payload[PlantUmlDeploymentParser.NOTE_PLACEMENT_KEY].orEmpty()
+            val targetRect = nodePositions[target] ?: continue
+            val current = nodePositions[note.id] ?: continue
+            val anchored = anchoredNoteRect(current.size, targetRect, placement)
+            nodePositions[note.id] = anchored
+            val edgeIndex = ir.edges.indexOfFirst { it.from == note.id && it.to == target }
+            if (edgeIndex >= 0) {
+                val route = com.hrm.diagram.layout.EdgeRoute(
+                    from = note.id,
+                    to = target,
+                    points = anchoredNoteRoute(anchored, targetRect, placement),
+                    kind = RouteKind.Polyline,
+                )
+                if (edgeIndex < edgeRoutes.size) edgeRoutes[edgeIndex] = route else edgeRoutes += route
+            }
+        }
+        return laidOut.copy(
+            nodePositions = nodePositions,
+            edgeRoutes = edgeRoutes,
+            bounds = computeBounds(nodePositions.values + laidOut.clusterRects.values),
+        )
+    }
+
+    private fun anchoredNoteRect(size: Size, targetRect: Rect, placement: String): Rect {
+        val gap = 18f
+        return when (placement.lowercase()) {
+            "left" -> Rect(Point(targetRect.left - size.width - gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
+            "top" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.top - size.height - gap), size)
+            "bottom" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.bottom + gap), size)
+            else -> Rect(Point(targetRect.right + gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
+        }
+    }
+
+    private fun anchoredNoteRoute(noteRect: Rect, targetRect: Rect, placement: String): List<Point> {
+        return when (placement.lowercase()) {
+            "left" -> listOf(
+                Point(noteRect.right, (noteRect.top + noteRect.bottom) / 2f),
+                Point(targetRect.left, (targetRect.top + targetRect.bottom) / 2f),
+            )
+            "top" -> listOf(
+                Point((noteRect.left + noteRect.right) / 2f, noteRect.bottom),
+                Point((targetRect.left + targetRect.right) / 2f, targetRect.top),
+            )
+            "bottom" -> listOf(
+                Point((noteRect.left + noteRect.right) / 2f, noteRect.top),
+                Point((targetRect.left + targetRect.right) / 2f, targetRect.bottom),
+            )
+            else -> listOf(
+                Point(noteRect.left, (noteRect.top + noteRect.bottom) / 2f),
+                Point(targetRect.right, (targetRect.top + targetRect.bottom) / 2f),
+            )
+        }
+    }
+
     private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge, route: com.hrm.diagram.layout.EdgeRoute, out: MutableList<DrawCommand>) {
         val pts = route.points
         if (pts.size < 2) return
@@ -289,6 +366,63 @@ internal class PlantUmlDeploymentSubPipeline(
                 z = 5,
             )
         }
+    }
+
+    private fun drawActor(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF455A64.toInt())
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF263238.toInt())
+        val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
+        val cx = (rect.left + rect.right) / 2f
+        val top = rect.top + 8f
+        val headRadius = 11f
+        val headRect = Rect.ltrb(cx - headRadius, top, cx + headRadius, top + headRadius * 2f)
+        out += DrawCommand.StrokeRect(rect = headRect, stroke = stroke, color = strokeColor, corner = headRadius, z = 5)
+        val bodyTop = headRect.bottom
+        val bodyBottom = rect.bottom - 28f
+        out += DrawCommand.StrokePath(
+            path = PathCmd(
+                listOf(
+                    PathOp.MoveTo(Point(cx, bodyTop)),
+                    PathOp.LineTo(Point(cx, bodyTop + 30f)),
+                    PathOp.MoveTo(Point(cx - 16f, bodyTop + 12f)),
+                    PathOp.LineTo(Point(cx + 16f, bodyTop + 12f)),
+                    PathOp.MoveTo(Point(cx, bodyTop + 30f)),
+                    PathOp.LineTo(Point(cx - 14f, bodyBottom)),
+                    PathOp.MoveTo(Point(cx, bodyTop + 30f)),
+                    PathOp.LineTo(Point(cx + 14f, bodyBottom)),
+                ),
+            ),
+            stroke = stroke,
+            color = strokeColor,
+            z = 5,
+        )
+        out += DrawCommand.DrawText(
+            text = labelTextOf(node),
+            origin = Point(cx, rect.bottom - 10f),
+            font = labelFont,
+            color = textColor,
+            maxWidth = rect.size.width - 12f,
+            anchorX = TextAnchorX.Center,
+            anchorY = TextAnchorY.Bottom,
+            z = 6,
+        )
+    }
+
+    private fun drawNote(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFFFF8E1.toInt())
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFFFFA000.toInt())
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF5D4037.toInt())
+        drawArtifact(rect, fill, strokeColor, Stroke(width = node.style.strokeWidth ?: 1.25f), out)
+        out += DrawCommand.DrawText(
+            text = labelTextOf(node),
+            origin = Point(rect.left + 12f, rect.top + 10f),
+            font = labelFont,
+            color = textColor,
+            maxWidth = rect.size.width - 24f,
+            anchorX = TextAnchorX.Start,
+            anchorY = TextAnchorY.Top,
+            z = 7,
+        )
     }
 
     private fun arrowHead(from: Point, to: Point, color: Color): DrawCommand {

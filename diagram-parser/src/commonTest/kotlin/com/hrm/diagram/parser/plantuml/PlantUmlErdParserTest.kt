@@ -99,6 +99,51 @@ class PlantUmlErdParserTest {
     }
 
     @Test
+    fun parses_complex_alias_and_nonstandard_attributes() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                entity "Customer Account" as CustomerAccount {
+                  *customer_id uuid
+                  "display name" text
+                }
+                entity InvoiceHeader as "Invoice Header" {
+                  decimal(10,2) total_amount
+                  status text
+                }
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertEquals(RichLabel.Plain("Customer Account"), ir.nodes.first { it.id == NodeId("CustomerAccount") }.label)
+        assertEquals(RichLabel.Plain("Invoice Header"), ir.nodes.first { it.id == NodeId("InvoiceHeader") }.label)
+        val customerId = ir.nodes.first { it.id == NodeId("CustomerAccount::customer_id") }
+        assertEquals("customer_id", customerId.payload[PlantUmlErdParser.ER_ATTRIBUTE_NAME_KEY])
+        assertEquals("uuid", customerId.payload[PlantUmlErdParser.ER_ATTRIBUTE_TYPE_KEY])
+        val displayName = ir.nodes.first { it.id == NodeId("CustomerAccount::display_name") }
+        assertEquals("display name", displayName.payload[PlantUmlErdParser.ER_ATTRIBUTE_NAME_KEY])
+        assertEquals("text", displayName.payload[PlantUmlErdParser.ER_ATTRIBUTE_TYPE_KEY])
+        val totalAmount = ir.nodes.first { it.id == NodeId("InvoiceHeader::total_amount") }
+        assertEquals("total_amount", totalAmount.payload[PlantUmlErdParser.ER_ATTRIBUTE_NAME_KEY])
+        assertEquals("decimal(10,2)", totalAmount.payload[PlantUmlErdParser.ER_ATTRIBUTE_TYPE_KEY])
+    }
+
+    @Test
+    fun parses_more_relationship_decorations() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                entity CustomerAccount { *id }
+                entity InvoiceHeader { *id }
+                CustomerAccount }|..|{ InvoiceHeader : allocates
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        val relation = ir.edges.first { it.label != null }
+        assertEquals(RichLabel.Plain("}|..|{ allocates"), relation.label)
+        assertTrue(relation.style.dash != null)
+    }
+
+    @Test
     fun supports_direction() {
         val ir = parse("top to bottom direction\nentity Customer { *id }\n").snapshot()
         assertEquals(Direction.TB, ir.styleHints.direction)

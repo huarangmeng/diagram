@@ -160,7 +160,57 @@ class PlantUmlStateParserTest {
             }
             """.trimIndent() + "\n",
         ).snapshot()
+        val parent = ir.states.first { it.id == NodeId("Parent") }
+        val regions = parent.children.filter { it.value.startsWith(PlantUmlStateParser.REGION_PREFIX) }
+        assertEquals(2, regions.size)
+        val firstRegion = ir.states.first { it.id == regions[0] }
+        val secondRegion = ir.states.first { it.id == regions[1] }
+        assertTrue(firstRegion.children.contains(NodeId("A")))
+        assertTrue(firstRegion.children.contains(NodeId("B")))
+        assertTrue(secondRegion.children.contains(NodeId("C")))
         assertEquals(2, ir.transitions.size)
+    }
+
+    @Test
+    fun multiline_anchored_note_supported() {
+        val note = parse(
+            """
+            state A
+            note left of A
+              hello
+              world
+            end note
+            """.trimIndent() + "\n",
+        ).snapshot().notes.single()
+        assertEquals(NodeId("A"), note.targetState)
+        assertEquals(NotePlacement.LeftOf, note.placement)
+        assertEquals(RichLabel.Plain("hello\nworld"), note.text)
+    }
+
+    @Test
+    fun state_skinparam_entries_are_stored_in_style_hints() {
+        val ir = parse(
+            """
+            skinparam state {
+              BackgroundColor LightBlue
+              BorderColor Navy
+              FontColor SaddleBrown
+            }
+            skinparam note {
+              BackgroundColor Ivory
+              BorderColor Orange
+              FontColor Navy
+            }
+            skinparam ArrowColor Peru
+            state A
+            """.trimIndent() + "\n",
+        ).snapshot()
+        assertEquals("LightBlue", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_FILL_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_STROKE_KEY])
+        assertEquals("SaddleBrown", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_TEXT_KEY])
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_FILL_KEY])
+        assertEquals("Orange", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("Peru", ir.styleHints.extras[PlantUmlStateParser.STYLE_EDGE_COLOR_KEY])
     }
 
     @Test

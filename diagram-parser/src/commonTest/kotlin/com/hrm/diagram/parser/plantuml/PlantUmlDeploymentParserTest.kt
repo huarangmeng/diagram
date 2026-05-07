@@ -88,6 +88,31 @@ class PlantUmlDeploymentParserTest {
     }
 
     @Test
+    fun parses_actor_queue_storage_and_note() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                node Server {
+                  actor Ops
+                  queue Jobs
+                  storage Disk
+                  [App]
+                  note right of App
+                    deployed by ops
+                  end note
+                }
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertEquals(NodeShape.Actor, ir.nodes.first { it.id == NodeId("Ops") }.shape)
+        assertEquals("queue", ir.nodes.first { it.id == NodeId("Jobs") }.payload[PlantUmlDeploymentParser.KIND_KEY])
+        assertEquals("storage", ir.nodes.first { it.id == NodeId("Disk") }.payload[PlantUmlDeploymentParser.KIND_KEY])
+        val note = ir.nodes.first { it.payload[PlantUmlDeploymentParser.KIND_KEY] == "note" }
+        assertEquals("App", note.payload[PlantUmlDeploymentParser.NOTE_TARGET_KEY])
+        assertTrue(ir.edges.any { it.from == note.id && it.to == NodeId("App") })
+    }
+
+    @Test
     fun supports_direction() {
         val ir = parse("top to bottom direction\nartifact App\n").snapshot()
         assertEquals(Direction.TB, ir.styleHints.direction)

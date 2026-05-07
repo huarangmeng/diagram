@@ -105,6 +105,33 @@ class PlantUmlObjectParserTest {
     }
 
     @Test
+    fun note_package_and_map_json_are_parsed() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                package "Domain" {
+                  namespace "Orders" {
+                    map Cache {
+                      key => value
+                    }
+                    json Payload {
+                      orderId: 1
+                    }
+                    object Order
+                    note right of Order : aggregate
+                  }
+                }
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertTrue(ir.clusters.isNotEmpty())
+        assertTrue(ir.nodes.any { it.payload[PlantUmlObjectParser.KIND_KEY] == "map" })
+        assertTrue(ir.nodes.any { it.payload[PlantUmlObjectParser.KIND_KEY] == "json" })
+        assertTrue(ir.nodes.any { it.payload[PlantUmlObjectParser.KIND_KEY] == "note" })
+        assertTrue(ir.edges.any { it.arrow == ArrowEnds.None && it.kind == EdgeKind.Dashed })
+    }
+
+    @Test
     fun streaming_equivalence() {
         val src =
             """
