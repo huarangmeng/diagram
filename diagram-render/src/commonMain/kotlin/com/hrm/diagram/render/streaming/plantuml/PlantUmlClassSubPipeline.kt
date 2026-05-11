@@ -56,34 +56,84 @@ internal class PlantUmlClassSubPipeline(
 
     private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val edgeColor = Color(0xFF455A64U.toInt())
-        val noteFill = Color(0xFFFFF8E1U.toInt())
-        val noteStroke = Color(0xFFFFA000U.toInt())
-        val namespaceStroke = Color(0xFF8D6E63U.toInt())
-        val namespaceText = Color(0xFF5D4037U.toInt())
-        val commonTextColor = Color(0xFF3E2723U.toInt())
-        val solid = Stroke(width = 1.5f)
-        val dashed = Stroke(width = 1.5f, dash = listOf(6f, 4f))
-        val headerFont = FontSpec(family = "sans-serif", sizeSp = 13f)
-        val memberFont = FontSpec(family = "sans-serif", sizeSp = 11f)
-        val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 10f)
-        val namespaceFont = FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600)
+        val palette = paletteOf(ir)
+        val classStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_CLASS_LINE_THICKNESS_KEY) ?: 1.5f
+        val noteStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_NOTE_LINE_THICKNESS_KEY) ?: 1.5f
+        val packageStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_LINE_THICKNESS_KEY) ?: 1.5f
+        val solid = Stroke(width = classStrokeWidth)
+        val dashed = Stroke(width = classStrokeWidth, dash = listOf(6f, 4f))
+        val headerFont = fontExtra(
+            ir = ir,
+            fontNameKey = PlantUmlClassParser.STYLE_CLASS_FONT_NAME_KEY,
+            fontSizeKey = PlantUmlClassParser.STYLE_CLASS_FONT_SIZE_KEY,
+            base = FontSpec(family = "sans-serif", sizeSp = 13f),
+        )
+        val memberFont = fontExtra(
+            ir = ir,
+            fontNameKey = PlantUmlClassParser.STYLE_CLASS_FONT_NAME_KEY,
+            fontSizeKey = PlantUmlClassParser.STYLE_CLASS_FONT_SIZE_KEY,
+            base = FontSpec(family = "sans-serif", sizeSp = 11f),
+        )
+        val edgeLabelFont = FontSpec(
+            family = headerFont.family,
+            sizeSp = (headerFont.sizeSp - 1f).coerceAtLeast(10f),
+        )
+        val namespaceFont = fontExtra(
+            ir = ir,
+            fontNameKey = PlantUmlClassParser.STYLE_PACKAGE_FONT_NAME_KEY,
+            fontSizeKey = PlantUmlClassParser.STYLE_PACKAGE_FONT_SIZE_KEY,
+            base = FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600),
+        )
+        val noteFont = fontExtra(
+            ir = ir,
+            fontNameKey = PlantUmlClassParser.STYLE_NOTE_FONT_NAME_KEY,
+            fontSizeKey = PlantUmlClassParser.STYLE_NOTE_FONT_SIZE_KEY,
+            base = FontSpec(family = "sans-serif", sizeSp = 11f),
+        )
+        val classShadowing = boolExtra(ir, PlantUmlClassParser.STYLE_CLASS_SHADOWING_KEY) == true
+        val noteShadowing = boolExtra(ir, PlantUmlClassParser.STYLE_NOTE_SHADOWING_KEY) == true
+        val packageShadowing = boolExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_SHADOWING_KEY) == true
         val sectionPad = 8f
         val rowGap = 2f
 
         for ((id, rect) in laidOut.clusterRects) {
             if (!id.value.startsWith("ns#")) continue
             val title = id.value.removePrefix("ns#")
-            out += DrawCommand.StrokeRect(rect = rect, stroke = dashed, color = namespaceStroke, corner = 8f, z = 0)
+            if (packageShadowing) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 8f,
+                    z = 0,
+                )
+            }
+            palette.namespaceFill?.let {
+                out += DrawCommand.FillRect(rect = rect, color = it, corner = 8f, z = 0)
+            }
+            out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = packageStrokeWidth, dash = listOf(6f, 4f)), color = palette.namespaceStroke, corner = 8f, z = 0)
             val chipWidth = (textMeasurer.measure(title, namespaceFont).width + 20f).coerceAtLeast(54f)
             val chipRect = com.hrm.diagram.core.draw.Rect.ltrb(rect.left + 10f, rect.top - 10f, rect.left + 10f + chipWidth, rect.top + 12f)
-            out += DrawCommand.FillRect(rect = chipRect, color = Color(0xFFFFFFFF.toInt()), corner = 10f, z = 1)
-            out += DrawCommand.StrokeRect(rect = chipRect, stroke = Stroke(width = 1f), color = namespaceStroke, corner = 10f, z = 2)
+            if (packageShadowing) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(chipRect, 3f, 3f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 10f,
+                    z = 1,
+                )
+            }
+            out += DrawCommand.FillRect(rect = chipRect, color = palette.namespaceChipFill, corner = 10f, z = 1)
+            out += DrawCommand.StrokeRect(
+                rect = chipRect,
+                stroke = Stroke(width = if (packageStrokeWidth > 1f) packageStrokeWidth * 0.75f else 1f),
+                color = palette.namespaceStroke,
+                corner = 10f,
+                z = 2,
+            )
             out += DrawCommand.DrawText(
                 text = title,
                 origin = Point((chipRect.left + chipRect.right) / 2f, (chipRect.top + chipRect.bottom) / 2f),
                 font = namespaceFont,
-                color = namespaceText,
+                color = palette.namespaceText,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,
                 z = 3,
@@ -92,11 +142,11 @@ internal class PlantUmlClassSubPipeline(
 
         for (c in ir.classes) {
             val r = laidOut.nodePositions[c.id] ?: continue
-            val palette = paletteFor(c.stereotype)
-            val boxFill = palette.boxFill
-            val boxStroke = palette.stroke
-            val headerFill = palette.headerFill
-            val textColor = palette.text
+            val classPalette = paletteFor(c.stereotype, ir)
+            val boxFill = classPalette.boxFill
+            val boxStroke = classPalette.stroke
+            val headerFill = classPalette.headerFill
+            val textColor = classPalette.text
             val headerText = buildString {
                 c.stereotype?.let { append("«").append(it).append("»\n") }
                 append(c.name)
@@ -105,6 +155,14 @@ internal class PlantUmlClassSubPipeline(
             val headerMetrics = textMeasurer.measure(headerText, headerFont)
             val headerH = headerMetrics.height + sectionPad
 
+            if (classShadowing) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 4f,
+                    z = 1,
+                )
+            }
             out += DrawCommand.FillRect(rect = r, color = boxFill, corner = 4f, z = 2)
             out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = boxStroke, corner = 4f, z = 4)
             out += DrawCommand.FillRect(
@@ -178,15 +236,23 @@ internal class PlantUmlClassSubPipeline(
             if (!id.value.startsWith("note#")) continue
             val noteIdx = id.value.removePrefix("note#").toIntOrNull() ?: continue
             val note = ir.notes.getOrNull(noteIdx) ?: continue
-            out += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 6)
-            out += DrawCommand.StrokeRect(rect = rect, stroke = solid, color = noteStroke, corner = 4f, z = 7)
+            if (noteShadowing) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 4f,
+                    z = 5,
+                )
+            }
+            out += DrawCommand.FillRect(rect = rect, color = palette.noteFill, corner = 4f, z = 6)
+            out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = noteStrokeWidth), color = palette.noteStroke, corner = 4f, z = 7)
             val text = (note.text as? RichLabel.Plain)?.text.orEmpty()
             if (text.isNotEmpty()) {
                 out += DrawCommand.DrawText(
                     text = text,
                     origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
-                    font = memberFont,
-                    color = commonTextColor,
+                    font = noteFont,
+                    color = palette.noteText,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Middle,
                     z = 8,
@@ -213,20 +279,20 @@ internal class PlantUmlClassSubPipeline(
             } else {
                 PathCmd(listOf(PathOp.MoveTo(from), PathOp.LineTo(to)))
             }
-            out += DrawCommand.StrokePath(path = path, stroke = stroke, color = edgeColor, z = 1)
+            out += DrawCommand.StrokePath(path = path, stroke = stroke, color = palette.edgeColor, z = 1)
             val tangentFrom = if (route.kind == com.hrm.diagram.layout.RouteKind.Bezier && pts.size >= 4) pts[pts.size - 2] else from
             when (rel.kind) {
-                ClassRelationKind.Inheritance, ClassRelationKind.Realization -> out += hollowTriangle(tangentFrom, to, edgeColor)
-                ClassRelationKind.Composition -> out += filledDiamond(tangentFrom, to, edgeColor)
-                ClassRelationKind.Aggregation -> out += hollowDiamond(tangentFrom, to, edgeColor)
-                ClassRelationKind.Association, ClassRelationKind.Dependency -> out += openArrowHead(tangentFrom, to, edgeColor)
+                ClassRelationKind.Inheritance, ClassRelationKind.Realization -> out += hollowTriangle(tangentFrom, to, palette.edgeColor, classStrokeWidth)
+                ClassRelationKind.Composition -> out += filledDiamond(tangentFrom, to, palette.edgeColor)
+                ClassRelationKind.Aggregation -> out += hollowDiamond(tangentFrom, to, palette.edgeColor, classStrokeWidth)
+                ClassRelationKind.Association, ClassRelationKind.Dependency -> out += openArrowHead(tangentFrom, to, palette.edgeColor, classStrokeWidth)
                 ClassRelationKind.Link, ClassRelationKind.LinkDashed -> {}
             }
             rel.fromCardinality?.takeIf { it.isNotEmpty() }?.let {
-                out += cardinalityText(from, pts.getOrElse(1) { to }, it, edgeLabelFont, commonTextColor, atStart = true)
+                out += cardinalityText(from, pts.getOrElse(1) { to }, it, edgeLabelFont, palette.commonTextColor, atStart = true)
             }
             rel.toCardinality?.takeIf { it.isNotEmpty() }?.let {
-                out += cardinalityText(tangentFrom, to, it, edgeLabelFont, commonTextColor, atStart = false)
+                out += cardinalityText(tangentFrom, to, it, edgeLabelFont, palette.commonTextColor, atStart = false)
             }
             val labelText = (rel.label as? RichLabel.Plain)?.text.orEmpty()
             if (labelText.isNotEmpty()) {
@@ -234,7 +300,7 @@ internal class PlantUmlClassSubPipeline(
                     text = labelText,
                     origin = Point((from.x + to.x) / 2f, (from.y + to.y) / 2f - 4f),
                     font = edgeLabelFont,
-                    color = commonTextColor,
+                    color = palette.commonTextColor,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Bottom,
                     z = 9,
@@ -285,21 +351,21 @@ internal class PlantUmlClassSubPipeline(
         )
     }
 
-    private fun openArrowHead(from: Point, to: Point, color: Color): DrawCommand {
+    private fun openArrowHead(from: Point, to: Point, color: Color, strokeWidth: Float): DrawCommand {
         val (p1, p2) = headPoints(from, to, 8f)
         return DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(p1), PathOp.LineTo(to), PathOp.LineTo(p2))),
-            stroke = Stroke(width = 1.5f),
+            stroke = Stroke(width = strokeWidth),
             color = color,
             z = 2,
         )
     }
 
-    private fun hollowTriangle(from: Point, to: Point, color: Color): DrawCommand {
+    private fun hollowTriangle(from: Point, to: Point, color: Color, strokeWidth: Float): DrawCommand {
         val (p1, p2) = headPoints(from, to, 12f)
         return DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(to), PathOp.LineTo(p1), PathOp.LineTo(p2), PathOp.Close)),
-            stroke = Stroke(width = 1.5f),
+            stroke = Stroke(width = strokeWidth),
             color = color,
             z = 2,
         )
@@ -308,8 +374,8 @@ internal class PlantUmlClassSubPipeline(
     private fun filledDiamond(from: Point, to: Point, color: Color): DrawCommand =
         DrawCommand.FillPath(path = diamondPath(from, to, 10f), color = color, z = 2)
 
-    private fun hollowDiamond(from: Point, to: Point, color: Color): DrawCommand =
-        DrawCommand.StrokePath(path = diamondPath(from, to, 10f), stroke = Stroke(width = 1.5f), color = color, z = 2)
+    private fun hollowDiamond(from: Point, to: Point, color: Color, strokeWidth: Float): DrawCommand =
+        DrawCommand.StrokePath(path = diamondPath(from, to, 10f), stroke = Stroke(width = strokeWidth), color = color, z = 2)
 
     private fun diamondPath(from: Point, to: Point, size: Float): PathCmd {
         val dx = to.x - from.x
@@ -345,7 +411,8 @@ internal class PlantUmlClassSubPipeline(
     @Suppress("unused")
     private fun unusedRel() = ClassRelation(NodeId("a"), NodeId("b"), ClassRelationKind.Link)
 
-    private fun paletteFor(stereotype: String?): ClassPalette = when (stereotype?.lowercase()) {
+    private fun paletteFor(stereotype: String?, ir: ClassIR): ClassPalette {
+        val base = when (stereotype?.lowercase()) {
         "interface" -> ClassPalette(
             boxFill = Color(0xFFE3F2FDU.toInt()),
             headerFill = Color(0xFFBBDEFB.toInt()),
@@ -370,12 +437,62 @@ internal class PlantUmlClassSubPipeline(
             stroke = Color(0xFF6D4C41U.toInt()),
             text = Color(0xFF3E2723U.toInt()),
         )
+        }
+        val fill = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_FILL_KEY)
+        val stroke = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_STROKE_KEY)
+        val text = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_TEXT_KEY)
+        return base.copy(
+            boxFill = fill ?: base.boxFill,
+            headerFill = fill?.let { PlantUmlTreeRenderSupport.darken(it, 0.08f) } ?: base.headerFill,
+            stroke = stroke ?: base.stroke,
+            text = text ?: base.text,
+        )
     }
+
+    private fun paletteOf(ir: ClassIR): ClassRenderPalette = ClassRenderPalette(
+        noteFill = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_FILL_KEY) ?: Color(0xFFFFF8E1U.toInt()),
+        noteStroke = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_STROKE_KEY) ?: Color(0xFFFFA000U.toInt()),
+        noteText = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_TEXT_KEY) ?: Color(0xFF3E2723U.toInt()),
+        namespaceFill = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY),
+        namespaceChipFill = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY) ?: Color(0xFFFFFFFF.toInt()),
+        namespaceStroke = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_STROKE_KEY) ?: Color(0xFF8D6E63U.toInt()),
+        namespaceText = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_TEXT_KEY) ?: Color(0xFF5D4037U.toInt()),
+        edgeColor = colorExtra(ir, PlantUmlClassParser.STYLE_EDGE_COLOR_KEY) ?: Color(0xFF455A64U.toInt()),
+        commonTextColor = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_TEXT_KEY) ?: Color(0xFF3E2723U.toInt()),
+    )
+
+    private fun colorExtra(ir: ClassIR, key: String): Color? =
+        ir.styleHints.extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)
+
+    private fun floatExtra(ir: ClassIR, key: String): Float? =
+        PlantUmlTreeRenderSupport.parsePlantUmlFloat(ir.styleHints.extras[key])
+
+    private fun boolExtra(ir: ClassIR, key: String): Boolean? =
+        PlantUmlTreeRenderSupport.parsePlantUmlBoolean(ir.styleHints.extras[key])
+
+    private fun fontExtra(ir: ClassIR, fontNameKey: String, fontSizeKey: String, base: FontSpec): FontSpec =
+        PlantUmlTreeRenderSupport.resolveFontSpec(
+            base = base,
+            familyRaw = ir.styleHints.extras[fontNameKey],
+            sizeRaw = ir.styleHints.extras[fontSizeKey],
+        )
 
     private data class ClassPalette(
         val boxFill: Color,
         val headerFill: Color,
         val stroke: Color,
         val text: Color,
+    )
+
+    private data class ClassRenderPalette(
+        val noteFill: Color,
+        val noteStroke: Color,
+        val noteText: Color,
+        val namespaceFill: Color?,
+        val namespaceChipFill: Color,
+        val namespaceStroke: Color,
+        val namespaceText: Color,
+        val edgeColor: Color,
+        val commonTextColor: Color,
     )
 }

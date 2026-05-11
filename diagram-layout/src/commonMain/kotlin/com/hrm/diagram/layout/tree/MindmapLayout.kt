@@ -29,6 +29,11 @@ import kotlin.math.max
 class MindmapLayout(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) {
+    private companion object {
+        const val MINDMAP_SIDE_KEY = "plantuml.mindmap.side"
+        const val WBS_SIDE_KEY = "plantuml.wbs.side"
+    }
+
     private val font = FontSpec(family = "sans-serif", sizeSp = 12f)
 
     fun layout(previous: LaidOutDiagram?, model: TreeIR, options: LayoutOptions): LaidOutDiagram {
@@ -66,12 +71,13 @@ class MindmapLayout(
             return 1 + (n.children.maxOfOrNull(::subtreeDepth) ?: 0)
         }
 
+        val requestedSides = parseRequestedSides(model)
         val sideByNode = LinkedHashMap<NodeId, Int>()
         sideByNode[model.root.id] = 0
         var leftLoad = 0f
         var rightLoad = 0f
         for (child in model.root.children) {
-            val side = if (leftLoad <= rightLoad) -1 else 1
+            val side = requestedSides[child.id] ?: if (leftLoad <= rightLoad) -1 else 1
             sideByNode[child.id] = side
             val load = subtreeHeight(child)
             if (side < 0) leftLoad += load + rowGap else rightLoad += load + rowGap
@@ -79,8 +85,9 @@ class MindmapLayout(
 
         fun propagateSide(n: TreeNode, side: Int) {
             for (child in n.children) {
-                sideByNode[child.id] = side
-                propagateSide(child, side)
+                val childSide = requestedSides[child.id] ?: side
+                sideByNode[child.id] = childSide
+                propagateSide(child, childSide)
             }
         }
         for (child in model.root.children) {
@@ -152,5 +159,25 @@ class MindmapLayout(
             clusterRects = emptyMap(),
             bounds = Rect.ltrb(minLeft.coerceAtMost(0f), 0f, maxRight + pad, maxBottom + pad),
         )
+    }
+
+    private fun parseRequestedSides(model: TreeIR): Map<NodeId, Int> {
+        val raw = model.styleHints.extras[MINDMAP_SIDE_KEY]
+            ?: model.styleHints.extras[WBS_SIDE_KEY]
+            ?: ""
+        if (raw.isEmpty()) return emptyMap()
+        val out = LinkedHashMap<NodeId, Int>()
+        for (entry in raw.split("||")) {
+            if (entry.isEmpty()) continue
+            val split = entry.lastIndexOf('|')
+            if (split <= 0) continue
+            val id = entry.substring(0, split)
+            when (entry.substring(split + 1)) {
+                "left" -> out[NodeId(id)] = -1
+                "right" -> out[NodeId(id)] = 1
+                "root" -> out[NodeId(id)] = 0
+            }
+        }
+        return out
     }
 }

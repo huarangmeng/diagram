@@ -286,11 +286,38 @@ class PlantUmlActivityParserTest {
                 """
                 skinparam activity {
                   StartColor red
+                  StartLineThickness 2
+                  StartShadowing true
                   BarColor SaddleBrown
+                  BarFontColor Yellow
+                  BarFontSize 15
+                  BarFontName monospace
+                  BarLineThickness 2.25
+                  BarShadowing yes
                   BackgroundColor Peru
                   BorderColor Peru
+                  FontColor Ivory
+                  FontSize 17
+                  FontName serif
+                  LineThickness 2.5
+                  Shadowing true
                   DiamondBackgroundColor PaleGreen
                   DiamondBorderColor Green
+                  DiamondFontColor Navy
+                  DiamondFontSize 16
+                  DiamondFontName fantasy
+                  DiamondLineThickness 2
+                  DiamondShadowing on
+                  EndColor Silver
+                  EndLineThickness 3
+                  EndShadowing 1
+                  NoteBackgroundColor Ivory
+                  NoteBorderColor Orange
+                  NoteFontColor Navy
+                  NoteFontSize 13
+                  NoteFontName cursive
+                  NoteLineThickness 1.75
+                  NoteShadowing true
                 }
                 skinparam ArrowColor Navy
                 :Work;
@@ -298,9 +325,36 @@ class PlantUmlActivityParserTest {
             ).snapshot(),
         )
         assertEquals("red", ir.styleHints.extras[PlantUmlActivityParser.STYLE_START_FILL_KEY])
+        assertEquals("2", ir.styleHints.extras[PlantUmlActivityParser.STYLE_START_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlActivityParser.STYLE_START_SHADOWING_KEY])
         assertEquals("SaddleBrown", ir.styleHints.extras[PlantUmlActivityParser.STYLE_BAR_FILL_KEY])
+        assertEquals("Yellow", ir.styleHints.extras[PlantUmlActivityParser.STYLE_BAR_TEXT_KEY])
+        assertEquals("15", ir.styleHints.extras[PlantUmlActivityParser.STYLE_BAR_FONT_SIZE_KEY])
+        assertEquals("monospace", ir.styleHints.extras[PlantUmlActivityParser.STYLE_BAR_FONT_NAME_KEY])
+        assertEquals("2.25", ir.styleHints.extras[PlantUmlActivityParser.STYLE_BAR_LINE_THICKNESS_KEY])
+        assertEquals("yes", ir.styleHints.extras[PlantUmlActivityParser.STYLE_BAR_SHADOWING_KEY])
         assertEquals("Peru", ir.styleHints.extras[PlantUmlActivityParser.STYLE_ACTION_FILL_KEY])
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlActivityParser.STYLE_ACTION_TEXT_KEY])
+        assertEquals("17", ir.styleHints.extras[PlantUmlActivityParser.STYLE_ACTION_FONT_SIZE_KEY])
+        assertEquals("serif", ir.styleHints.extras[PlantUmlActivityParser.STYLE_ACTION_FONT_NAME_KEY])
+        assertEquals("2.5", ir.styleHints.extras[PlantUmlActivityParser.STYLE_ACTION_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlActivityParser.STYLE_ACTION_SHADOWING_KEY])
         assertEquals("Green", ir.styleHints.extras[PlantUmlActivityParser.STYLE_DECISION_STROKE_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlActivityParser.STYLE_DECISION_TEXT_KEY])
+        assertEquals("16", ir.styleHints.extras[PlantUmlActivityParser.STYLE_DECISION_FONT_SIZE_KEY])
+        assertEquals("fantasy", ir.styleHints.extras[PlantUmlActivityParser.STYLE_DECISION_FONT_NAME_KEY])
+        assertEquals("2", ir.styleHints.extras[PlantUmlActivityParser.STYLE_DECISION_LINE_THICKNESS_KEY])
+        assertEquals("on", ir.styleHints.extras[PlantUmlActivityParser.STYLE_DECISION_SHADOWING_KEY])
+        assertEquals("Silver", ir.styleHints.extras[PlantUmlActivityParser.STYLE_STOP_STROKE_KEY])
+        assertEquals("3", ir.styleHints.extras[PlantUmlActivityParser.STYLE_STOP_LINE_THICKNESS_KEY])
+        assertEquals("1", ir.styleHints.extras[PlantUmlActivityParser.STYLE_STOP_SHADOWING_KEY])
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlActivityParser.STYLE_NOTE_FILL_KEY])
+        assertEquals("Orange", ir.styleHints.extras[PlantUmlActivityParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlActivityParser.STYLE_NOTE_TEXT_KEY])
+        assertEquals("13", ir.styleHints.extras[PlantUmlActivityParser.STYLE_NOTE_FONT_SIZE_KEY])
+        assertEquals("cursive", ir.styleHints.extras[PlantUmlActivityParser.STYLE_NOTE_FONT_NAME_KEY])
+        assertEquals("1.75", ir.styleHints.extras[PlantUmlActivityParser.STYLE_NOTE_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlActivityParser.STYLE_NOTE_SHADOWING_KEY])
         assertEquals("Navy", ir.styleHints.extras[PlantUmlActivityParser.STYLE_EDGE_COLOR_KEY])
     }
 

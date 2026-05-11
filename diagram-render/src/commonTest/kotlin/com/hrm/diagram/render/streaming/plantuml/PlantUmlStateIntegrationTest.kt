@@ -87,11 +87,19 @@ class PlantUmlStateIntegrationTest {
               BackgroundColor LightBlue
               BorderColor Navy
               FontColor SaddleBrown
+              FontSize 17
+              FontName monospace
+              LineThickness 2.5
+              Shadowing true
             }
             skinparam note {
               BackgroundColor Ivory
               BorderColor Orange
               FontColor Navy
+              FontSize 14
+              FontName serif
+              LineThickness 2
+              Shadowing true
             }
             skinparam ArrowColor Peru
             state Parent {
@@ -123,6 +131,12 @@ class PlantUmlStateIntegrationTest {
         val strokeRects = one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().map { it.color.argb }
         val strokePaths = one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.color.argb }
         val textColors = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.color.argb }
+        val textFamilies = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.family }
+        val textSizes = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.sizeSp }
+        val shadowRects = one.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }
+        val strokeWidths = one.drawCommands
+            .filterIsInstance<DrawCommand.StrokeRect>()
+            .map { it.stroke.width } + one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.stroke.width }
         assertTrue(fillRects.contains(0xFFADD8E6.toInt()), "expected state fill LightBlue")
         assertTrue(strokeRects.contains(0xFF000080.toInt()), "expected state border Navy")
         assertTrue(fillRects.contains(0xFFFFFFF0.toInt()), "expected note fill Ivory")
@@ -130,6 +144,13 @@ class PlantUmlStateIntegrationTest {
         assertTrue(strokePaths.contains(0xFFCD853F.toInt()), "expected arrow/separator color Peru or border-derived strokes")
         assertTrue(textColors.contains(0xFF8B4513.toInt()), "expected state text SaddleBrown")
         assertTrue(textColors.contains(0xFF000080.toInt()), "expected note text Navy")
+        assertTrue(textFamilies.contains("monospace"))
+        assertTrue(textFamilies.contains("serif"))
+        assertTrue(textSizes.contains(17f))
+        assertTrue(textSizes.contains(14f))
+        assertTrue(shadowRects.contains(0x26000000))
+        assertTrue(strokeWidths.any { it == 2.5f })
+        assertTrue(strokeWidths.any { it == 2f })
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(SourceLanguage.PLANTUML).let { s ->

@@ -35,6 +35,34 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
  */
 @DiagramApi
 class PlantUmlClassParser {
+    companion object {
+        const val STYLE_CLASS_FILL_KEY = "plantuml.class.style.class.fill"
+        const val STYLE_CLASS_STROKE_KEY = "plantuml.class.style.class.stroke"
+        const val STYLE_CLASS_TEXT_KEY = "plantuml.class.style.class.text"
+        const val STYLE_CLASS_FONT_SIZE_KEY = "plantuml.class.style.class.fontSize"
+        const val STYLE_CLASS_FONT_NAME_KEY = "plantuml.class.style.class.fontName"
+        const val STYLE_CLASS_LINE_THICKNESS_KEY = "plantuml.class.style.class.lineThickness"
+        const val STYLE_CLASS_SHADOWING_KEY = "plantuml.class.style.class.shadowing"
+        const val STYLE_NOTE_FILL_KEY = "plantuml.class.style.note.fill"
+        const val STYLE_NOTE_STROKE_KEY = "plantuml.class.style.note.stroke"
+        const val STYLE_NOTE_TEXT_KEY = "plantuml.class.style.note.text"
+        const val STYLE_NOTE_FONT_SIZE_KEY = "plantuml.class.style.note.fontSize"
+        const val STYLE_NOTE_FONT_NAME_KEY = "plantuml.class.style.note.fontName"
+        const val STYLE_NOTE_LINE_THICKNESS_KEY = "plantuml.class.style.note.lineThickness"
+        const val STYLE_NOTE_SHADOWING_KEY = "plantuml.class.style.note.shadowing"
+        const val STYLE_PACKAGE_FILL_KEY = "plantuml.class.style.package.fill"
+        const val STYLE_PACKAGE_STROKE_KEY = "plantuml.class.style.package.stroke"
+        const val STYLE_PACKAGE_TEXT_KEY = "plantuml.class.style.package.text"
+        const val STYLE_PACKAGE_FONT_SIZE_KEY = "plantuml.class.style.package.fontSize"
+        const val STYLE_PACKAGE_FONT_NAME_KEY = "plantuml.class.style.package.fontName"
+        const val STYLE_PACKAGE_LINE_THICKNESS_KEY = "plantuml.class.style.package.lineThickness"
+        const val STYLE_PACKAGE_SHADOWING_KEY = "plantuml.class.style.package.shadowing"
+        const val STYLE_EDGE_COLOR_KEY = "plantuml.class.style.edge.color"
+
+        private val RELATION_OPERATORS = listOf("<|--", "--|>", "<|..", "..|>", "*--", "o--", "-->", "<--", "..>", "<..", "--", "..")
+        private val SUPPORTED_SKINPARAM_SCOPES = setOf("class", "note", "package")
+    }
+
     private data class AliasSpec(
         val id: String,
         val label: String,
@@ -59,6 +87,54 @@ class PlantUmlClassParser {
     private val namespaces: LinkedHashMap<String, NamespaceDef> = LinkedHashMap()
     private val namespaceMembers: LinkedHashMap<String, LinkedHashSet<NodeId>> = LinkedHashMap()
     private val namespaceStack: ArrayDeque<String> = ArrayDeque()
+    private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
+    private val skinparamSupport = PlantUmlSkinparamSupport(
+        styleExtras = styleExtras,
+        supportedScopes = SUPPORTED_SKINPARAM_SCOPES,
+        scopeKeys = mapOf(
+            "class" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_CLASS_FILL_KEY,
+                strokeKey = STYLE_CLASS_STROKE_KEY,
+                textKey = STYLE_CLASS_TEXT_KEY,
+                fontSizeKey = STYLE_CLASS_FONT_SIZE_KEY,
+                fontNameKey = STYLE_CLASS_FONT_NAME_KEY,
+                lineThicknessKey = STYLE_CLASS_LINE_THICKNESS_KEY,
+                shadowingKey = STYLE_CLASS_SHADOWING_KEY,
+            ),
+            "note" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_NOTE_FILL_KEY,
+                strokeKey = STYLE_NOTE_STROKE_KEY,
+                textKey = STYLE_NOTE_TEXT_KEY,
+                fontSizeKey = STYLE_NOTE_FONT_SIZE_KEY,
+                fontNameKey = STYLE_NOTE_FONT_NAME_KEY,
+                lineThicknessKey = STYLE_NOTE_LINE_THICKNESS_KEY,
+                shadowingKey = STYLE_NOTE_SHADOWING_KEY,
+            ),
+            "package" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_PACKAGE_FILL_KEY,
+                strokeKey = STYLE_PACKAGE_STROKE_KEY,
+                textKey = STYLE_PACKAGE_TEXT_KEY,
+                fontSizeKey = STYLE_PACKAGE_FONT_SIZE_KEY,
+                fontNameKey = STYLE_PACKAGE_FONT_NAME_KEY,
+                lineThicknessKey = STYLE_PACKAGE_LINE_THICKNESS_KEY,
+                shadowingKey = STYLE_PACKAGE_SHADOWING_KEY,
+            ),
+        ),
+        directKeys = mapOf(
+            "classbackgroundcolor" to STYLE_CLASS_FILL_KEY,
+            "classbordercolor" to STYLE_CLASS_STROKE_KEY,
+            "classfontcolor" to STYLE_CLASS_TEXT_KEY,
+            "notebackgroundcolor" to STYLE_NOTE_FILL_KEY,
+            "notebordercolor" to STYLE_NOTE_STROKE_KEY,
+            "notefontcolor" to STYLE_NOTE_TEXT_KEY,
+            "packagebackgroundcolor" to STYLE_PACKAGE_FILL_KEY,
+            "packagebordercolor" to STYLE_PACKAGE_STROKE_KEY,
+            "packagefontcolor" to STYLE_PACKAGE_TEXT_KEY,
+            "arrowcolor" to STYLE_EDGE_COLOR_KEY,
+        ),
+        warnUnsupported = ::warnUnsupportedSkinparam,
+        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+    )
 
     private var seq: Long = 0L
     private var currentBodyClass: NodeId? = null
@@ -84,6 +160,13 @@ class PlantUmlClassParser {
             note.lines += trimmed
             return IrPatchBatch(seq, emptyList())
         }
+        skinparamSupport.pendingScope?.let { scope ->
+            if (trimmed == "}") {
+                skinparamSupport.pendingScope = null
+                return IrPatchBatch(seq, emptyList())
+            }
+            return skinparamSupport.acceptScopedEntry(scope, trimmed)
+        }
 
         val current = currentBodyClass
         if (current != null) {
@@ -95,6 +178,7 @@ class PlantUmlClassParser {
         }
 
         return when {
+            trimmed.startsWith("skinparam", ignoreCase = true) -> skinparamSupport.acceptDirective(trimmed)
             trimmed.startsWith("abstract class ", ignoreCase = true) -> parseClassDecl(trimmed, "abstract class", "abstract")
             trimmed.startsWith("class ", ignoreCase = true) -> parseClassDecl(trimmed, "class", null)
             trimmed.startsWith("interface ", ignoreCase = true) -> parseClassDecl(trimmed, "interface", "interface")
@@ -119,6 +203,16 @@ class PlantUmlClassParser {
                 ),
             )
             pendingNote = null
+        }
+        if (skinparamSupport.pendingScope != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.WARNING,
+                    message = "Unsupported or unclosed 'skinparam ${skinparamSupport.pendingScope!!}' block ignored",
+                    code = "PLANTUML-W001",
+                ),
+            )
+            skinparamSupport.pendingScope = null
         }
         if (currentBodyClass != null) {
             out += addDiagnostic(
@@ -164,7 +258,7 @@ class PlantUmlClassParser {
         },
         notes = notes.toList(),
         sourceLanguage = SourceLanguage.PLANTUML,
-        styleHints = StyleHints(),
+        styleHints = StyleHints(extras = styleExtras),
     )
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
@@ -529,7 +623,6 @@ class PlantUmlClassParser {
         val reverseDirection: Boolean,
     )
 
-    private companion object {
-        val RELATION_OPERATORS = listOf("<|--", "--|>", "<|..", "..|>", "*--", "o--", "-->", "<--", "..>", "<..", "--", "..")
-    }
+    private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
+        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 }

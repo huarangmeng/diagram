@@ -41,8 +41,45 @@ class PlantUmlDeploymentParser {
         const val PARENT_KEY = "plantuml.deployment.parent"
         const val NOTE_TARGET_KEY = "plantuml.deployment.note.target"
         const val NOTE_PLACEMENT_KEY = "plantuml.deployment.note.placement"
+        const val STYLE_ACTOR_FILL_KEY = "plantuml.deployment.style.actor.fill"
+        const val STYLE_ACTOR_STROKE_KEY = "plantuml.deployment.style.actor.stroke"
+        const val STYLE_ACTOR_TEXT_KEY = "plantuml.deployment.style.actor.text"
+        const val STYLE_ARTIFACT_FILL_KEY = "plantuml.deployment.style.artifact.fill"
+        const val STYLE_ARTIFACT_STROKE_KEY = "plantuml.deployment.style.artifact.stroke"
+        const val STYLE_ARTIFACT_TEXT_KEY = "plantuml.deployment.style.artifact.text"
+        const val STYLE_DATABASE_FILL_KEY = "plantuml.deployment.style.database.fill"
+        const val STYLE_DATABASE_STROKE_KEY = "plantuml.deployment.style.database.stroke"
+        const val STYLE_DATABASE_TEXT_KEY = "plantuml.deployment.style.database.text"
+        const val STYLE_STORAGE_FILL_KEY = "plantuml.deployment.style.storage.fill"
+        const val STYLE_STORAGE_STROKE_KEY = "plantuml.deployment.style.storage.stroke"
+        const val STYLE_STORAGE_TEXT_KEY = "plantuml.deployment.style.storage.text"
+        const val STYLE_QUEUE_FILL_KEY = "plantuml.deployment.style.queue.fill"
+        const val STYLE_QUEUE_STROKE_KEY = "plantuml.deployment.style.queue.stroke"
+        const val STYLE_QUEUE_TEXT_KEY = "plantuml.deployment.style.queue.text"
+        const val STYLE_NOTE_FILL_KEY = "plantuml.deployment.style.note.fill"
+        const val STYLE_NOTE_STROKE_KEY = "plantuml.deployment.style.note.stroke"
+        const val STYLE_NOTE_TEXT_KEY = "plantuml.deployment.style.note.text"
+        const val STYLE_PACKAGE_FILL_KEY = "plantuml.deployment.style.package.fill"
+        const val STYLE_PACKAGE_STROKE_KEY = "plantuml.deployment.style.package.stroke"
+        const val STYLE_PACKAGE_TEXT_KEY = "plantuml.deployment.style.package.text"
+        const val STYLE_FRAME_FILL_KEY = "plantuml.deployment.style.frame.fill"
+        const val STYLE_FRAME_STROKE_KEY = "plantuml.deployment.style.frame.stroke"
+        const val STYLE_FRAME_TEXT_KEY = "plantuml.deployment.style.frame.text"
+        const val STYLE_CLOUD_FILL_KEY = "plantuml.deployment.style.cloud.fill"
+        const val STYLE_CLOUD_STROKE_KEY = "plantuml.deployment.style.cloud.stroke"
+        const val STYLE_CLOUD_TEXT_KEY = "plantuml.deployment.style.cloud.text"
+        const val STYLE_NODE_FILL_KEY = "plantuml.deployment.style.node.fill"
+        const val STYLE_NODE_STROKE_KEY = "plantuml.deployment.style.node.stroke"
+        const val STYLE_NODE_TEXT_KEY = "plantuml.deployment.style.node.text"
+        const val STYLE_EDGE_COLOR_KEY = "plantuml.deployment.style.edge.color"
         val RELATION_OPERATORS = listOf("-->", "<--", "..>", "<..", "--", "..")
         private val IDENTIFIER = Regex("[A-Za-z0-9_.:-]+")
+        private val SUPPORTED_SKINPARAM_SCOPES = setOf("actor", "artifact", "database", "storage", "queue", "note", "package", "frame", "cloud", "node")
+
+        fun styleFontSizeKey(scope: String): String = "plantuml.deployment.style.$scope.fontSize"
+        fun styleFontNameKey(scope: String): String = "plantuml.deployment.style.$scope.fontName"
+        fun styleLineThicknessKey(scope: String): String = "plantuml.deployment.style.$scope.lineThickness"
+        fun styleShadowingKey(scope: String): String = "plantuml.deployment.style.$scope.shadowing"
     }
 
     private data class ClusterDef(
@@ -63,6 +100,138 @@ class PlantUmlDeploymentParser {
     private val edges: MutableList<Edge> = ArrayList()
     private val clusters: LinkedHashMap<NodeId, ClusterDef> = LinkedHashMap()
     private val clusterStack: ArrayDeque<NodeId> = ArrayDeque()
+    private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
+    private val skinparamSupport = PlantUmlSkinparamSupport(
+        styleExtras = styleExtras,
+        supportedScopes = SUPPORTED_SKINPARAM_SCOPES,
+        scopeKeys = mapOf(
+            "actor" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_ACTOR_FILL_KEY,
+                strokeKey = STYLE_ACTOR_STROKE_KEY,
+                textKey = STYLE_ACTOR_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("actor"),
+                fontNameKey = styleFontNameKey("actor"),
+                lineThicknessKey = styleLineThicknessKey("actor"),
+                shadowingKey = styleShadowingKey("actor"),
+            ),
+            "artifact" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_ARTIFACT_FILL_KEY,
+                strokeKey = STYLE_ARTIFACT_STROKE_KEY,
+                textKey = STYLE_ARTIFACT_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("artifact"),
+                fontNameKey = styleFontNameKey("artifact"),
+                lineThicknessKey = styleLineThicknessKey("artifact"),
+                shadowingKey = styleShadowingKey("artifact"),
+            ),
+            "database" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_DATABASE_FILL_KEY,
+                strokeKey = STYLE_DATABASE_STROKE_KEY,
+                textKey = STYLE_DATABASE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("database"),
+                fontNameKey = styleFontNameKey("database"),
+                lineThicknessKey = styleLineThicknessKey("database"),
+                shadowingKey = styleShadowingKey("database"),
+            ),
+            "storage" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_STORAGE_FILL_KEY,
+                strokeKey = STYLE_STORAGE_STROKE_KEY,
+                textKey = STYLE_STORAGE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("storage"),
+                fontNameKey = styleFontNameKey("storage"),
+                lineThicknessKey = styleLineThicknessKey("storage"),
+                shadowingKey = styleShadowingKey("storage"),
+            ),
+            "queue" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_QUEUE_FILL_KEY,
+                strokeKey = STYLE_QUEUE_STROKE_KEY,
+                textKey = STYLE_QUEUE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("queue"),
+                fontNameKey = styleFontNameKey("queue"),
+                lineThicknessKey = styleLineThicknessKey("queue"),
+                shadowingKey = styleShadowingKey("queue"),
+            ),
+            "note" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_NOTE_FILL_KEY,
+                strokeKey = STYLE_NOTE_STROKE_KEY,
+                textKey = STYLE_NOTE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("note"),
+                fontNameKey = styleFontNameKey("note"),
+                lineThicknessKey = styleLineThicknessKey("note"),
+                shadowingKey = styleShadowingKey("note"),
+            ),
+            "package" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_PACKAGE_FILL_KEY,
+                strokeKey = STYLE_PACKAGE_STROKE_KEY,
+                textKey = STYLE_PACKAGE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("package"),
+                fontNameKey = styleFontNameKey("package"),
+                lineThicknessKey = styleLineThicknessKey("package"),
+                shadowingKey = styleShadowingKey("package"),
+            ),
+            "frame" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_FRAME_FILL_KEY,
+                strokeKey = STYLE_FRAME_STROKE_KEY,
+                textKey = STYLE_FRAME_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("frame"),
+                fontNameKey = styleFontNameKey("frame"),
+                lineThicknessKey = styleLineThicknessKey("frame"),
+                shadowingKey = styleShadowingKey("frame"),
+            ),
+            "cloud" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_CLOUD_FILL_KEY,
+                strokeKey = STYLE_CLOUD_STROKE_KEY,
+                textKey = STYLE_CLOUD_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("cloud"),
+                fontNameKey = styleFontNameKey("cloud"),
+                lineThicknessKey = styleLineThicknessKey("cloud"),
+                shadowingKey = styleShadowingKey("cloud"),
+            ),
+            "node" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_NODE_FILL_KEY,
+                strokeKey = STYLE_NODE_STROKE_KEY,
+                textKey = STYLE_NODE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("node"),
+                fontNameKey = styleFontNameKey("node"),
+                lineThicknessKey = styleLineThicknessKey("node"),
+                shadowingKey = styleShadowingKey("node"),
+            ),
+        ),
+        directKeys = mapOf(
+            "actorbackgroundcolor" to STYLE_ACTOR_FILL_KEY,
+            "actorbordercolor" to STYLE_ACTOR_STROKE_KEY,
+            "actorfontcolor" to STYLE_ACTOR_TEXT_KEY,
+            "artifactbackgroundcolor" to STYLE_ARTIFACT_FILL_KEY,
+            "artifactbordercolor" to STYLE_ARTIFACT_STROKE_KEY,
+            "artifactfontcolor" to STYLE_ARTIFACT_TEXT_KEY,
+            "databasebackgroundcolor" to STYLE_DATABASE_FILL_KEY,
+            "databasebordercolor" to STYLE_DATABASE_STROKE_KEY,
+            "databasefontcolor" to STYLE_DATABASE_TEXT_KEY,
+            "storagebackgroundcolor" to STYLE_STORAGE_FILL_KEY,
+            "storagebordercolor" to STYLE_STORAGE_STROKE_KEY,
+            "storagefontcolor" to STYLE_STORAGE_TEXT_KEY,
+            "queuebackgroundcolor" to STYLE_QUEUE_FILL_KEY,
+            "queuebordercolor" to STYLE_QUEUE_STROKE_KEY,
+            "queuefontcolor" to STYLE_QUEUE_TEXT_KEY,
+            "notebackgroundcolor" to STYLE_NOTE_FILL_KEY,
+            "notebordercolor" to STYLE_NOTE_STROKE_KEY,
+            "notefontcolor" to STYLE_NOTE_TEXT_KEY,
+            "packagebackgroundcolor" to STYLE_PACKAGE_FILL_KEY,
+            "packagebordercolor" to STYLE_PACKAGE_STROKE_KEY,
+            "packagefontcolor" to STYLE_PACKAGE_TEXT_KEY,
+            "framebackgroundcolor" to STYLE_FRAME_FILL_KEY,
+            "framebordercolor" to STYLE_FRAME_STROKE_KEY,
+            "framefontcolor" to STYLE_FRAME_TEXT_KEY,
+            "cloudbackgroundcolor" to STYLE_CLOUD_FILL_KEY,
+            "cloudbordercolor" to STYLE_CLOUD_STROKE_KEY,
+            "cloudfontcolor" to STYLE_CLOUD_TEXT_KEY,
+            "nodebackgroundcolor" to STYLE_NODE_FILL_KEY,
+            "nodebordercolor" to STYLE_NODE_STROKE_KEY,
+            "nodefontcolor" to STYLE_NODE_TEXT_KEY,
+            "arrowcolor" to STYLE_EDGE_COLOR_KEY,
+        ),
+        warnUnsupported = ::warnUnsupportedSkinparam,
+        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+    )
 
     private var seq: Long = 0
     private var direction: Direction = Direction.LR
@@ -83,6 +252,13 @@ class PlantUmlDeploymentParser {
             note.lines += trimmed
             return IrPatchBatch(seq, emptyList())
         }
+        skinparamSupport.pendingScope?.let { scope ->
+            if (trimmed == "}") {
+                skinparamSupport.pendingScope = null
+                return IrPatchBatch(seq, emptyList())
+            }
+            return skinparamSupport.acceptScopedEntry(scope, trimmed)
+        }
         if (trimmed == "}") {
             if (clusterStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML deployment body")
             clusterStack.removeLast()
@@ -91,6 +267,7 @@ class PlantUmlDeploymentParser {
 
         val patches = ArrayList<IrPatch>()
         when {
+            trimmed.startsWith("skinparam", ignoreCase = true) -> return skinparamSupport.acceptDirective(trimmed)
             trimmed.equals("left to right direction", ignoreCase = true) -> direction = Direction.LR
             trimmed.equals("right to left direction", ignoreCase = true) -> direction = Direction.RL
             trimmed.equals("top to bottom direction", ignoreCase = true) -> direction = Direction.TB
@@ -125,6 +302,16 @@ class PlantUmlDeploymentParser {
             )
             pendingNote = null
         }
+        if (skinparamSupport.pendingScope != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.WARNING,
+                    message = "Unsupported or unclosed 'skinparam ${skinparamSupport.pendingScope!!}' block ignored",
+                    code = "PLANTUML-W001",
+                ),
+            )
+            skinparamSupport.pendingScope = null
+        }
         if (clusterStack.isNotEmpty()) {
             out += addDiagnostic(
                 Diagnostic(
@@ -152,7 +339,7 @@ class PlantUmlDeploymentParser {
         edges = edges.toList(),
         clusters = buildClusters(null),
         sourceLanguage = SourceLanguage.PLANTUML,
-        styleHints = StyleHints(direction = direction),
+        styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
@@ -502,4 +689,7 @@ class PlantUmlDeploymentParser {
         diagnostics += diagnostic
         return IrPatch.AddDiagnostic(diagnostic)
     }
+
+    private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
+        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 }

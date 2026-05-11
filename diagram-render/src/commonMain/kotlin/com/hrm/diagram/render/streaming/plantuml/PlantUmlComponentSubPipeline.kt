@@ -11,7 +11,9 @@ import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
+import com.hrm.diagram.core.ir.ArgbColor
 import com.hrm.diagram.core.ir.Cluster
+import com.hrm.diagram.core.ir.ClusterStyle
 import com.hrm.diagram.core.ir.Direction
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
@@ -34,6 +36,21 @@ import kotlin.math.sqrt
 internal class PlantUmlComponentSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : PlantUmlSubPipeline {
+    private data class ScopePalette(
+        val fill: ArgbColor?,
+        val stroke: ArgbColor?,
+        val text: ArgbColor?,
+        val fontSize: Float?,
+        val fontName: String?,
+        val lineThickness: Float?,
+        val shadowing: Boolean?,
+    )
+
+    private data class ComponentPalette(
+        val scopes: Map<String, ScopePalette>,
+        val edgeColor: ArgbColor?,
+    )
+
     private val parser = PlantUmlComponentParser()
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
@@ -50,15 +67,17 @@ internal class PlantUmlComponentSubPipeline(
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
-        measureNodes(ir)
+        val rawIr = parser.snapshot()
+        val palette = paletteOf(rawIr)
+        val ir = applyPalette(rawIr, palette)
+        measureNodes(ir, palette)
         val baseLaid = layout.layout(
             previousSnapshot.laidOut,
             ir,
             LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
         )
         val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in ir.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
+        for (cluster in ir.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects, palette)
         val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
         val laidOut = applyAnchoredNotes(
             ir,
@@ -70,32 +89,36 @@ internal class PlantUmlComponentSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawCommands = render(ir, laidOut),
+            drawCommands = render(ir, laidOut, palette),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun measureNodes(ir: GraphIR) {
+    private fun measureNodes(ir: GraphIR, palette: ComponentPalette) {
         for (node in ir.nodes) {
             val label = labelTextOf(node)
             val kind = node.payload[PlantUmlComponentParser.KIND_KEY]
+            val scoped = palette.scopes[kind]
+            val nodeFont = scopedFont(scoped, labelFont)
+            val noteFont = scopedFont(scoped, labelFont)
+            val portFont = scopedFont(scoped, iconFallbackFont)
             when (kind) {
                 "interface", "port" -> {
-                    val metrics = textMeasurer.measure(label, labelFont, maxWidth = 120f)
+                    val metrics = textMeasurer.measure(label, if (kind == "port") portFont else nodeFont, maxWidth = 120f)
                     nodeSizes[node.id] = Size(
                         width = (metrics.width + 20f).coerceAtLeast(24f),
                         height = (metrics.height + 20f).coerceAtLeast(24f),
                     )
                 }
                 "note" -> {
-                    val metrics = textMeasurer.measure(label, labelFont, maxWidth = 180f)
+                    val metrics = textMeasurer.measure(label, noteFont, maxWidth = 180f)
                     nodeSizes[node.id] = Size(
                         width = (metrics.width + 30f).coerceAtLeast(120f),
                         height = (metrics.height + 24f).coerceAtLeast(54f),
                     )
                 }
                 else -> {
-                    val metrics = textMeasurer.measure(label, labelFont, maxWidth = 180f)
+                    val metrics = textMeasurer.measure(label, nodeFont, maxWidth = 180f)
                     nodeSizes[node.id] = Size(
                         width = (metrics.width + 36f).coerceAtLeast(132f),
                         height = (metrics.height + 28f).coerceAtLeast(56f),
@@ -109,13 +132,14 @@ internal class PlantUmlComponentSubPipeline(
         cluster: Cluster,
         nodePositions: Map<NodeId, Rect>,
         out: LinkedHashMap<NodeId, Rect>,
+        palette: ComponentPalette,
     ): Rect? {
         val childRects = cluster.children.mapNotNull { nodePositions[it] }.toMutableList()
-        val nestedRects = cluster.nestedClusters.mapNotNull { computeClusterRect(it, nodePositions, out) }
+        val nestedRects = cluster.nestedClusters.mapNotNull { computeClusterRect(it, nodePositions, out, palette) }
         childRects += nestedRects
         if (childRects.isEmpty()) return null
-        val title = parseClusterLabel(cluster).second
-        val titleMetrics = textMeasurer.measure(title.ifBlank { cluster.id.value }, groupFont, maxWidth = 220f)
+        val (kind, title) = parseClusterLabel(cluster)
+        val titleMetrics = textMeasurer.measure(title.ifBlank { cluster.id.value }, scopedFont(palette.scopes[kind.lowercase()], groupFont), maxWidth = 220f)
         val left = childRects.minOf { it.left } - 20f
         val top = childRects.minOf { it.top } - (titleMetrics.height + 26f)
         val right = childRects.maxOf { it.right } + 20f
@@ -134,12 +158,12 @@ internal class PlantUmlComponentSubPipeline(
         return Rect.ltrb(minLeft, minTop, maxRight + 20f, maxBottom + 20f)
     }
 
-    private fun render(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
+    private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: ComponentPalette): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
         val bounds = laidOut.bounds
         out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
-        for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out)
-        for (node in ir.nodes) drawNode(node, laidOut, out)
+        for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)
+        for (node in ir.nodes) drawNode(node, laidOut, out, palette)
         for ((index, route) in laidOut.edgeRoutes.withIndex()) {
             val edge = ir.edges.getOrNull(index) ?: continue
             drawEdge(edge, route, out)
@@ -147,32 +171,42 @@ internal class PlantUmlComponentSubPipeline(
         return out
     }
 
-    private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {
+    private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>, palette: ComponentPalette) {
         val rect = clusterRects[cluster.id] ?: return
         val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF5F5F5.toInt())
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF78909C.toInt())
         val stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f, dash = listOf(7f, 5f))
+        val scoped = palette.scopes[parseClusterLabel(cluster).first.lowercase()]
+        if (scoped?.shadowing == true) {
+            out += DrawCommand.FillRect(
+                rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                color = PlantUmlTreeRenderSupport.shadowColor(),
+                corner = 14f,
+                z = 0,
+            )
+        }
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 14f, z = 0)
         out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = 14f, z = 1)
 
         val (kind, title) = parseClusterLabel(cluster)
+        val textColor = palette.scopes[kind.lowercase()]?.text?.let { Color(it.argb) } ?: strokeColor
         val chipRect = Rect.ltrb(rect.left + 12f, rect.top + 10f, rect.left + 132f.coerceAtMost(rect.size.width - 24f), rect.top + 34f)
         out += DrawCommand.FillRect(rect = chipRect, color = Color(0xFFFFFFFF.toInt()), corner = 12f, z = 2)
         out += DrawCommand.StrokeRect(rect = chipRect, stroke = Stroke(width = 1f), color = strokeColor, corner = 12f, z = 3)
         out += DrawCommand.DrawText(
             text = "${kind.uppercase()}  ${title.ifBlank { cluster.id.value }}",
             origin = Point(chipRect.left + 10f, (chipRect.top + chipRect.bottom) / 2f),
-            font = groupFont,
-            color = strokeColor,
+            font = scopedFont(scoped, groupFont),
+            color = textColor,
             maxWidth = chipRect.size.width - 20f,
             anchorX = TextAnchorX.Start,
             anchorY = TextAnchorY.Middle,
             z = 4,
         )
-        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out)
+        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out, palette)
     }
 
-    private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>) {
+    private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>, palette: ComponentPalette) {
         val rect = laidOut.nodePositions[node.id] ?: return
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE8EAF6.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF3949AB.toInt())
@@ -180,9 +214,20 @@ internal class PlantUmlComponentSubPipeline(
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
         val label = labelTextOf(node)
         val kind = node.payload[PlantUmlComponentParser.KIND_KEY]
+        val scoped = palette.scopes[kind]
+        val mainFont = scopedFont(scoped, labelFont)
+        val smallFont = scopedFont(scoped, iconFallbackFont)
         when (kind) {
             "interface", "port" -> {
                 val w = minOf(rect.size.width, rect.size.height) / 2f
+                if (scoped?.shadowing == true) {
+                    out += DrawCommand.FillRect(
+                        rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                        color = PlantUmlTreeRenderSupport.shadowColor(),
+                        corner = w,
+                        z = 3,
+                    )
+                }
                 out += DrawCommand.FillRect(rect = rect, color = fill, corner = w, z = 4)
                 out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = w, z = 5)
                 val labelOrigin = portLabelOrigin(node, rect, laidOut)
@@ -191,7 +236,7 @@ internal class PlantUmlComponentSubPipeline(
                 out += DrawCommand.DrawText(
                     text = label,
                     origin = labelOrigin,
-                    font = if (kind == "port") iconFallbackFont else labelFont,
+                    font = if (kind == "port") smallFont else mainFont,
                     color = textColor,
                     maxWidth = 120f,
                     anchorX = labelAnchorX,
@@ -202,7 +247,7 @@ internal class PlantUmlComponentSubPipeline(
                     out += DrawCommand.DrawText(
                         text = "I",
                         origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
-                        font = iconFallbackFont,
+                        font = smallFont,
                         color = strokeColor,
                         anchorX = TextAnchorX.Center,
                         anchorY = TextAnchorY.Middle,
@@ -211,11 +256,11 @@ internal class PlantUmlComponentSubPipeline(
                 }
             }
             "note" -> {
-                drawNote(rect, fill, strokeColor, stroke, out)
+                drawNote(rect, fill, strokeColor, stroke, out, scoped?.shadowing == true)
                 out += DrawCommand.DrawText(
                     text = label,
                     origin = Point(rect.left + 12f, rect.top + 10f),
-                    font = labelFont,
+                    font = mainFont,
                     color = textColor,
                     maxWidth = rect.size.width - 24f,
                     anchorX = TextAnchorX.Start,
@@ -227,6 +272,14 @@ internal class PlantUmlComponentSubPipeline(
                 val corner = when (node.shape) {
                     NodeShape.Component -> 10f
                     else -> 8f
+                }
+                if (scoped?.shadowing == true) {
+                    out += DrawCommand.FillRect(
+                        rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                        color = PlantUmlTreeRenderSupport.shadowColor(),
+                        corner = corner,
+                        z = 3,
+                    )
                 }
                 out += DrawCommand.FillRect(rect = rect, color = fill, corner = corner, z = 4)
                 out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = corner, z = 5)
@@ -250,7 +303,7 @@ internal class PlantUmlComponentSubPipeline(
                 out += DrawCommand.DrawText(
                     text = label,
                     origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
-                    font = labelFont,
+                    font = mainFont,
                     color = textColor,
                     maxWidth = rect.size.width - 20f,
                     anchorX = TextAnchorX.Center,
@@ -261,7 +314,7 @@ internal class PlantUmlComponentSubPipeline(
                     out += DrawCommand.DrawText(
                         text = "Q",
                         origin = Point(rect.left + 12f, rect.top + 10f),
-                        font = iconFallbackFont,
+                        font = smallFont,
                         color = strokeColor,
                         anchorX = TextAnchorX.Start,
                         anchorY = TextAnchorY.Top,
@@ -571,7 +624,15 @@ internal class PlantUmlComponentSubPipeline(
         )
     }
 
-    private fun drawNote(rect: Rect, fill: Color, strokeColor: Color, stroke: Stroke, out: MutableList<DrawCommand>) {
+    private fun drawNote(rect: Rect, fill: Color, strokeColor: Color, stroke: Stroke, out: MutableList<DrawCommand>, shadowing: Boolean) {
+        if (shadowing) {
+            out += DrawCommand.FillRect(
+                rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                color = PlantUmlTreeRenderSupport.shadowColor(),
+                corner = 8f,
+                z = 3,
+            )
+        }
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 8f, z = 4)
         out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = 8f, z = 5)
         val fold = 14f
@@ -601,6 +662,76 @@ internal class PlantUmlComponentSubPipeline(
         val parts = text.split('\n', limit = 2)
         return if (parts.size == 2) parts[0] to parts[1] else "package" to text
     }
+
+    private fun applyPalette(ir: GraphIR, palette: ComponentPalette): GraphIR {
+        val nodes = ir.nodes.map { node ->
+            val kind = node.payload[PlantUmlComponentParser.KIND_KEY]
+            val scoped = palette.scopes[kind]
+            if (scoped == null) node else {
+                node.copy(
+                    style = node.style.copy(
+                        fill = scoped.fill ?: node.style.fill,
+                        stroke = scoped.stroke ?: node.style.stroke,
+                        textColor = scoped.text ?: node.style.textColor,
+                        strokeWidth = scoped.lineThickness ?: node.style.strokeWidth,
+                    ),
+                )
+            }
+        }
+        val edges = ir.edges.map { edge ->
+            edge.copy(
+                style = edge.style.copy(
+                    color = when {
+                        edge.from.value.contains("__note_") -> palette.scopes["note"]?.stroke ?: edge.style.color
+                        else -> palette.edgeColor ?: edge.style.color
+                    },
+                ),
+            )
+        }
+        val clusters = ir.clusters.map { applyClusterPalette(it, palette) }
+        return ir.copy(nodes = nodes, edges = edges, clusters = clusters)
+    }
+
+    private fun applyClusterPalette(cluster: Cluster, palette: ComponentPalette): Cluster {
+        val kind = parseClusterLabel(cluster).first.lowercase()
+        val scoped = palette.scopes[kind]
+        return cluster.copy(
+            style = ClusterStyle(
+                fill = scoped?.fill ?: cluster.style.fill,
+                stroke = scoped?.stroke ?: cluster.style.stroke,
+                strokeWidth = scoped?.lineThickness ?: cluster.style.strokeWidth,
+            ),
+            nestedClusters = cluster.nestedClusters.map { applyClusterPalette(it, palette) },
+        )
+    }
+
+    private fun paletteOf(ir: GraphIR): ComponentPalette {
+        val extras = ir.styleHints.extras
+        fun c(key: String): ArgbColor? =
+            extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) }
+        fun f(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])
+        fun s(key: String): String? = PlantUmlTreeRenderSupport.parsePlantUmlFontFamily(extras[key])
+        fun b(key: String): Boolean? = PlantUmlTreeRenderSupport.parsePlantUmlBoolean(extras[key])
+        return ComponentPalette(
+            scopes = mapOf(
+                "component" to ScopePalette(c(PlantUmlComponentParser.STYLE_COMPONENT_FILL_KEY), c(PlantUmlComponentParser.STYLE_COMPONENT_STROKE_KEY), c(PlantUmlComponentParser.STYLE_COMPONENT_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("component")), s(PlantUmlComponentParser.styleFontNameKey("component")), f(PlantUmlComponentParser.styleLineThicknessKey("component")), b(PlantUmlComponentParser.styleShadowingKey("component"))),
+                "interface" to ScopePalette(c(PlantUmlComponentParser.STYLE_INTERFACE_FILL_KEY), c(PlantUmlComponentParser.STYLE_INTERFACE_STROKE_KEY), c(PlantUmlComponentParser.STYLE_INTERFACE_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("interface")), s(PlantUmlComponentParser.styleFontNameKey("interface")), f(PlantUmlComponentParser.styleLineThicknessKey("interface")), b(PlantUmlComponentParser.styleShadowingKey("interface"))),
+                "port" to ScopePalette(c(PlantUmlComponentParser.STYLE_PORT_FILL_KEY), c(PlantUmlComponentParser.STYLE_PORT_STROKE_KEY), c(PlantUmlComponentParser.STYLE_PORT_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("port")), s(PlantUmlComponentParser.styleFontNameKey("port")), f(PlantUmlComponentParser.styleLineThicknessKey("port")), b(PlantUmlComponentParser.styleShadowingKey("port"))),
+                "database" to ScopePalette(c(PlantUmlComponentParser.STYLE_DATABASE_FILL_KEY), c(PlantUmlComponentParser.STYLE_DATABASE_STROKE_KEY), c(PlantUmlComponentParser.STYLE_DATABASE_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("database")), s(PlantUmlComponentParser.styleFontNameKey("database")), f(PlantUmlComponentParser.styleLineThicknessKey("database")), b(PlantUmlComponentParser.styleShadowingKey("database"))),
+                "queue" to ScopePalette(c(PlantUmlComponentParser.STYLE_QUEUE_FILL_KEY), c(PlantUmlComponentParser.STYLE_QUEUE_STROKE_KEY), c(PlantUmlComponentParser.STYLE_QUEUE_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("queue")), s(PlantUmlComponentParser.styleFontNameKey("queue")), f(PlantUmlComponentParser.styleLineThicknessKey("queue")), b(PlantUmlComponentParser.styleShadowingKey("queue"))),
+                "note" to ScopePalette(c(PlantUmlComponentParser.STYLE_NOTE_FILL_KEY), c(PlantUmlComponentParser.STYLE_NOTE_STROKE_KEY), c(PlantUmlComponentParser.STYLE_NOTE_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("note")), s(PlantUmlComponentParser.styleFontNameKey("note")), f(PlantUmlComponentParser.styleLineThicknessKey("note")), b(PlantUmlComponentParser.styleShadowingKey("note"))),
+                "package" to ScopePalette(c(PlantUmlComponentParser.STYLE_PACKAGE_FILL_KEY), c(PlantUmlComponentParser.STYLE_PACKAGE_STROKE_KEY), c(PlantUmlComponentParser.STYLE_PACKAGE_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("package")), s(PlantUmlComponentParser.styleFontNameKey("package")), f(PlantUmlComponentParser.styleLineThicknessKey("package")), b(PlantUmlComponentParser.styleShadowingKey("package"))),
+                "rectangle" to ScopePalette(c(PlantUmlComponentParser.STYLE_RECTANGLE_FILL_KEY), c(PlantUmlComponentParser.STYLE_RECTANGLE_STROKE_KEY), c(PlantUmlComponentParser.STYLE_RECTANGLE_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("rectangle")), s(PlantUmlComponentParser.styleFontNameKey("rectangle")), f(PlantUmlComponentParser.styleLineThicknessKey("rectangle")), b(PlantUmlComponentParser.styleShadowingKey("rectangle"))),
+                "frame" to ScopePalette(c(PlantUmlComponentParser.STYLE_FRAME_FILL_KEY), c(PlantUmlComponentParser.STYLE_FRAME_STROKE_KEY), c(PlantUmlComponentParser.STYLE_FRAME_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("frame")), s(PlantUmlComponentParser.styleFontNameKey("frame")), f(PlantUmlComponentParser.styleLineThicknessKey("frame")), b(PlantUmlComponentParser.styleShadowingKey("frame"))),
+                "cloud" to ScopePalette(c(PlantUmlComponentParser.STYLE_CLOUD_FILL_KEY), c(PlantUmlComponentParser.STYLE_CLOUD_STROKE_KEY), c(PlantUmlComponentParser.STYLE_CLOUD_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("cloud")), s(PlantUmlComponentParser.styleFontNameKey("cloud")), f(PlantUmlComponentParser.styleLineThicknessKey("cloud")), b(PlantUmlComponentParser.styleShadowingKey("cloud"))),
+                "node" to ScopePalette(c(PlantUmlComponentParser.STYLE_NODE_FILL_KEY), c(PlantUmlComponentParser.STYLE_NODE_STROKE_KEY), c(PlantUmlComponentParser.STYLE_NODE_TEXT_KEY), f(PlantUmlComponentParser.styleFontSizeKey("node")), s(PlantUmlComponentParser.styleFontNameKey("node")), f(PlantUmlComponentParser.styleLineThicknessKey("node")), b(PlantUmlComponentParser.styleShadowingKey("node"))),
+            ),
+            edgeColor = c(PlantUmlComponentParser.STYLE_EDGE_COLOR_KEY),
+        )
+    }
+
+    private fun scopedFont(scope: ScopePalette?, base: FontSpec): FontSpec =
+        PlantUmlTreeRenderSupport.resolveFontSpec(base, scope?.fontName, scope?.fontSize?.toString())
 
     override fun dispose() {
         nodeSizes.clear()

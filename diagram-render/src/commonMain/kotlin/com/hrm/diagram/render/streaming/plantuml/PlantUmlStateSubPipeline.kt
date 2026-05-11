@@ -33,9 +33,17 @@ internal class PlantUmlStateSubPipeline(
         val stateFill: ArgbColor?,
         val stateStroke: ArgbColor?,
         val stateText: ArgbColor?,
+        val stateFontSize: Float?,
+        val stateFontName: String?,
+        val stateLineThickness: Float?,
+        val stateShadowing: Boolean?,
         val noteFill: ArgbColor?,
         val noteStroke: ArgbColor?,
         val noteText: ArgbColor?,
+        val noteFontSize: Float?,
+        val noteFontName: String?,
+        val noteLineThickness: Float?,
+        val noteShadowing: Boolean?,
         val compositeFill: ArgbColor?,
         val compositeStroke: ArgbColor?,
         val edgeColor: ArgbColor?,
@@ -85,15 +93,33 @@ internal class PlantUmlStateSubPipeline(
         val noteTextColor = Color((palette.noteText ?: palette.stateText ?: ArgbColor(0xFF1B5E20U.toInt())).argb)
         val pseudoFill = boxStroke
 
-        val solid = Stroke(width = 1.5f)
-        val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
-        val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 10f)
-        val pseudoFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+        val solid = Stroke(width = palette.stateLineThickness ?: 1.5f)
+        val noteSolid = Stroke(width = palette.noteLineThickness ?: 1.25f)
+        val nodeFont = PlantUmlTreeRenderSupport.resolveFontSpec(
+            FontSpec(family = "sans-serif", sizeSp = 12f),
+            palette.stateFontName,
+            palette.stateFontSize?.toString(),
+        )
+        val noteFont = PlantUmlTreeRenderSupport.resolveFontSpec(
+            nodeFont,
+            palette.noteFontName,
+            palette.noteFontSize?.toString(),
+        )
+        val edgeLabelFont = nodeFont.copy(sizeSp = (nodeFont.sizeSp - 2f).coerceAtLeast(10f))
+        val pseudoFont = nodeFont.copy(sizeSp = (nodeFont.sizeSp - 1f).coerceAtLeast(11f))
 
         for (s in ir.states) {
             if (s.kind != StateKind.Composite) continue
             if (isRegionState(s)) continue
             val r = laidOut.nodePositions[s.id] ?: continue
+            if (palette.stateShadowing == true) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 8f,
+                    z = 0,
+                )
+            }
             out += DrawCommand.FillRect(rect = r, color = compositeFill, corner = 8f, z = 0)
             out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = compositeStroke, corner = 8f, z = 1)
             val title = s.description ?: s.name
@@ -110,7 +136,7 @@ internal class PlantUmlStateSubPipeline(
             }
         }
 
-        drawRegionSeparators(ir, laidOut, compositeStroke, out)
+        drawRegionSeparators(ir, laidOut, compositeStroke, solid.width, out)
 
         for (s in ir.states) {
             val r = laidOut.nodePositions[s.id] ?: continue
@@ -118,10 +144,26 @@ internal class PlantUmlStateSubPipeline(
                 StateKind.Composite -> {}
                 StateKind.Initial -> {
                     val w = r.right - r.left
+                    if (palette.stateShadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = w / 2f,
+                            z = 4,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect = r, color = pseudoFill, corner = w / 2f, z = 4)
                 }
                 StateKind.Final -> {
                     val w = r.right - r.left
+                    if (palette.stateShadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = w / 2f,
+                            z = 4,
+                        )
+                    }
                     out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = pseudoFill, corner = w / 2f, z = 4)
                     val pad = 4f
                     val inner = Rect.ltrb(r.left + pad, r.top + pad, r.right - pad, r.bottom - pad)
@@ -140,14 +182,45 @@ internal class PlantUmlStateSubPipeline(
                             PathOp.Close,
                         ),
                     )
+                    if (palette.stateShadowing == true) {
+                        out += DrawCommand.FillPath(
+                            path = PathCmd(
+                                listOf(
+                                    PathOp.MoveTo(Point(cx + 4f, r.top + 4f)),
+                                    PathOp.LineTo(Point(r.right + 4f, cy + 4f)),
+                                    PathOp.LineTo(Point(cx + 4f, r.bottom + 4f)),
+                                    PathOp.LineTo(Point(r.left + 4f, cy + 4f)),
+                                    PathOp.Close,
+                                ),
+                            ),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            z = 4,
+                        )
+                    }
                     out += DrawCommand.FillPath(path = path, color = boxFill, z = 4)
                     out += DrawCommand.StrokePath(path = path, stroke = solid, color = boxStroke, z = 5)
                 }
                 StateKind.Fork, StateKind.Join -> {
+                    if (palette.stateShadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = 2f,
+                            z = 4,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect = r, color = pseudoFill, corner = 2f, z = 4)
                 }
                 StateKind.History, StateKind.DeepHistory -> {
                     val w = r.right - r.left
+                    if (palette.stateShadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = w / 2f,
+                            z = 4,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect = r, color = boxFill, corner = w / 2f, z = 4)
                     out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = boxStroke, corner = w / 2f, z = 5)
                     out += DrawCommand.DrawText(
@@ -161,6 +234,14 @@ internal class PlantUmlStateSubPipeline(
                     )
                 }
                 StateKind.Simple -> {
+                    if (palette.stateShadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = 8f,
+                            z = 4,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect = r, color = boxFill, corner = 8f, z = 4)
                     out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = boxStroke, corner = 8f, z = 5)
                     val name = s.description ?: s.name
@@ -183,14 +264,22 @@ internal class PlantUmlStateSubPipeline(
             if (!id.value.startsWith("note#")) continue
             val noteIdx = id.value.removePrefix("note#").toIntOrNull() ?: continue
             val note = ir.notes.getOrNull(noteIdx) ?: continue
+            if (palette.noteShadowing == true) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 4f,
+                    z = 7,
+                )
+            }
             out += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 7)
-            out += DrawCommand.StrokeRect(rect = rect, stroke = solid, color = noteStroke, corner = 4f, z = 8)
+            out += DrawCommand.StrokeRect(rect = rect, stroke = noteSolid, color = noteStroke, corner = 4f, z = 8)
             val text = (note.text as? RichLabel.Plain)?.text.orEmpty()
             if (text.isNotEmpty()) {
                 out += DrawCommand.DrawText(
                     text = text,
                     origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
-                    font = nodeFont,
+                    font = noteFont,
                     color = noteTextColor,
                     maxWidth = rect.right - rect.left - 8f,
                     anchorX = TextAnchorX.Center,
@@ -220,7 +309,7 @@ internal class PlantUmlStateSubPipeline(
             }
             out += DrawCommand.StrokePath(path = path, stroke = solid, color = edgeColor, z = 3)
             val tangentFrom = if (route.kind == RouteKind.Bezier && pts.size >= 4) pts[pts.size - 2] else from
-            out += openArrowHead(tangentFrom, to, edgeColor)
+            out += openArrowHead(tangentFrom, to, edgeColor, solid.width)
             val labelText = (tr.label as? RichLabel.Plain)?.text.orEmpty()
             if (labelText.isNotEmpty()) {
                 val labelPoint = if (route.kind == RouteKind.Bezier && pts.size >= 4) {
@@ -252,7 +341,7 @@ internal class PlantUmlStateSubPipeline(
         )
     }
 
-    private fun openArrowHead(from: Point, to: Point, color: Color): DrawCommand {
+    private fun openArrowHead(from: Point, to: Point, color: Color, width: Float): DrawCommand {
         val dx = to.x - from.x
         val dy = to.y - from.y
         val len = sqrt(dx * dx + dy * dy).takeIf { it > 0.0001f } ?: return DrawCommand.StrokePath(
@@ -272,7 +361,7 @@ internal class PlantUmlStateSubPipeline(
         val p2 = Point(baseX - nx * size * 0.5f, baseY - ny * size * 0.5f)
         return DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(p1), PathOp.LineTo(to), PathOp.LineTo(p2))),
-            stroke = Stroke(width = 1.5f),
+            stroke = Stroke(width = width),
             color = color,
             z = 4,
         )
@@ -282,10 +371,11 @@ internal class PlantUmlStateSubPipeline(
         ir: StateIR,
         laidOut: LaidOutDiagram,
         color: Color,
+        strokeWidth: Float,
         out: MutableList<DrawCommand>,
     ) {
         val byId = ir.states.associateBy { it.id }
-        val stroke = Stroke(width = 1.25f)
+        val stroke = Stroke(width = strokeWidth.coerceAtLeast(1.25f))
         for (state in ir.states) {
             if (state.kind != StateKind.Composite) continue
             val regions = state.children.mapNotNull { childId ->
@@ -317,13 +407,24 @@ internal class PlantUmlStateSubPipeline(
     private fun paletteOf(ir: StateIR): StatePalette {
         val extras = ir.styleHints.extras
         fun c(key: String): ArgbColor? = extras[key]?.let(::parsePlantUmlColor)
+        fun f(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])
+        fun s(key: String): String? = PlantUmlTreeRenderSupport.parsePlantUmlFontFamily(extras[key])
+        fun b(key: String): Boolean? = PlantUmlTreeRenderSupport.parsePlantUmlBoolean(extras[key])
         return StatePalette(
             stateFill = c(PlantUmlStateParser.STYLE_STATE_FILL_KEY),
             stateStroke = c(PlantUmlStateParser.STYLE_STATE_STROKE_KEY),
             stateText = c(PlantUmlStateParser.STYLE_STATE_TEXT_KEY),
+            stateFontSize = f(PlantUmlStateParser.STYLE_STATE_FONT_SIZE_KEY),
+            stateFontName = s(PlantUmlStateParser.STYLE_STATE_FONT_NAME_KEY),
+            stateLineThickness = f(PlantUmlStateParser.STYLE_STATE_LINE_THICKNESS_KEY),
+            stateShadowing = b(PlantUmlStateParser.STYLE_STATE_SHADOWING_KEY),
             noteFill = c(PlantUmlStateParser.STYLE_NOTE_FILL_KEY),
             noteStroke = c(PlantUmlStateParser.STYLE_NOTE_STROKE_KEY),
             noteText = c(PlantUmlStateParser.STYLE_NOTE_TEXT_KEY),
+            noteFontSize = f(PlantUmlStateParser.STYLE_NOTE_FONT_SIZE_KEY),
+            noteFontName = s(PlantUmlStateParser.STYLE_NOTE_FONT_NAME_KEY),
+            noteLineThickness = f(PlantUmlStateParser.STYLE_NOTE_LINE_THICKNESS_KEY),
+            noteShadowing = b(PlantUmlStateParser.STYLE_NOTE_SHADOWING_KEY),
             compositeFill = c(PlantUmlStateParser.STYLE_COMPOSITE_FILL_KEY),
             compositeStroke = c(PlantUmlStateParser.STYLE_COMPOSITE_STROKE_KEY),
             edgeColor = c(PlantUmlStateParser.STYLE_EDGE_COLOR_KEY),

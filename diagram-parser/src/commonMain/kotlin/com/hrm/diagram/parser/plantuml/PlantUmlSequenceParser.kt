@@ -25,8 +25,40 @@ class PlantUmlSequenceParser {
         const val REF_PREFIX = "__plantuml_sequence_ref__::"
         const val BOXES_KEY = "plantuml.sequence.boxes"
         const val DECORATIONS_KEY = "plantuml.sequence.decorations"
+        const val STYLE_SEQUENCE_FILL_KEY = "plantuml.sequence.style.sequence.fill"
+        const val STYLE_SEQUENCE_STROKE_KEY = "plantuml.sequence.style.sequence.stroke"
+        const val STYLE_SEQUENCE_TEXT_KEY = "plantuml.sequence.style.sequence.text"
+        const val STYLE_SEQUENCE_FONT_SIZE_KEY = "plantuml.sequence.style.sequence.fontSize"
+        const val STYLE_SEQUENCE_FONT_NAME_KEY = "plantuml.sequence.style.sequence.fontName"
+        const val STYLE_SEQUENCE_LINE_THICKNESS_KEY = "plantuml.sequence.style.sequence.lineThickness"
+        const val STYLE_SEQUENCE_SHADOWING_KEY = "plantuml.sequence.style.sequence.shadowing"
+        const val STYLE_NOTE_FILL_KEY = "plantuml.sequence.style.note.fill"
+        const val STYLE_NOTE_STROKE_KEY = "plantuml.sequence.style.note.stroke"
+        const val STYLE_NOTE_TEXT_KEY = "plantuml.sequence.style.note.text"
+        const val STYLE_NOTE_FONT_SIZE_KEY = "plantuml.sequence.style.note.fontSize"
+        const val STYLE_NOTE_FONT_NAME_KEY = "plantuml.sequence.style.note.fontName"
+        const val STYLE_NOTE_LINE_THICKNESS_KEY = "plantuml.sequence.style.note.lineThickness"
+        const val STYLE_NOTE_SHADOWING_KEY = "plantuml.sequence.style.note.shadowing"
+        const val STYLE_BOX_FILL_KEY = "plantuml.sequence.style.box.fill"
+        const val STYLE_BOX_STROKE_KEY = "plantuml.sequence.style.box.stroke"
+        const val STYLE_BOX_TEXT_KEY = "plantuml.sequence.style.box.text"
+        const val STYLE_BOX_FONT_SIZE_KEY = "plantuml.sequence.style.box.fontSize"
+        const val STYLE_BOX_FONT_NAME_KEY = "plantuml.sequence.style.box.fontName"
+        const val STYLE_BOX_LINE_THICKNESS_KEY = "plantuml.sequence.style.box.lineThickness"
+        const val STYLE_BOX_SHADOWING_KEY = "plantuml.sequence.style.box.shadowing"
+        const val STYLE_EDGE_COLOR_KEY = "plantuml.sequence.style.edge.color"
         val ARROWS = listOf("-->>", "<<--", "->>", "<<-", "-->", "<--", "->", "<-")
         private val DECORATED_ARROW = Regex("""([ox]?)(-->>|<<--|->>|<<-|-->|<--|->|<-)([ox]?)""", RegexOption.IGNORE_CASE)
+
+        fun styleFillKey(scope: String): String = "plantuml.sequence.style.$scope.fill"
+        fun styleStrokeKey(scope: String): String = "plantuml.sequence.style.$scope.stroke"
+        fun styleTextKey(scope: String): String = "plantuml.sequence.style.$scope.text"
+        fun styleFontSizeKey(scope: String): String = "plantuml.sequence.style.$scope.fontSize"
+        fun styleFontNameKey(scope: String): String = "plantuml.sequence.style.$scope.fontName"
+        fun styleLineThicknessKey(scope: String): String = "plantuml.sequence.style.$scope.lineThickness"
+        fun styleShadowingKey(scope: String): String = "plantuml.sequence.style.$scope.shadowing"
+
+        private val PARTICIPANT_SCOPES = listOf("participant", "actor", "boundary", "control", "entity", "database", "collections", "queue")
     }
 
     private data class BoxBuilder(
@@ -56,6 +88,66 @@ class PlantUmlSequenceParser {
     private val boxes: MutableList<BoxBuilder> = ArrayList()
     private val boxStack: ArrayDeque<BoxBuilder> = ArrayDeque()
     private val decorationsByMessageIndex: MutableMap<Int, MessageDecoration> = LinkedHashMap()
+    private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
+    private val skinparamSupport = PlantUmlSkinparamSupport(
+        styleExtras = styleExtras,
+        supportedScopes = setOf("sequence", "participant", "actor", "boundary", "control", "entity", "database", "collections", "queue", "note", "box"),
+        scopeKeys = buildMap {
+            put(
+                "sequence",
+                PlantUmlSkinparamScopeKeys(
+                    fillKey = STYLE_SEQUENCE_FILL_KEY,
+                    strokeKey = STYLE_SEQUENCE_STROKE_KEY,
+                    textKey = STYLE_SEQUENCE_TEXT_KEY,
+                    fontSizeKey = STYLE_SEQUENCE_FONT_SIZE_KEY,
+                    fontNameKey = STYLE_SEQUENCE_FONT_NAME_KEY,
+                    lineThicknessKey = STYLE_SEQUENCE_LINE_THICKNESS_KEY,
+                    shadowingKey = STYLE_SEQUENCE_SHADOWING_KEY,
+                ),
+            )
+            for (scope in PARTICIPANT_SCOPES) {
+                put(
+                    scope,
+                    PlantUmlSkinparamScopeKeys(
+                        fillKey = styleFillKey(scope),
+                        strokeKey = styleStrokeKey(scope),
+                        textKey = styleTextKey(scope),
+                        fontSizeKey = styleFontSizeKey(scope),
+                        fontNameKey = styleFontNameKey(scope),
+                        lineThicknessKey = styleLineThicknessKey(scope),
+                        shadowingKey = styleShadowingKey(scope),
+                    ),
+                )
+            }
+            put(
+                "note",
+                PlantUmlSkinparamScopeKeys(
+                    fillKey = STYLE_NOTE_FILL_KEY,
+                    strokeKey = STYLE_NOTE_STROKE_KEY,
+                    textKey = STYLE_NOTE_TEXT_KEY,
+                    fontSizeKey = STYLE_NOTE_FONT_SIZE_KEY,
+                    fontNameKey = STYLE_NOTE_FONT_NAME_KEY,
+                    lineThicknessKey = STYLE_NOTE_LINE_THICKNESS_KEY,
+                    shadowingKey = STYLE_NOTE_SHADOWING_KEY,
+                ),
+            )
+            put(
+                "box",
+                PlantUmlSkinparamScopeKeys(
+                    fillKey = STYLE_BOX_FILL_KEY,
+                    strokeKey = STYLE_BOX_STROKE_KEY,
+                    textKey = STYLE_BOX_TEXT_KEY,
+                    fontSizeKey = STYLE_BOX_FONT_SIZE_KEY,
+                    fontNameKey = STYLE_BOX_FONT_NAME_KEY,
+                    lineThicknessKey = STYLE_BOX_LINE_THICKNESS_KEY,
+                    shadowingKey = STYLE_BOX_SHADOWING_KEY,
+                ),
+            )
+        },
+        directKeys = mapOf("arrowcolor" to STYLE_EDGE_COLOR_KEY),
+        warnUnsupported = { warnUnsupported(it) },
+        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+    )
 
     private var seq: Long = 0L
     private var finalized: Boolean = false
@@ -71,6 +163,16 @@ class PlantUmlSequenceParser {
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
             return IrPatchBatch(seq, emptyList())
+        }
+        skinparamSupport.pendingScope?.let { scope ->
+            if (trimmed == "}") {
+                skinparamSupport.pendingScope = null
+                return IrPatchBatch(seq, emptyList())
+            }
+            return skinparamSupport.acceptScopedEntry(scope, trimmed)
+        }
+        if (trimmed.startsWith("skinparam", ignoreCase = true)) {
+            return skinparamSupport.acceptDirective(trimmed)
         }
         return parseStatement(trimmed)
     }
@@ -91,11 +193,19 @@ class PlantUmlSequenceParser {
         while (fragmentStack.isNotEmpty()) {
             fragments += fragmentStack.removeLast().build()
         }
+        skinparamSupport.pendingScope?.let { scope ->
+            diagnostics += Diagnostic(
+                severity = Severity.WARNING,
+                message = "Unsupported or unclosed 'skinparam $scope' block ignored",
+                code = "PLANTUML-W001",
+            )
+            skinparamSupport.pendingScope = null
+        }
         return IrPatchBatch(seq, out)
     }
 
     fun snapshot(): SequenceIR {
-        val extras = HashMap<String, String>()
+        val extras = HashMap(styleExtras)
         autonumberStart?.let { extras["plantuml.autonumber"] = "$it,$autonumberStep" }
         if (boxes.isNotEmpty()) {
             extras[BOXES_KEY] = boxes.joinToString("||") { box ->
@@ -454,6 +564,9 @@ class PlantUmlSequenceParser {
 
     private fun errorBatch(message: String): IrPatchBatch =
         IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E002"))))
+
+    private fun warnUnsupported(line: String): IrPatchBatch =
+        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
         diagnostics += diagnostic

@@ -160,24 +160,44 @@ class PlantUmlUsecaseParserTest {
                   BackgroundColor Ivory
                   BorderColor Navy
                   FontColor SaddleBrown
+                  FontSize 16
+                  FontName monospace
+                  LineThickness 2.5
+                  Shadowing true
                 }
                 skinparam usecase {
                   BackgroundColor LightYellow
                   BorderColor Orange
                   FontColor Navy
+                  FontSize 18
+                  FontName serif
+                  LineThickness 3
+                  Shadowing yes
                 }
                 skinparam note {
                   BackgroundColor Ivory
                   BorderColor Orange
                   FontColor Navy
+                  FontSize 14
+                  FontName cursive
+                  LineThickness 2
+                  Shadowing on
                 }
                 skinparam rectangle {
                   BackgroundColor PaleGreen
                   BorderColor Green
+                  FontSize 15
+                  FontName fantasy
+                  LineThickness 2.25
+                  Shadowing true
                 }
                 skinparam package {
                   BackgroundColor LightGray
                   BorderColor Silver
+                  FontSize 13
+                  FontName system-ui
+                  LineThickness 1.75
+                  Shadowing 1
                 }
                 skinparam ArrowColor Peru
                 actor User
@@ -187,10 +207,30 @@ class PlantUmlUsecaseParserTest {
         )
         assertEquals("Ivory", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_FILL_KEY])
         assertEquals("Navy", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_STROKE_KEY])
+        assertEquals("16", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_FONT_SIZE_KEY])
+        assertEquals("monospace", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_FONT_NAME_KEY])
+        assertEquals("2.5", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_ACTOR_SHADOWING_KEY])
         assertEquals("LightYellow", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_USECASE_FILL_KEY])
+        assertEquals("18", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_USECASE_FONT_SIZE_KEY])
+        assertEquals("serif", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_USECASE_FONT_NAME_KEY])
+        assertEquals("3", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_USECASE_LINE_THICKNESS_KEY])
+        assertEquals("yes", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_USECASE_SHADOWING_KEY])
         assertEquals("Orange", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("14", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_NOTE_FONT_SIZE_KEY])
+        assertEquals("cursive", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_NOTE_FONT_NAME_KEY])
+        assertEquals("2", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_NOTE_LINE_THICKNESS_KEY])
+        assertEquals("on", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_NOTE_SHADOWING_KEY])
         assertEquals("PaleGreen", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_RECTANGLE_FILL_KEY])
+        assertEquals("15", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_RECTANGLE_FONT_SIZE_KEY])
+        assertEquals("fantasy", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_RECTANGLE_FONT_NAME_KEY])
+        assertEquals("2.25", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_RECTANGLE_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_RECTANGLE_SHADOWING_KEY])
         assertEquals("Silver", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_PACKAGE_STROKE_KEY])
+        assertEquals("13", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_PACKAGE_FONT_SIZE_KEY])
+        assertEquals("system-ui", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_PACKAGE_FONT_NAME_KEY])
+        assertEquals("1.75", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_PACKAGE_LINE_THICKNESS_KEY])
+        assertEquals("1", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_PACKAGE_SHADOWING_KEY])
         assertEquals("Peru", ir.styleHints.extras[PlantUmlUsecaseParser.STYLE_EDGE_COLOR_KEY])
     }
 }

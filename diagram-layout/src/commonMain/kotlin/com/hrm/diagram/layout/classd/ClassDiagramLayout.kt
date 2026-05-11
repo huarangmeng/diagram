@@ -28,6 +28,13 @@ import kotlin.math.sqrt
 class ClassDiagramLayout(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) : IncrementalLayout<ClassIR> {
+    private data class ClassLayoutFonts(
+        val headerFont: FontSpec,
+        val memberFont: FontSpec,
+        val labelFont: FontSpec,
+        val noteFont: FontSpec,
+        val packageFont: FontSpec,
+    )
 
     override fun layout(previous: LaidOutDiagram?, model: ClassIR, options: LayoutOptions): LaidOutDiagram {
         return computeLayout(model, options)
@@ -44,8 +51,9 @@ class ClassDiagramLayout(
             )
         }
 
-        val headerFont = FontSpec(family = "sans-serif", sizeSp = 13f)
-        val memberFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+        val fonts = resolveFonts(ir)
+        val headerFont = fonts.headerFont
+        val memberFont = fonts.memberFont
 
         val sizes = HashMap<NodeId, Pair<Float, Float>>(ir.classes.size)
         for (c in ir.classes) {
@@ -69,7 +77,7 @@ class ClassDiagramLayout(
 
         // Reserve enough gap between cells for edge labels and cardinality strings to fit
         // without colliding with neighboring class boxes.
-        val labelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+        val labelFont = fonts.labelFont
         var maxLabelW = 0f
         for (rel in ir.relations) {
             val labelText = when (val l = rel.label) {
@@ -120,8 +128,9 @@ class ClassDiagramLayout(
         for (ns in ir.namespaces) {
             val rects = ns.members.mapNotNull { nodePositions[it] }
             if (rects.isEmpty()) continue
+            val titleMetrics = textMeasurer.measure(ns.id, fonts.packageFont, maxWidth = 220f)
             val left = rects.minOf { it.left } - 12f
-            val top = rects.minOf { it.top } - 24f
+            val top = rects.minOf { it.top } - (titleMetrics.height + 18f)
             val right = rects.maxOf { it.right } + 12f
             val bottom = rects.maxOf { it.bottom } + 12f
             clusterRects[NodeId("ns#${ns.id}")] = Rect.ltrb(left, top, right, bottom)
@@ -140,7 +149,7 @@ class ClassDiagramLayout(
                 is com.hrm.diagram.core.ir.RichLabel.Plain -> l.text
                 else -> ""
             }
-            val m = textMeasurer.measure(noteText, memberFont, maxWidth = 180f)
+            val m = textMeasurer.measure(noteText, fonts.noteFont, maxWidth = 180f)
             val w = (m.width + 16f).coerceAtLeast(60f)
             val h = (m.height + 12f).coerceAtLeast(28f)
             val target = note.targetClass?.let { nodePositions[it] }
@@ -344,6 +353,27 @@ class ClassDiagramLayout(
         return w to h
     }
 
+    private fun resolveFonts(ir: ClassIR): ClassLayoutFonts {
+        val extras = ir.styleHints.extras
+        val classFamily = parseFontFamily(extras[STYLE_CLASS_FONT_NAME_KEY]) ?: "sans-serif"
+        val classSize = parseFontSize(extras[STYLE_CLASS_FONT_SIZE_KEY]) ?: 11f
+        val noteFamily = parseFontFamily(extras[STYLE_NOTE_FONT_NAME_KEY]) ?: classFamily
+        val noteSize = parseFontSize(extras[STYLE_NOTE_FONT_SIZE_KEY]) ?: classSize
+        val packageFamily = parseFontFamily(extras[STYLE_PACKAGE_FONT_NAME_KEY]) ?: classFamily
+        val packageSize = parseFontSize(extras[STYLE_PACKAGE_FONT_SIZE_KEY]) ?: classSize
+        return ClassLayoutFonts(
+            headerFont = FontSpec(family = classFamily, sizeSp = classSize, weight = 600),
+            memberFont = FontSpec(family = classFamily, sizeSp = classSize),
+            labelFont = FontSpec(family = classFamily, sizeSp = classSize),
+            noteFont = FontSpec(family = noteFamily, sizeSp = noteSize),
+            packageFont = FontSpec(family = packageFamily, sizeSp = packageSize, weight = 600),
+        )
+    }
+
+    private fun parseFontFamily(raw: String?): String? = raw?.trim()?.trim('"')?.takeIf { it.isNotEmpty() }
+
+    private fun parseFontSize(raw: String?): Float? = raw?.trim()?.toFloatOrNull()?.takeIf { it > 0f }
+
     private fun renderMemberLine(m: com.hrm.diagram.core.ir.ClassMember): String {
         val sb = StringBuilder()
         sb.append(when (m.visibility) {
@@ -418,5 +448,14 @@ class ClassDiagramLayout(
     private fun rectOverlapsAnyRect(r: Rect, rects: List<Rect>): Boolean {
         for (other in rects) if (rectsOverlap(r, other)) return true
         return false
+    }
+
+    private companion object {
+        const val STYLE_CLASS_FONT_SIZE_KEY = "plantuml.class.style.class.fontSize"
+        const val STYLE_CLASS_FONT_NAME_KEY = "plantuml.class.style.class.fontName"
+        const val STYLE_NOTE_FONT_SIZE_KEY = "plantuml.class.style.note.fontSize"
+        const val STYLE_NOTE_FONT_NAME_KEY = "plantuml.class.style.note.fontName"
+        const val STYLE_PACKAGE_FONT_SIZE_KEY = "plantuml.class.style.package.fontSize"
+        const val STYLE_PACKAGE_FONT_NAME_KEY = "plantuml.class.style.package.fontName"
     }
 }

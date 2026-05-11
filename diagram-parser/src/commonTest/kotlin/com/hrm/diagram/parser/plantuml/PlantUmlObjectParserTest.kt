@@ -143,4 +143,68 @@ class PlantUmlObjectParserTest {
             """.trimIndent() + "\n"
         assertEquals(parse(src).snapshot(), parse(src, chunkSize = 1).snapshot())
     }
+
+    @Test
+    fun object_skinparam_entries_are_stored_in_style_hints() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                skinparam object {
+                  BackgroundColor LightYellow
+                  BorderColor Orange
+                  FontColor Navy
+                  FontSize 17
+                  FontName monospace
+                  LineThickness 2.5
+                  Shadowing true
+                }
+                skinparam note {
+                  BackgroundColor Ivory
+                  BorderColor Peru
+                  FontColor Red
+                  FontSize 15
+                  FontName serif
+                  LineThickness 2
+                  Shadowing true
+                }
+                skinparam package {
+                  BackgroundColor LightGray
+                  BorderColor Silver
+                  FontColor Green
+                  FontSize 16
+                  FontName sans-serif
+                  LineThickness 2.25
+                  Shadowing true
+                }
+                skinparam ArrowColor Blue
+                package Domain {
+                  object Order
+                  note right of Order : aggregate
+                }
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertEquals("LightYellow", ir.styleHints.extras[PlantUmlObjectParser.STYLE_OBJECT_FILL_KEY])
+        assertEquals("Orange", ir.styleHints.extras[PlantUmlObjectParser.STYLE_OBJECT_STROKE_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlObjectParser.STYLE_OBJECT_TEXT_KEY])
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlObjectParser.STYLE_NOTE_FILL_KEY])
+        assertEquals("Peru", ir.styleHints.extras[PlantUmlObjectParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("Red", ir.styleHints.extras[PlantUmlObjectParser.STYLE_NOTE_TEXT_KEY])
+        assertEquals("15", ir.styleHints.extras[PlantUmlObjectParser.styleFontSizeKey("note")])
+        assertEquals("serif", ir.styleHints.extras[PlantUmlObjectParser.styleFontNameKey("note")])
+        assertEquals("2", ir.styleHints.extras[PlantUmlObjectParser.styleLineThicknessKey("note")])
+        assertEquals("true", ir.styleHints.extras[PlantUmlObjectParser.styleShadowingKey("note")])
+        assertEquals("LightGray", ir.styleHints.extras[PlantUmlObjectParser.STYLE_PACKAGE_FILL_KEY])
+        assertEquals("Silver", ir.styleHints.extras[PlantUmlObjectParser.STYLE_PACKAGE_STROKE_KEY])
+        assertEquals("Green", ir.styleHints.extras[PlantUmlObjectParser.STYLE_PACKAGE_TEXT_KEY])
+        assertEquals("17", ir.styleHints.extras[PlantUmlObjectParser.styleFontSizeKey("object")])
+        assertEquals("monospace", ir.styleHints.extras[PlantUmlObjectParser.styleFontNameKey("object")])
+        assertEquals("2.5", ir.styleHints.extras[PlantUmlObjectParser.styleLineThicknessKey("object")])
+        assertEquals("true", ir.styleHints.extras[PlantUmlObjectParser.styleShadowingKey("object")])
+        assertEquals("16", ir.styleHints.extras[PlantUmlObjectParser.styleFontSizeKey("package")])
+        assertEquals("sans-serif", ir.styleHints.extras[PlantUmlObjectParser.styleFontNameKey("package")])
+        assertEquals("2.25", ir.styleHints.extras[PlantUmlObjectParser.styleLineThicknessKey("package")])
+        assertEquals("true", ir.styleHints.extras[PlantUmlObjectParser.styleShadowingKey("package")])
+        assertEquals("Blue", ir.styleHints.extras[PlantUmlObjectParser.STYLE_EDGE_COLOR_KEY])
+    }
 }

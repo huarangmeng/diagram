@@ -40,16 +40,36 @@ class PlantUmlActivityParser {
         const val STYLE_ACTION_FILL_KEY = "plantuml.activity.style.action.fill"
         const val STYLE_ACTION_STROKE_KEY = "plantuml.activity.style.action.stroke"
         const val STYLE_ACTION_TEXT_KEY = "plantuml.activity.style.action.text"
+        const val STYLE_ACTION_FONT_SIZE_KEY = "plantuml.activity.style.action.fontSize"
+        const val STYLE_ACTION_FONT_NAME_KEY = "plantuml.activity.style.action.fontName"
+        const val STYLE_ACTION_LINE_THICKNESS_KEY = "plantuml.activity.style.action.lineThickness"
+        const val STYLE_ACTION_SHADOWING_KEY = "plantuml.activity.style.action.shadowing"
         const val STYLE_DECISION_FILL_KEY = "plantuml.activity.style.decision.fill"
         const val STYLE_DECISION_STROKE_KEY = "plantuml.activity.style.decision.stroke"
         const val STYLE_DECISION_TEXT_KEY = "plantuml.activity.style.decision.text"
+        const val STYLE_DECISION_FONT_SIZE_KEY = "plantuml.activity.style.decision.fontSize"
+        const val STYLE_DECISION_FONT_NAME_KEY = "plantuml.activity.style.decision.fontName"
+        const val STYLE_DECISION_LINE_THICKNESS_KEY = "plantuml.activity.style.decision.lineThickness"
+        const val STYLE_DECISION_SHADOWING_KEY = "plantuml.activity.style.decision.shadowing"
         const val STYLE_NOTE_FILL_KEY = "plantuml.activity.style.note.fill"
         const val STYLE_NOTE_STROKE_KEY = "plantuml.activity.style.note.stroke"
         const val STYLE_NOTE_TEXT_KEY = "plantuml.activity.style.note.text"
+        const val STYLE_NOTE_FONT_SIZE_KEY = "plantuml.activity.style.note.fontSize"
+        const val STYLE_NOTE_FONT_NAME_KEY = "plantuml.activity.style.note.fontName"
+        const val STYLE_NOTE_LINE_THICKNESS_KEY = "plantuml.activity.style.note.lineThickness"
+        const val STYLE_NOTE_SHADOWING_KEY = "plantuml.activity.style.note.shadowing"
         const val STYLE_BAR_FILL_KEY = "plantuml.activity.style.bar.fill"
         const val STYLE_BAR_TEXT_KEY = "plantuml.activity.style.bar.text"
+        const val STYLE_BAR_FONT_SIZE_KEY = "plantuml.activity.style.bar.fontSize"
+        const val STYLE_BAR_FONT_NAME_KEY = "plantuml.activity.style.bar.fontName"
+        const val STYLE_BAR_LINE_THICKNESS_KEY = "plantuml.activity.style.bar.lineThickness"
+        const val STYLE_BAR_SHADOWING_KEY = "plantuml.activity.style.bar.shadowing"
         const val STYLE_START_FILL_KEY = "plantuml.activity.style.start.fill"
         const val STYLE_STOP_STROKE_KEY = "plantuml.activity.style.stop.stroke"
+        const val STYLE_START_LINE_THICKNESS_KEY = "plantuml.activity.style.start.lineThickness"
+        const val STYLE_STOP_LINE_THICKNESS_KEY = "plantuml.activity.style.stop.lineThickness"
+        const val STYLE_START_SHADOWING_KEY = "plantuml.activity.style.start.shadowing"
+        const val STYLE_STOP_SHADOWING_KEY = "plantuml.activity.style.stop.shadowing"
         const val STYLE_EDGE_COLOR_KEY = "plantuml.activity.style.edge.color"
 
         private const val LANE_STYLE_SEPARATOR = "|||"
@@ -632,15 +652,36 @@ class PlantUmlActivityParser {
             "activitybackgroundcolor" -> storeSkinparam(STYLE_ACTION_FILL_KEY, value)
             "activitybordercolor" -> storeSkinparam(STYLE_ACTION_STROKE_KEY, value)
             "activityfontcolor" -> storeSkinparam(STYLE_ACTION_TEXT_KEY, value)
+            "activityfontsize" -> storeSkinparam(STYLE_ACTION_FONT_SIZE_KEY, value)
+            "activityfontname" -> storeSkinparam(STYLE_ACTION_FONT_NAME_KEY, value)
+            "activitylinethickness" -> storeSkinparam(STYLE_ACTION_LINE_THICKNESS_KEY, value)
+            "activityshadowing" -> storeSkinparam(STYLE_ACTION_SHADOWING_KEY, value)
             "activitydiamondbackgroundcolor" -> storeSkinparam(STYLE_DECISION_FILL_KEY, value)
             "activitydiamondbordercolor" -> storeSkinparam(STYLE_DECISION_STROKE_KEY, value)
             "activitydiamondfontcolor" -> storeSkinparam(STYLE_DECISION_TEXT_KEY, value)
+            "activitydiamondfontsize" -> storeSkinparam(STYLE_DECISION_FONT_SIZE_KEY, value)
+            "activitydiamondfontname" -> storeSkinparam(STYLE_DECISION_FONT_NAME_KEY, value)
+            "activitydiamondlinethickness" -> storeSkinparam(STYLE_DECISION_LINE_THICKNESS_KEY, value)
+            "activitydiamondshadowing" -> storeSkinparam(STYLE_DECISION_SHADOWING_KEY, value)
             "activitystartcolor" -> storeSkinparam(STYLE_START_FILL_KEY, value)
             "activityendcolor" -> storeSkinparam(STYLE_STOP_STROKE_KEY, value)
             "activitybarcolor" -> storeSkinparam(STYLE_BAR_FILL_KEY, value)
+            "activitybarfontcolor" -> storeSkinparam(STYLE_BAR_TEXT_KEY, value)
+            "activitybarfontsize" -> storeSkinparam(STYLE_BAR_FONT_SIZE_KEY, value)
+            "activitybarfontname" -> storeSkinparam(STYLE_BAR_FONT_NAME_KEY, value)
+            "activitybarlinethickness" -> storeSkinparam(STYLE_BAR_LINE_THICKNESS_KEY, value)
+            "activitybarshadowing" -> storeSkinparam(STYLE_BAR_SHADOWING_KEY, value)
+            "activitystartlinethickness" -> storeSkinparam(STYLE_START_LINE_THICKNESS_KEY, value)
+            "activityendlinethickness" -> storeSkinparam(STYLE_STOP_LINE_THICKNESS_KEY, value)
+            "activitystartshadowing" -> storeSkinparam(STYLE_START_SHADOWING_KEY, value)
+            "activityendshadowing" -> storeSkinparam(STYLE_STOP_SHADOWING_KEY, value)
             "notebackgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
             "notebordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
             "notefontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+            "notefontsize" -> storeSkinparam(STYLE_NOTE_FONT_SIZE_KEY, value)
+            "notefontname" -> storeSkinparam(STYLE_NOTE_FONT_NAME_KEY, value)
+            "notelinethickness" -> storeSkinparam(STYLE_NOTE_LINE_THICKNESS_KEY, value)
+            "noteshadowing" -> storeSkinparam(STYLE_NOTE_SHADOWING_KEY, value)
             "arrowcolor" -> storeSkinparam(STYLE_EDGE_COLOR_KEY, value)
             else -> warnUnsupportedSkinparam(line)
         }
@@ -653,16 +694,36 @@ class PlantUmlActivityParser {
             "backgroundcolor" -> storeSkinparam(STYLE_ACTION_FILL_KEY, value)
             "bordercolor" -> storeSkinparam(STYLE_ACTION_STROKE_KEY, value)
             "fontcolor" -> storeSkinparam(STYLE_ACTION_TEXT_KEY, value)
+            "fontsize" -> storeSkinparam(STYLE_ACTION_FONT_SIZE_KEY, value)
+            "fontname" -> storeSkinparam(STYLE_ACTION_FONT_NAME_KEY, value)
+            "linethickness" -> storeSkinparam(STYLE_ACTION_LINE_THICKNESS_KEY, value)
+            "shadowing" -> storeSkinparam(STYLE_ACTION_SHADOWING_KEY, value)
             "diamondbackgroundcolor" -> storeSkinparam(STYLE_DECISION_FILL_KEY, value)
             "diamondbordercolor" -> storeSkinparam(STYLE_DECISION_STROKE_KEY, value)
             "diamondfontcolor" -> storeSkinparam(STYLE_DECISION_TEXT_KEY, value)
+            "diamondfontsize" -> storeSkinparam(STYLE_DECISION_FONT_SIZE_KEY, value)
+            "diamondfontname" -> storeSkinparam(STYLE_DECISION_FONT_NAME_KEY, value)
+            "diamondlinethickness" -> storeSkinparam(STYLE_DECISION_LINE_THICKNESS_KEY, value)
+            "diamondshadowing" -> storeSkinparam(STYLE_DECISION_SHADOWING_KEY, value)
             "startcolor" -> storeSkinparam(STYLE_START_FILL_KEY, value)
             "endcolor" -> storeSkinparam(STYLE_STOP_STROKE_KEY, value)
+            "startlinethickness" -> storeSkinparam(STYLE_START_LINE_THICKNESS_KEY, value)
+            "endlinethickness" -> storeSkinparam(STYLE_STOP_LINE_THICKNESS_KEY, value)
+            "startshadowing" -> storeSkinparam(STYLE_START_SHADOWING_KEY, value)
+            "endshadowing" -> storeSkinparam(STYLE_STOP_SHADOWING_KEY, value)
             "barcolor" -> storeSkinparam(STYLE_BAR_FILL_KEY, value)
             "barfontcolor" -> storeSkinparam(STYLE_BAR_TEXT_KEY, value)
+            "barfontsize" -> storeSkinparam(STYLE_BAR_FONT_SIZE_KEY, value)
+            "barfontname" -> storeSkinparam(STYLE_BAR_FONT_NAME_KEY, value)
+            "barlinethickness" -> storeSkinparam(STYLE_BAR_LINE_THICKNESS_KEY, value)
+            "barshadowing" -> storeSkinparam(STYLE_BAR_SHADOWING_KEY, value)
             "notebackgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
             "notebordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
             "notefontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+            "notefontsize" -> storeSkinparam(STYLE_NOTE_FONT_SIZE_KEY, value)
+            "notefontname" -> storeSkinparam(STYLE_NOTE_FONT_NAME_KEY, value)
+            "notelinethickness" -> storeSkinparam(STYLE_NOTE_LINE_THICKNESS_KEY, value)
+            "noteshadowing" -> storeSkinparam(STYLE_NOTE_SHADOWING_KEY, value)
             "arrowcolor" -> storeSkinparam(STYLE_EDGE_COLOR_KEY, value)
             else -> warnUnsupportedSkinparam("skinparam activity $line")
         }

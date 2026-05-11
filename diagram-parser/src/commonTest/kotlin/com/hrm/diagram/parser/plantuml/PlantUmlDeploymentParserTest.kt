@@ -130,4 +130,68 @@ class PlantUmlDeploymentParserTest {
             """.trimIndent() + "\n"
         assertEquals(parse(src).snapshot(), parse(src, chunkSize = 1).snapshot())
     }
+
+    @Test
+    fun deployment_skinparam_entries_are_stored_in_style_hints() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                skinparam artifact {
+                  BackgroundColor LightYellow
+                  BorderColor Orange
+                  FontColor Navy
+                  FontSize 17
+                  FontName monospace
+                  LineThickness 2.5
+                  Shadowing true
+                }
+                skinparam note {
+                  BackgroundColor Ivory
+                  BorderColor Peru
+                  FontColor Red
+                  FontSize 15
+                  FontName serif
+                  LineThickness 2
+                  Shadowing true
+                }
+                skinparam node {
+                  BackgroundColor LightGray
+                  BorderColor Silver
+                  FontColor Green
+                  FontSize 16
+                  FontName sans-serif
+                  LineThickness 2.25
+                  Shadowing true
+                }
+                skinparam ArrowColor Blue
+                node Server {
+                  [App]
+                  note right of App : deploy
+                }
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertEquals("LightYellow", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_ARTIFACT_FILL_KEY])
+        assertEquals("Orange", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_ARTIFACT_STROKE_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_ARTIFACT_TEXT_KEY])
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_NOTE_FILL_KEY])
+        assertEquals("Peru", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("Red", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_NOTE_TEXT_KEY])
+        assertEquals("15", ir.styleHints.extras[PlantUmlDeploymentParser.styleFontSizeKey("note")])
+        assertEquals("serif", ir.styleHints.extras[PlantUmlDeploymentParser.styleFontNameKey("note")])
+        assertEquals("2", ir.styleHints.extras[PlantUmlDeploymentParser.styleLineThicknessKey("note")])
+        assertEquals("true", ir.styleHints.extras[PlantUmlDeploymentParser.styleShadowingKey("note")])
+        assertEquals("LightGray", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_NODE_FILL_KEY])
+        assertEquals("Silver", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_NODE_STROKE_KEY])
+        assertEquals("Green", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_NODE_TEXT_KEY])
+        assertEquals("17", ir.styleHints.extras[PlantUmlDeploymentParser.styleFontSizeKey("artifact")])
+        assertEquals("monospace", ir.styleHints.extras[PlantUmlDeploymentParser.styleFontNameKey("artifact")])
+        assertEquals("2.5", ir.styleHints.extras[PlantUmlDeploymentParser.styleLineThicknessKey("artifact")])
+        assertEquals("true", ir.styleHints.extras[PlantUmlDeploymentParser.styleShadowingKey("artifact")])
+        assertEquals("16", ir.styleHints.extras[PlantUmlDeploymentParser.styleFontSizeKey("node")])
+        assertEquals("sans-serif", ir.styleHints.extras[PlantUmlDeploymentParser.styleFontNameKey("node")])
+        assertEquals("2.25", ir.styleHints.extras[PlantUmlDeploymentParser.styleLineThicknessKey("node")])
+        assertEquals("true", ir.styleHints.extras[PlantUmlDeploymentParser.styleShadowingKey("node")])
+        assertEquals("Blue", ir.styleHints.extras[PlantUmlDeploymentParser.STYLE_EDGE_COLOR_KEY])
+    }
 }

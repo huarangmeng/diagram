@@ -179,6 +179,100 @@ class PlantUmlSequenceParserTest {
     }
 
     @Test
+    fun sequence_skinparam_entries_are_stored_in_style_hints() {
+        val ir = parse(
+            """
+            skinparam sequence {
+              BackgroundColor LightGray
+              BorderColor Peru
+              FontColor Navy
+              FontSize 15
+              FontName serif
+              LineThickness 2.5
+              Shadowing true
+            }
+            skinparam participant {
+              BackgroundColor LightYellow
+              BorderColor Orange
+              FontColor Navy
+              FontSize 17
+              FontName monospace
+              LineThickness 2
+              Shadowing yes
+            }
+            skinparam actor {
+              BackgroundColor Ivory
+              BorderColor SaddleBrown
+              FontColor Navy
+              FontSize 18
+              FontName fantasy
+              LineThickness 3
+              Shadowing on
+            }
+            skinparam note {
+              BackgroundColor Ivory
+              BorderColor Orange
+              FontColor SaddleBrown
+              FontSize 14
+              FontName cursive
+              LineThickness 1.75
+              Shadowing 1
+            }
+            skinparam box {
+              BackgroundColor PaleGreen
+              BorderColor Green
+              FontColor Navy
+              FontSize 13
+              FontName system-ui
+              LineThickness 1.5
+              Shadowing true
+            }
+            skinparam ArrowColor Red
+            actor Alice
+            participant Bob
+            Alice -> Bob: hi
+            note over Alice,Bob: sync
+            """.trimIndent() + "\n",
+        )
+        assertEquals("LightGray", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_SEQUENCE_FILL_KEY])
+        assertEquals("Peru", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_SEQUENCE_STROKE_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_SEQUENCE_TEXT_KEY])
+        assertEquals("15", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_SEQUENCE_FONT_SIZE_KEY])
+        assertEquals("serif", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_SEQUENCE_FONT_NAME_KEY])
+        assertEquals("2.5", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_SEQUENCE_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_SEQUENCE_SHADOWING_KEY])
+        assertEquals("LightYellow", ir.styleHints.extras[PlantUmlSequenceParser.styleFillKey("participant")])
+        assertEquals("Orange", ir.styleHints.extras[PlantUmlSequenceParser.styleStrokeKey("participant")])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlSequenceParser.styleTextKey("participant")])
+        assertEquals("17", ir.styleHints.extras[PlantUmlSequenceParser.styleFontSizeKey("participant")])
+        assertEquals("monospace", ir.styleHints.extras[PlantUmlSequenceParser.styleFontNameKey("participant")])
+        assertEquals("2", ir.styleHints.extras[PlantUmlSequenceParser.styleLineThicknessKey("participant")])
+        assertEquals("yes", ir.styleHints.extras[PlantUmlSequenceParser.styleShadowingKey("participant")])
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlSequenceParser.styleFillKey("actor")])
+        assertEquals("SaddleBrown", ir.styleHints.extras[PlantUmlSequenceParser.styleStrokeKey("actor")])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlSequenceParser.styleTextKey("actor")])
+        assertEquals("18", ir.styleHints.extras[PlantUmlSequenceParser.styleFontSizeKey("actor")])
+        assertEquals("fantasy", ir.styleHints.extras[PlantUmlSequenceParser.styleFontNameKey("actor")])
+        assertEquals("3", ir.styleHints.extras[PlantUmlSequenceParser.styleLineThicknessKey("actor")])
+        assertEquals("on", ir.styleHints.extras[PlantUmlSequenceParser.styleShadowingKey("actor")])
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_NOTE_FILL_KEY])
+        assertEquals("Orange", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("SaddleBrown", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_NOTE_TEXT_KEY])
+        assertEquals("14", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_NOTE_FONT_SIZE_KEY])
+        assertEquals("cursive", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_NOTE_FONT_NAME_KEY])
+        assertEquals("1.75", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_NOTE_LINE_THICKNESS_KEY])
+        assertEquals("1", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_NOTE_SHADOWING_KEY])
+        assertEquals("PaleGreen", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_BOX_FILL_KEY])
+        assertEquals("Green", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_BOX_STROKE_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_BOX_TEXT_KEY])
+        assertEquals("13", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_BOX_FONT_SIZE_KEY])
+        assertEquals("system-ui", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_BOX_FONT_NAME_KEY])
+        assertEquals("1.5", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_BOX_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_BOX_SHADOWING_KEY])
+        assertEquals("Red", ir.styleHints.extras[PlantUmlSequenceParser.STYLE_EDGE_COLOR_KEY])
+    }
+
+    @Test
     fun streaming_equivalence() {
         val src =
             """

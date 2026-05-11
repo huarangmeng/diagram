@@ -63,8 +63,9 @@ internal class PlantUmlActivitySubPipeline(
 
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val ir = parser.snapshot()
+        val palette = paletteOf(ir)
         val lowered = lower(ir)
-        measureNodes(lowered)
+        measureNodes(lowered, palette)
         val baseLaid = layout.layout(
             previousSnapshot.laidOut,
             lowered,
@@ -77,7 +78,7 @@ internal class PlantUmlActivitySubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawCommands = render(lowered, laidOut),
+            drawCommands = render(lowered, laidOut, palette),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -100,16 +101,36 @@ internal class PlantUmlActivitySubPipeline(
         val actionFill: ArgbColor?,
         val actionStroke: ArgbColor?,
         val actionText: ArgbColor?,
+        val actionFontSize: Float?,
+        val actionFontName: String?,
+        val actionLineThickness: Float?,
+        val actionShadowing: Boolean?,
         val decisionFill: ArgbColor?,
         val decisionStroke: ArgbColor?,
         val decisionText: ArgbColor?,
+        val decisionFontSize: Float?,
+        val decisionFontName: String?,
+        val decisionLineThickness: Float?,
+        val decisionShadowing: Boolean?,
         val noteFill: ArgbColor?,
         val noteStroke: ArgbColor?,
         val noteText: ArgbColor?,
+        val noteFontSize: Float?,
+        val noteFontName: String?,
+        val noteLineThickness: Float?,
+        val noteShadowing: Boolean?,
         val barFill: ArgbColor?,
         val barText: ArgbColor?,
+        val barFontSize: Float?,
+        val barFontName: String?,
+        val barLineThickness: Float?,
+        val barShadowing: Boolean?,
         val startFill: ArgbColor?,
         val stopStroke: ArgbColor?,
+        val startLineThickness: Float?,
+        val stopLineThickness: Float?,
+        val startShadowing: Boolean?,
+        val stopShadowing: Boolean?,
         val edgeColor: ArgbColor?,
     )
 
@@ -328,12 +349,12 @@ internal class PlantUmlActivitySubPipeline(
         fillOverride: ArgbColor? = null,
         palette: ActivityPalette,
     ): NodeStyle = when {
-        start -> NodeStyle(fill = palette.startFill ?: ArgbColor(0xFF263238.toInt()), stroke = palette.startFill ?: ArgbColor(0xFF263238.toInt()), strokeWidth = 1.5f)
-        stop -> NodeStyle(fill = ArgbColor(0xFFFFFFFF.toInt()), stroke = palette.stopStroke ?: ArgbColor(0xFF263238.toInt()), strokeWidth = 1.5f)
-        fork -> NodeStyle(fill = palette.barFill ?: ArgbColor(0xFF263238.toInt()), stroke = palette.barFill ?: ArgbColor(0xFF263238.toInt()), strokeWidth = 1.5f, textColor = palette.barText)
-        note -> NodeStyle(fill = palette.noteFill ?: ArgbColor(0xFFFFF8E1.toInt()), stroke = palette.noteStroke ?: ArgbColor(0xFFFFA000.toInt()), strokeWidth = 1.5f, textColor = palette.noteText ?: ArgbColor(0xFF5D4037.toInt()))
-        decision -> NodeStyle(fill = palette.decisionFill ?: ArgbColor(0xFFE8F5E9.toInt()), stroke = palette.decisionStroke ?: ArgbColor(0xFF2E7D32.toInt()), strokeWidth = 1.5f, textColor = palette.decisionText ?: ArgbColor(0xFF1B5E20.toInt()))
-        action -> NodeStyle(fill = fillOverride ?: palette.actionFill ?: ArgbColor(0xFFE3F2FD.toInt()), stroke = palette.actionStroke ?: ArgbColor(0xFF1565C0.toInt()), strokeWidth = 1.5f, textColor = palette.actionText ?: ArgbColor(0xFF0D47A1.toInt()))
+        start -> NodeStyle(fill = palette.startFill ?: ArgbColor(0xFF263238.toInt()), stroke = palette.startFill ?: ArgbColor(0xFF263238.toInt()), strokeWidth = palette.startLineThickness ?: 1.5f)
+        stop -> NodeStyle(fill = ArgbColor(0xFFFFFFFF.toInt()), stroke = palette.stopStroke ?: ArgbColor(0xFF263238.toInt()), strokeWidth = palette.stopLineThickness ?: 1.5f)
+        fork -> NodeStyle(fill = palette.barFill ?: ArgbColor(0xFF263238.toInt()), stroke = palette.barFill ?: ArgbColor(0xFF263238.toInt()), strokeWidth = palette.barLineThickness ?: 1.5f, textColor = palette.barText)
+        note -> NodeStyle(fill = palette.noteFill ?: ArgbColor(0xFFFFF8E1.toInt()), stroke = palette.noteStroke ?: ArgbColor(0xFFFFA000.toInt()), strokeWidth = palette.noteLineThickness ?: 1.5f, textColor = palette.noteText ?: ArgbColor(0xFF5D4037.toInt()))
+        decision -> NodeStyle(fill = palette.decisionFill ?: ArgbColor(0xFFE8F5E9.toInt()), stroke = palette.decisionStroke ?: ArgbColor(0xFF2E7D32.toInt()), strokeWidth = palette.decisionLineThickness ?: 1.5f, textColor = palette.decisionText ?: ArgbColor(0xFF1B5E20.toInt()))
+        action -> NodeStyle(fill = fillOverride ?: palette.actionFill ?: ArgbColor(0xFFE3F2FD.toInt()), stroke = palette.actionStroke ?: ArgbColor(0xFF1565C0.toInt()), strokeWidth = palette.actionLineThickness ?: 1.5f, textColor = palette.actionText ?: ArgbColor(0xFF0D47A1.toInt()))
         else -> NodeStyle.Default
     }
 
@@ -349,36 +370,37 @@ internal class PlantUmlActivitySubPipeline(
     private fun labelledEdge(from: NodeId, to: NodeId, label: String, palette: ActivityPalette): Edge =
         solidEdge(from, to, palette = palette).copy(label = label.takeIf { it.isNotEmpty() }?.let(RichLabel::Plain))
 
-    private fun measureNodes(ir: GraphIR) {
+    private fun measureNodes(ir: GraphIR, palette: ActivityPalette) {
         for (node in ir.nodes) {
             val label = labelTextOf(node)
+            val scope = scopeFor(node, palette)
             nodeSizes[node.id] = when (node.shape) {
                 NodeShape.StartCircle, NodeShape.EndCircle -> Size(28f, 28f)
                 NodeShape.ForkBar -> {
                     if (label.isBlank()) {
                         Size(80f, 12f)
                     } else {
-                        val m = textMeasurer.measure(label, edgeLabelFont, maxWidth = 180f)
+                        val m = textMeasurer.measure(label, scopedFont(scope, edgeLabelFont), maxWidth = 180f)
                         Size((m.width + 44f).coerceAtLeast(100f), (m.height + 18f).coerceAtLeast(28f))
                     }
                 }
                 NodeShape.Note -> {
-                    val m = textMeasurer.measure(label, labelFont, maxWidth = 160f)
+                    val m = textMeasurer.measure(label, scopedFont(scope, labelFont), maxWidth = 160f)
                     Size((m.width + 22f).coerceAtLeast(96f), (m.height + 18f).coerceAtLeast(56f))
                 }
                 NodeShape.Diamond -> {
-                    val m = textMeasurer.measure(label, labelFont, maxWidth = 120f)
+                    val m = textMeasurer.measure(label, scopedFont(scope, labelFont), maxWidth = 120f)
                     Size((m.width + 44f).coerceAtLeast(92f), (m.height + 36f).coerceAtLeast(72f))
                 }
                 else -> {
-                    val m = textMeasurer.measure(label, labelFont, maxWidth = 200f)
+                    val m = textMeasurer.measure(label, scopedFont(scope, labelFont), maxWidth = 200f)
                     Size((m.width + 28f).coerceAtLeast(132f), (m.height + 20f).coerceAtLeast(56f))
                 }
             }
         }
     }
 
-    private fun render(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
+    private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: ActivityPalette): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out)
         for (node in ir.nodes) {
@@ -386,25 +408,62 @@ internal class PlantUmlActivitySubPipeline(
             val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
             val stroke = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1565C0.toInt())
             val text = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
+            val scope = scopeFor(node, palette)
+            val bodyFont = scopedFont(scope, labelFont)
+            val barFont = scopedFont(scope, edgeLabelFont)
             when (node.shape) {
-                NodeShape.StartCircle -> out += DrawCommand.FillRect(rect, fill, corner = rect.size.width / 2f, z = 2)
+                NodeShape.StartCircle -> {
+                    if (scope.shadowing == true) {
+                        out += DrawCommand.FillRect(
+                            PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                            PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = rect.size.width / 2f,
+                            z = 2,
+                        )
+                    }
+                    out += DrawCommand.FillRect(rect, fill, corner = rect.size.width / 2f, z = 2)
+                }
                 NodeShape.EndCircle -> {
-                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1.5f), stroke, corner = rect.size.width / 2f, z = 2)
+                    if (scope.shadowing == true) {
+                        out += DrawCommand.FillRect(
+                            PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                            PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = rect.size.width / 2f,
+                            z = 2,
+                        )
+                    }
+                    out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.5f), stroke, corner = rect.size.width / 2f, z = 2)
                     val inner = Rect.ltrb(rect.left + 4f, rect.top + 4f, rect.right - 4f, rect.bottom - 4f)
                     out += DrawCommand.FillRect(inner, stroke, corner = inner.size.width / 2f, z = 3)
                 }
                 NodeShape.ForkBar -> {
                     val label = labelTextOf(node)
                     if (label.isBlank()) {
+                        if (scope.shadowing == true) {
+                            out += DrawCommand.FillRect(
+                                PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                                PlantUmlTreeRenderSupport.shadowColor(),
+                                corner = 2f,
+                                z = 2,
+                            )
+                        }
                         out += DrawCommand.FillRect(rect, stroke, corner = 2f, z = 2)
                     } else {
                         val barTop = rect.bottom - 10f
                         val barRect = Rect.ltrb(rect.left, barTop, rect.right, rect.bottom)
+                        if (scope.shadowing == true) {
+                            out += DrawCommand.FillRect(
+                                PlantUmlTreeRenderSupport.offsetRect(barRect, 4f, 4f),
+                                PlantUmlTreeRenderSupport.shadowColor(),
+                                corner = 2f,
+                                z = 2,
+                            )
+                        }
                         out += DrawCommand.FillRect(barRect, stroke, corner = 2f, z = 2)
                         out += DrawCommand.DrawText(
                             text = label,
                             origin = Point((rect.left + rect.right) / 2f, rect.top + 2f),
-                            font = edgeLabelFont,
+                            font = barFont,
                             color = stroke,
                             anchorX = TextAnchorX.Center,
                             anchorY = TextAnchorY.Top,
@@ -424,19 +483,50 @@ internal class PlantUmlActivitySubPipeline(
                             PathOp.Close,
                         ),
                     )
+                    if (scope.shadowing == true) {
+                        out += DrawCommand.FillPath(
+                            PathCmd(
+                                listOf(
+                                    PathOp.MoveTo(Point(cx + 4f, rect.top + 4f)),
+                                    PathOp.LineTo(Point(rect.right + 4f, cy + 4f)),
+                                    PathOp.LineTo(Point(cx + 4f, rect.bottom + 4f)),
+                                    PathOp.LineTo(Point(rect.left + 4f, cy + 4f)),
+                                    PathOp.Close,
+                                ),
+                            ),
+                            PlantUmlTreeRenderSupport.shadowColor(),
+                            z = 2,
+                        )
+                    }
                     out += DrawCommand.FillPath(path, fill, z = 2)
-                    out += DrawCommand.StrokePath(path, Stroke(width = 1.5f), stroke, z = 3)
-                    drawCenteredText(labelTextOf(node), rect, text, out)
+                    out += DrawCommand.StrokePath(path, Stroke(width = node.style.strokeWidth ?: 1.5f), stroke, z = 3)
+                    drawCenteredText(labelTextOf(node), rect, text, bodyFont, out)
                 }
                 NodeShape.Note -> {
+                    if (scope.shadowing == true) {
+                        out += DrawCommand.FillRect(
+                            PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                            PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = 4f,
+                            z = 2,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect, fill, corner = 4f, z = 2)
-                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1.5f), stroke, corner = 4f, z = 3)
-                    drawCenteredText(labelTextOf(node), rect, text, out)
+                    out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.5f), stroke, corner = 4f, z = 3)
+                    drawCenteredText(labelTextOf(node), rect, text, bodyFont, out)
                 }
                 else -> {
+                    if (scope.shadowing == true) {
+                        out += DrawCommand.FillRect(
+                            PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                            PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = 10f,
+                            z = 2,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect, fill, corner = 10f, z = 2)
-                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1.5f), stroke, corner = 10f, z = 3)
-                    drawCenteredText(labelTextOf(node), rect, text, out)
+                    out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.5f), stroke, corner = 10f, z = 3)
+                    drawCenteredText(labelTextOf(node), rect, text, bodyFont, out)
                 }
             }
         }
@@ -528,12 +618,12 @@ internal class PlantUmlActivitySubPipeline(
         )
     }
 
-    private fun drawCenteredText(text: String, rect: Rect, color: Color, out: MutableList<DrawCommand>) {
+    private fun drawCenteredText(text: String, rect: Rect, color: Color, font: FontSpec, out: MutableList<DrawCommand>) {
         if (text.isEmpty()) return
         out += DrawCommand.DrawText(
             text = text,
             origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
-            font = labelFont,
+            font = font,
             color = color,
             maxWidth = rect.size.width - 16f,
             anchorX = TextAnchorX.Center,
@@ -722,21 +812,62 @@ internal class PlantUmlActivitySubPipeline(
     private fun paletteOf(ir: ActivityIR): ActivityPalette {
         val extras = ir.styleHints.extras
         fun c(key: String): ArgbColor? = extras[key]?.let(::parsePlantUmlColor)
+        fun f(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])
+        fun s(key: String): String? = PlantUmlTreeRenderSupport.parsePlantUmlFontFamily(extras[key])
+        fun b(key: String): Boolean? = PlantUmlTreeRenderSupport.parsePlantUmlBoolean(extras[key])
         return ActivityPalette(
             actionFill = c(PlantUmlActivityParser.STYLE_ACTION_FILL_KEY),
             actionStroke = c(PlantUmlActivityParser.STYLE_ACTION_STROKE_KEY),
             actionText = c(PlantUmlActivityParser.STYLE_ACTION_TEXT_KEY),
+            actionFontSize = f(PlantUmlActivityParser.STYLE_ACTION_FONT_SIZE_KEY),
+            actionFontName = s(PlantUmlActivityParser.STYLE_ACTION_FONT_NAME_KEY),
+            actionLineThickness = f(PlantUmlActivityParser.STYLE_ACTION_LINE_THICKNESS_KEY),
+            actionShadowing = b(PlantUmlActivityParser.STYLE_ACTION_SHADOWING_KEY),
             decisionFill = c(PlantUmlActivityParser.STYLE_DECISION_FILL_KEY),
             decisionStroke = c(PlantUmlActivityParser.STYLE_DECISION_STROKE_KEY),
             decisionText = c(PlantUmlActivityParser.STYLE_DECISION_TEXT_KEY),
+            decisionFontSize = f(PlantUmlActivityParser.STYLE_DECISION_FONT_SIZE_KEY),
+            decisionFontName = s(PlantUmlActivityParser.STYLE_DECISION_FONT_NAME_KEY),
+            decisionLineThickness = f(PlantUmlActivityParser.STYLE_DECISION_LINE_THICKNESS_KEY),
+            decisionShadowing = b(PlantUmlActivityParser.STYLE_DECISION_SHADOWING_KEY),
             noteFill = c(PlantUmlActivityParser.STYLE_NOTE_FILL_KEY),
             noteStroke = c(PlantUmlActivityParser.STYLE_NOTE_STROKE_KEY),
             noteText = c(PlantUmlActivityParser.STYLE_NOTE_TEXT_KEY),
+            noteFontSize = f(PlantUmlActivityParser.STYLE_NOTE_FONT_SIZE_KEY),
+            noteFontName = s(PlantUmlActivityParser.STYLE_NOTE_FONT_NAME_KEY),
+            noteLineThickness = f(PlantUmlActivityParser.STYLE_NOTE_LINE_THICKNESS_KEY),
+            noteShadowing = b(PlantUmlActivityParser.STYLE_NOTE_SHADOWING_KEY),
             barFill = c(PlantUmlActivityParser.STYLE_BAR_FILL_KEY),
             barText = c(PlantUmlActivityParser.STYLE_BAR_TEXT_KEY),
+            barFontSize = f(PlantUmlActivityParser.STYLE_BAR_FONT_SIZE_KEY),
+            barFontName = s(PlantUmlActivityParser.STYLE_BAR_FONT_NAME_KEY),
+            barLineThickness = f(PlantUmlActivityParser.STYLE_BAR_LINE_THICKNESS_KEY),
+            barShadowing = b(PlantUmlActivityParser.STYLE_BAR_SHADOWING_KEY),
             startFill = c(PlantUmlActivityParser.STYLE_START_FILL_KEY),
             stopStroke = c(PlantUmlActivityParser.STYLE_STOP_STROKE_KEY),
+            startLineThickness = f(PlantUmlActivityParser.STYLE_START_LINE_THICKNESS_KEY),
+            stopLineThickness = f(PlantUmlActivityParser.STYLE_STOP_LINE_THICKNESS_KEY),
+            startShadowing = b(PlantUmlActivityParser.STYLE_START_SHADOWING_KEY),
+            stopShadowing = b(PlantUmlActivityParser.STYLE_STOP_SHADOWING_KEY),
             edgeColor = c(PlantUmlActivityParser.STYLE_EDGE_COLOR_KEY),
         )
     }
+
+    private fun scopeFor(node: Node, palette: ActivityPalette): ActivityScope = when (node.shape) {
+        NodeShape.StartCircle -> ActivityScope(palette.startShadowing, null, null)
+        NodeShape.EndCircle -> ActivityScope(palette.stopShadowing, null, null)
+        NodeShape.ForkBar -> ActivityScope(palette.barShadowing, palette.barFontName, palette.barFontSize)
+        NodeShape.Note -> ActivityScope(palette.noteShadowing, palette.noteFontName, palette.noteFontSize)
+        NodeShape.Diamond -> ActivityScope(palette.decisionShadowing, palette.decisionFontName, palette.decisionFontSize)
+        else -> ActivityScope(palette.actionShadowing, palette.actionFontName, palette.actionFontSize)
+    }
+
+    private fun scopedFont(scope: ActivityScope, base: FontSpec): FontSpec =
+        PlantUmlTreeRenderSupport.resolveFontSpec(base, scope.fontName, scope.fontSize?.toString())
+
+    private data class ActivityScope(
+        val shadowing: Boolean?,
+        val fontName: String?,
+        val fontSize: Float?,
+    )
 }

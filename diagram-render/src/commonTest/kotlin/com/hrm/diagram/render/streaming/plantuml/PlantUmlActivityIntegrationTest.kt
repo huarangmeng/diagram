@@ -201,14 +201,38 @@ class PlantUmlActivityIntegrationTest {
             @startuml
             skinparam activity {
               StartColor red
+              StartLineThickness 2
+              StartShadowing true
               BarColor SaddleBrown
+              BarFontColor Yellow
+              BarFontSize 15
+              BarFontName monospace
+              BarLineThickness 2.25
+              BarShadowing true
               EndColor Silver
+              EndLineThickness 3
+              EndShadowing true
               BackgroundColor Peru
               BorderColor Peru
+              FontColor Ivory
+              FontSize 17
+              FontName serif
+              LineThickness 2.5
+              Shadowing true
               DiamondBackgroundColor PaleGreen
               DiamondBorderColor Green
+              DiamondFontColor Navy
+              DiamondFontSize 16
+              DiamondFontName fantasy
+              DiamondLineThickness 2
+              DiamondShadowing true
               NoteBackgroundColor Ivory
               NoteBorderColor Orange
+              NoteFontColor Navy
+              NoteFontSize 13
+              NoteFontName cursive
+              NoteLineThickness 1.75
+              NoteShadowing true
               ArrowColor Navy
             }
             (*) --> "First Action" as A1
@@ -241,6 +265,20 @@ class PlantUmlActivityIntegrationTest {
         assertTrue(strokes.contains(0xFFC0C0C0.toInt()) || one.drawCommands.filterIsInstance<DrawCommand.FillRect>().any { it.color.argb == 0xFFC0C0C0.toInt() }, "expected end color Silver to affect stop")
         val edgeColors = one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.color.argb }
         assertTrue(edgeColors.contains(0xFF000080.toInt()), "expected arrow color Navy")
+        val textFamilies = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.family }
+        val textSizes = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.sizeSp }
+        val shadowRects = one.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }
+        val strokeWidths = one.drawCommands
+            .filterIsInstance<DrawCommand.StrokeRect>()
+            .map { it.stroke.width } + one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.stroke.width }
+        assertTrue(textFamilies.contains("serif"))
+        assertTrue(textFamilies.contains("fantasy") || textFamilies.contains("cursive") || textFamilies.contains("monospace"))
+        assertTrue(textSizes.contains(17f))
+        assertTrue(textSizes.contains(16f) || textSizes.contains(15f) || textSizes.contains(13f))
+        assertTrue(shadowRects.contains(0x26000000))
+        assertTrue(strokeWidths.any { it == 2f })
+        assertTrue(strokeWidths.any { it == 2.5f })
+        assertTrue(strokeWidths.any { it == 3f })
         val texts = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.text }
         assertTrue(texts.contains("Parallel Action 2"))
         assertTrue(texts.contains("B1"))

@@ -42,8 +42,33 @@ class PlantUmlObjectParser {
         const val PARENT_KEY = "plantuml.object.parent"
         const val NOTE_TARGET_KEY = "plantuml.object.note.target"
         const val NOTE_PLACEMENT_KEY = "plantuml.object.note.placement"
+        const val STYLE_OBJECT_FILL_KEY = "plantuml.object.style.object.fill"
+        const val STYLE_OBJECT_STROKE_KEY = "plantuml.object.style.object.stroke"
+        const val STYLE_OBJECT_TEXT_KEY = "plantuml.object.style.object.text"
+        const val STYLE_MAP_FILL_KEY = "plantuml.object.style.map.fill"
+        const val STYLE_MAP_STROKE_KEY = "plantuml.object.style.map.stroke"
+        const val STYLE_MAP_TEXT_KEY = "plantuml.object.style.map.text"
+        const val STYLE_JSON_FILL_KEY = "plantuml.object.style.json.fill"
+        const val STYLE_JSON_STROKE_KEY = "plantuml.object.style.json.stroke"
+        const val STYLE_JSON_TEXT_KEY = "plantuml.object.style.json.text"
+        const val STYLE_NOTE_FILL_KEY = "plantuml.object.style.note.fill"
+        const val STYLE_NOTE_STROKE_KEY = "plantuml.object.style.note.stroke"
+        const val STYLE_NOTE_TEXT_KEY = "plantuml.object.style.note.text"
+        const val STYLE_PACKAGE_FILL_KEY = "plantuml.object.style.package.fill"
+        const val STYLE_PACKAGE_STROKE_KEY = "plantuml.object.style.package.stroke"
+        const val STYLE_PACKAGE_TEXT_KEY = "plantuml.object.style.package.text"
+        const val STYLE_NAMESPACE_FILL_KEY = "plantuml.object.style.namespace.fill"
+        const val STYLE_NAMESPACE_STROKE_KEY = "plantuml.object.style.namespace.stroke"
+        const val STYLE_NAMESPACE_TEXT_KEY = "plantuml.object.style.namespace.text"
+        const val STYLE_EDGE_COLOR_KEY = "plantuml.object.style.edge.color"
         val RELATION_OPERATORS = listOf("<|--", "*--", "o--", "-->", "<--", "..>", "<..", "--", "..")
         val IDENTIFIER = Regex("[A-Za-z0-9_.:-]+")
+        private val SUPPORTED_SKINPARAM_SCOPES = setOf("object", "map", "json", "note", "package", "namespace")
+
+        fun styleFontSizeKey(scope: String): String = "plantuml.object.style.$scope.fontSize"
+        fun styleFontNameKey(scope: String): String = "plantuml.object.style.$scope.fontName"
+        fun styleLineThicknessKey(scope: String): String = "plantuml.object.style.$scope.lineThickness"
+        fun styleShadowingKey(scope: String): String = "plantuml.object.style.$scope.shadowing"
     }
 
     private data class AliasSpec(
@@ -70,6 +95,90 @@ class PlantUmlObjectParser {
     private val edges: MutableList<Edge> = ArrayList()
     private val rootClusters: MutableList<ClusterBuilder> = ArrayList()
     private val clusterStack: ArrayDeque<ClusterBuilder> = ArrayDeque()
+    private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
+    private val skinparamSupport = PlantUmlSkinparamSupport(
+        styleExtras = styleExtras,
+        supportedScopes = SUPPORTED_SKINPARAM_SCOPES,
+        scopeKeys = mapOf(
+            "object" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_OBJECT_FILL_KEY,
+                strokeKey = STYLE_OBJECT_STROKE_KEY,
+                textKey = STYLE_OBJECT_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("object"),
+                fontNameKey = styleFontNameKey("object"),
+                lineThicknessKey = styleLineThicknessKey("object"),
+                shadowingKey = styleShadowingKey("object"),
+            ),
+            "map" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_MAP_FILL_KEY,
+                strokeKey = STYLE_MAP_STROKE_KEY,
+                textKey = STYLE_MAP_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("map"),
+                fontNameKey = styleFontNameKey("map"),
+                lineThicknessKey = styleLineThicknessKey("map"),
+                shadowingKey = styleShadowingKey("map"),
+            ),
+            "json" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_JSON_FILL_KEY,
+                strokeKey = STYLE_JSON_STROKE_KEY,
+                textKey = STYLE_JSON_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("json"),
+                fontNameKey = styleFontNameKey("json"),
+                lineThicknessKey = styleLineThicknessKey("json"),
+                shadowingKey = styleShadowingKey("json"),
+            ),
+            "note" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_NOTE_FILL_KEY,
+                strokeKey = STYLE_NOTE_STROKE_KEY,
+                textKey = STYLE_NOTE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("note"),
+                fontNameKey = styleFontNameKey("note"),
+                lineThicknessKey = styleLineThicknessKey("note"),
+                shadowingKey = styleShadowingKey("note"),
+            ),
+            "package" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_PACKAGE_FILL_KEY,
+                strokeKey = STYLE_PACKAGE_STROKE_KEY,
+                textKey = STYLE_PACKAGE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("package"),
+                fontNameKey = styleFontNameKey("package"),
+                lineThicknessKey = styleLineThicknessKey("package"),
+                shadowingKey = styleShadowingKey("package"),
+            ),
+            "namespace" to PlantUmlSkinparamScopeKeys(
+                fillKey = STYLE_NAMESPACE_FILL_KEY,
+                strokeKey = STYLE_NAMESPACE_STROKE_KEY,
+                textKey = STYLE_NAMESPACE_TEXT_KEY,
+                fontSizeKey = styleFontSizeKey("namespace"),
+                fontNameKey = styleFontNameKey("namespace"),
+                lineThicknessKey = styleLineThicknessKey("namespace"),
+                shadowingKey = styleShadowingKey("namespace"),
+            ),
+        ),
+        directKeys = mapOf(
+            "objectbackgroundcolor" to STYLE_OBJECT_FILL_KEY,
+            "objectbordercolor" to STYLE_OBJECT_STROKE_KEY,
+            "objectfontcolor" to STYLE_OBJECT_TEXT_KEY,
+            "mapbackgroundcolor" to STYLE_MAP_FILL_KEY,
+            "mapbordercolor" to STYLE_MAP_STROKE_KEY,
+            "mapfontcolor" to STYLE_MAP_TEXT_KEY,
+            "jsonbackgroundcolor" to STYLE_JSON_FILL_KEY,
+            "jsonbordercolor" to STYLE_JSON_STROKE_KEY,
+            "jsonfontcolor" to STYLE_JSON_TEXT_KEY,
+            "notebackgroundcolor" to STYLE_NOTE_FILL_KEY,
+            "notebordercolor" to STYLE_NOTE_STROKE_KEY,
+            "notefontcolor" to STYLE_NOTE_TEXT_KEY,
+            "packagebackgroundcolor" to STYLE_PACKAGE_FILL_KEY,
+            "packagebordercolor" to STYLE_PACKAGE_STROKE_KEY,
+            "packagefontcolor" to STYLE_PACKAGE_TEXT_KEY,
+            "namespacebackgroundcolor" to STYLE_NAMESPACE_FILL_KEY,
+            "namespacebordercolor" to STYLE_NAMESPACE_STROKE_KEY,
+            "namespacefontcolor" to STYLE_NAMESPACE_TEXT_KEY,
+            "arrowcolor" to STYLE_EDGE_COLOR_KEY,
+        ),
+        warnUnsupported = ::warnUnsupportedSkinparam,
+        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+    )
 
     private var currentObject: NodeId? = null
     private var pendingNote: PendingNote? = null
@@ -92,6 +201,13 @@ class PlantUmlObjectParser {
             note.lines += trimmed
             return IrPatchBatch(seq, emptyList())
         }
+        skinparamSupport.pendingScope?.let { scope ->
+            if (trimmed == "}") {
+                skinparamSupport.pendingScope = null
+                return IrPatchBatch(seq, emptyList())
+            }
+            return skinparamSupport.acceptScopedEntry(scope, trimmed)
+        }
         currentObject?.let { current ->
             if (trimmed == "}") {
                 currentObject = null
@@ -101,6 +217,7 @@ class PlantUmlObjectParser {
         }
 
         return when {
+            trimmed.startsWith("skinparam", ignoreCase = true) -> skinparamSupport.acceptDirective(trimmed)
             trimmed.equals("left to right direction", ignoreCase = true) -> {
                 direction = Direction.LR
                 IrPatchBatch(seq, emptyList())
@@ -142,6 +259,16 @@ class PlantUmlObjectParser {
             )
             pendingNote = null
         }
+        if (skinparamSupport.pendingScope != null) {
+            out += addDiagnostic(
+                Diagnostic(
+                    severity = Severity.WARNING,
+                    message = "Unsupported or unclosed 'skinparam ${skinparamSupport.pendingScope!!}' block ignored",
+                    code = "PLANTUML-W001",
+                ),
+            )
+            skinparamSupport.pendingScope = null
+        }
         if (currentObject != null) {
             out += addDiagnostic(
                 Diagnostic(
@@ -179,7 +306,7 @@ class PlantUmlObjectParser {
         edges = edges.toList(),
         clusters = rootClusters.map { it.build() },
         sourceLanguage = SourceLanguage.PLANTUML,
-        styleHints = StyleHints(direction = direction),
+        styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
@@ -435,6 +562,9 @@ class PlantUmlObjectParser {
         diagnostics += diagnostic
         return IrPatch.AddDiagnostic(diagnostic)
     }
+
+    private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
+        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun ClusterBuilder.build(): Cluster = Cluster(
         id = id,

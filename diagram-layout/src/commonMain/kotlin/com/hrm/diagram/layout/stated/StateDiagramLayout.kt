@@ -32,12 +32,19 @@ import kotlin.math.sqrt
 class StateDiagramLayout(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) : IncrementalLayout<StateIR> {
+    private data class StateLayoutFonts(
+        val labelFont: FontSpec,
+        val nodeFont: FontSpec,
+        val noteFont: FontSpec,
+    )
+
     private companion object {
         const val REGION_PREFIX = "__plantuml_state_region__#"
+        const val STYLE_STATE_FONT_SIZE_KEY = "plantuml.state.style.state.fontSize"
+        const val STYLE_STATE_FONT_NAME_KEY = "plantuml.state.style.state.fontName"
+        const val STYLE_NOTE_FONT_SIZE_KEY = "plantuml.state.style.note.fontSize"
+        const val STYLE_NOTE_FONT_NAME_KEY = "plantuml.state.style.note.fontName"
     }
-
-    private val labelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
-    private val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
 
     override fun layout(previous: LaidOutDiagram?, model: StateIR, options: LayoutOptions): LaidOutDiagram {
         return computeLayout(model, options)
@@ -53,6 +60,7 @@ class StateDiagramLayout(
                 bounds = Rect.ltrb(0f, 0f, 0f, 0f),
             )
         }
+        val fonts = resolveFonts(ir)
 
         // Build parent map (child -> parent) by inverting children lists.
         val parentOf = HashMap<NodeId, NodeId>()
@@ -65,7 +73,7 @@ class StateDiagramLayout(
 
         val sizes = HashMap<NodeId, Pair<Float, Float>>()
         val childPositionsRel = HashMap<NodeId, Map<NodeId, Rect>>()
-        for (s in topLevel) measureRec(s, byId, sizes, childPositionsRel, isHorizontal)
+        for (s in topLevel) measureRec(s, byId, sizes, childPositionsRel, isHorizontal, fonts)
 
         val nodePositions = LinkedHashMap<NodeId, Rect>()
         val maxW = topLevel.maxOf { sizes.getValue(it.id).first }
@@ -84,7 +92,7 @@ class StateDiagramLayout(
         for (t in ir.transitions) {
             val txt = (t.label as? com.hrm.diagram.core.ir.RichLabel.Plain)?.text.orEmpty()
             if (txt.isNotEmpty()) {
-                val mw = textMeasurer.measure(txt, labelFont).width
+                val mw = textMeasurer.measure(txt, fonts.labelFont).width
                 if (mw > maxLabelW) maxLabelW = mw
             }
         }
@@ -125,7 +133,7 @@ class StateDiagramLayout(
         val noteDirs = LinkedHashMap<NodeId, Pair<Float, Float>>()
         for ((noteIdx, note) in ir.notes.withIndex()) {
             val noteText = (note.text as? com.hrm.diagram.core.ir.RichLabel.Plain)?.text.orEmpty()
-            val m = textMeasurer.measure(noteText, nodeFont, maxWidth = 180f)
+            val m = textMeasurer.measure(noteText, fonts.noteFont, maxWidth = 180f)
             val w = (m.width + 16f).coerceAtLeast(60f)
             val h = (m.height + 12f).coerceAtLeast(28f)
             val target = note.targetState?.let { nodePositions[it] }
@@ -215,7 +223,7 @@ class StateDiagramLayout(
                 val mid = Point((a.left + a.right + b.left + b.right) / 4f, (a.top + a.bottom + b.top + b.bottom) / 4f)
                 val labelText = (t.label as? com.hrm.diagram.core.ir.RichLabel.Plain)?.text.orEmpty()
                 if (labelText.isNotEmpty()) {
-                    val mm = textMeasurer.measure(labelText, nodeFont)
+                    val mm = textMeasurer.measure(labelText, fonts.labelFont)
                     labelRects += Rect.ltrb(
                         mid.x - mm.width / 2f - 4f, mid.y - mm.height / 2f - 2f,
                         mid.x + mm.width / 2f + 4f, mid.y + mm.height / 2f + 2f,
@@ -279,9 +287,10 @@ class StateDiagramLayout(
         sizes: HashMap<NodeId, Pair<Float, Float>>,
         childRel: HashMap<NodeId, Map<NodeId, Rect>>,
         isHorizontal: Boolean,
+        fonts: StateLayoutFonts,
     ) {
         if (s.kind == StateKind.Composite && s.children.isNotEmpty()) {
-            for (cid in s.children) byId[cid]?.let { measureRec(it, byId, sizes, childRel, isHorizontal) }
+            for (cid in s.children) byId[cid]?.let { measureRec(it, byId, sizes, childRel, isHorizontal, fonts) }
             val childMaxW = s.children.mapNotNull { sizes[it]?.first }.maxOrNull() ?: 0f
             val childMaxH = s.children.mapNotNull { sizes[it]?.second }.maxOrNull() ?: 0f
             val nC = s.children.size
@@ -301,7 +310,7 @@ class StateDiagramLayout(
             val titleH = if (isRegionId(s.id)) {
                 0f
             } else {
-                textMeasurer.measure(displayName(s), nodeFont).height + 8f
+                textMeasurer.measure(displayName(s), fonts.nodeFont).height + 8f
             }
             val padInside = 12f
             val innerW = cols * childMaxW + (cols - 1).coerceAtLeast(0) * innerGap + 2 * padInside
@@ -322,7 +331,7 @@ class StateDiagramLayout(
             }
             childRel[s.id] = rel
         } else {
-            sizes[s.id] = measureNode(s)
+            sizes[s.id] = measureNode(s, fonts)
         }
     }
 
@@ -346,7 +355,7 @@ class StateDiagramLayout(
         }
     }
 
-    private fun measureNode(s: StateNode): Pair<Float, Float> = when (s.kind) {
+    private fun measureNode(s: StateNode, fonts: StateLayoutFonts): Pair<Float, Float> = when (s.kind) {
         StateKind.Initial -> 16f to 16f
         StateKind.Final -> 22f to 22f
         StateKind.Choice -> 28f to 28f
@@ -354,12 +363,40 @@ class StateDiagramLayout(
         StateKind.History, StateKind.DeepHistory -> 26f to 26f
         StateKind.Composite, StateKind.Simple -> {
             val name = displayName(s)
-            val m = textMeasurer.measure(name, nodeFont)
+            val m = textMeasurer.measure(name, fonts.nodeFont)
             val w = (m.width + 24f).coerceAtLeast(60f)
             val h = (m.height + 16f).coerceAtLeast(36f)
             w to h
         }
     }
+
+    private fun resolveFonts(ir: StateIR): StateLayoutFonts {
+        val extras = ir.styleHints.extras
+        val nodeFont = resolveFont(
+            base = FontSpec(family = "sans-serif", sizeSp = 12f),
+            familyRaw = extras[STYLE_STATE_FONT_NAME_KEY],
+            sizeRaw = extras[STYLE_STATE_FONT_SIZE_KEY],
+        )
+        val noteFont = resolveFont(
+            base = nodeFont,
+            familyRaw = extras[STYLE_NOTE_FONT_NAME_KEY],
+            sizeRaw = extras[STYLE_NOTE_FONT_SIZE_KEY],
+        )
+        val labelFont = nodeFont.copy(sizeSp = (nodeFont.sizeSp - 1f).coerceAtLeast(10f))
+        return StateLayoutFonts(labelFont = labelFont, nodeFont = nodeFont, noteFont = noteFont)
+    }
+
+    private fun resolveFont(base: FontSpec, familyRaw: String?, sizeRaw: String?): FontSpec =
+        base.copy(
+            family = parseFontFamily(familyRaw) ?: base.family,
+            sizeSp = parseFontSize(sizeRaw) ?: base.sizeSp,
+        )
+
+    private fun parseFontFamily(raw: String?): String? =
+        raw?.trim()?.trim('"')?.takeIf { it.isNotEmpty() }
+
+    private fun parseFontSize(raw: String?): Float? =
+        raw?.trim()?.toFloatOrNull()?.takeIf { it > 0f }
 
     private fun displayName(s: StateNode): String = s.description ?: s.name
 

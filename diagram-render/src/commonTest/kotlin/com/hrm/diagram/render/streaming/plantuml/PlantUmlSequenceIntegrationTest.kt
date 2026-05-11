@@ -50,11 +50,11 @@ class PlantUmlSequenceIntegrationTest {
     }
 
     @Test
-    fun skinparam_is_ignored_with_warning() {
+    fun unsupported_sequence_skinparam_still_warns() {
         val src =
             """
             @startuml
-            skinparam ArrowColor red
+            skinparam ResponseMessageBelowArrow true
             Alice -> Bob: hi
             @enduml
             """.trimIndent() + "\n"
@@ -62,6 +62,107 @@ class PlantUmlSequenceIntegrationTest {
         val snapshot = run(src, chunkSize = src.length)
         assertTrue(snapshot.diagnostics.any { it.code == "PLANTUML-W001" })
         assertTrue(snapshot.drawCommands.isNotEmpty())
+    }
+
+    @Test
+    fun sequence_skinparam_font_line_and_shadow_render_consistently() {
+        val src =
+            """
+            @startuml
+            skinparam sequence {
+              BackgroundColor LightGray
+              BorderColor Peru
+              FontColor Navy
+              FontSize 15
+              FontName serif
+              LineThickness 2.5
+              Shadowing true
+            }
+            skinparam participant {
+              BackgroundColor LightYellow
+              BorderColor Orange
+              FontColor Navy
+              FontSize 16
+              FontName monospace
+              LineThickness 2
+              Shadowing true
+            }
+            skinparam actor {
+              BackgroundColor Ivory
+              BorderColor SaddleBrown
+              FontColor Navy
+              FontSize 18
+              FontName fantasy
+              LineThickness 3
+              Shadowing true
+            }
+            skinparam note {
+              BackgroundColor Ivory
+              BorderColor Orange
+              FontColor SaddleBrown
+              FontSize 14
+              FontName cursive
+              LineThickness 1.75
+              Shadowing true
+            }
+            skinparam box {
+              BackgroundColor PaleGreen
+              BorderColor Green
+              FontColor Navy
+              FontSize 13
+              FontName system-ui
+              LineThickness 1.5
+              Shadowing true
+            }
+            skinparam ArrowColor Red
+            box "Clients" LightBlue
+            actor Alice
+            participant Bob
+            end box
+            Alice -> Bob: request
+            note over Alice,Bob: handshake
+            Bob --> Alice: response
+            @enduml
+            """.trimIndent() + "\n"
+
+        val one = run(src, chunkSize = src.length)
+        val chunked = run(src, chunkSize = 4)
+        val oneIr = assertIs<SequenceIR>(one.ir)
+        val chunkedIr = assertIs<SequenceIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertEquals(drawSignature(one.drawCommands), drawSignature(chunked.drawCommands))
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+
+        val texts = one.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        val fillColors = one.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }
+        val strokeRectColors = one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().map { it.color.argb }
+        val strokePathColors = one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.color.argb }
+        val textColors = texts.map { it.color.argb }
+        val strokeWidths = one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().map { it.stroke.width } +
+            one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.stroke.width }
+        val shadowRects = one.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }
+
+        assertTrue(fillColors.contains(0xFFD3D3D3.toInt()), "expected sequence BackgroundColor LightGray")
+        assertTrue(fillColors.contains(0xFFFFFFF0.toInt()), "expected actor/note BackgroundColor Ivory")
+        assertTrue(fillColors.contains(0xFFFFFFE0.toInt()), "expected participant BackgroundColor LightYellow")
+        assertTrue(fillColors.any { (it and 0x00FFFFFF) == 0x0098FB98 }, "expected box BackgroundColor PaleGreen")
+        assertTrue(strokeRectColors.contains(0xFF8B4513.toInt()), "expected actor BorderColor SaddleBrown")
+        assertTrue(strokeRectColors.contains(0xFFFFA500.toInt()), "expected participant/note BorderColor Orange")
+        assertTrue(strokeRectColors.contains(0xFF008000.toInt()), "expected box BorderColor Green")
+        assertTrue(strokePathColors.contains(0xFFFF0000.toInt()), "expected ArrowColor Red")
+        assertTrue(textColors.contains(0xFF000080.toInt()), "expected participant/actor/box FontColor Navy")
+        assertTrue(textColors.contains(0xFF8B4513.toInt()), "expected note FontColor SaddleBrown")
+        assertTrue(texts.any { it.font.family == "fantasy" && it.font.sizeSp == 18f && it.text == "Alice" })
+        assertTrue(texts.any { it.font.family == "monospace" && it.font.sizeSp == 16f && it.text == "Bob" })
+        assertTrue(texts.any { it.font.family == "serif" && it.font.sizeSp == 15f && it.text.contains("request") })
+        assertTrue(texts.any { it.font.family == "cursive" && it.font.sizeSp == 14f && it.text == "handshake" })
+        assertTrue(texts.any { it.font.family == "system-ui" && it.font.sizeSp == 13f && it.text == "Clients" })
+        assertTrue(strokeWidths.any { it == 3f })
+        assertTrue(strokeWidths.any { it == 2.5f })
+        assertTrue(strokeWidths.any { it == 1.75f })
+        assertTrue(strokeWidths.any { it == 1.5f })
+        assertTrue(shadowRects.contains(0x26000000))
     }
 
     @Test

@@ -46,8 +46,9 @@ internal class PlantUmlSessionPipeline(
     private var bufferingSkinparamBlock: Boolean = false
     private var ignoredSkinparamBlock: Boolean = false
     private var subPipeline: PlantUmlSubPipeline? = null
+    private var closingDirective: String = "@enduml"
 
-    private enum class DiagramKind { Sequence, Class, State, Component, Usecase, Activity, Object, Deployment, Erd }
+    private enum class DiagramKind { Sequence, Class, State, Component, Usecase, Activity, Object, Deployment, Erd, Mindmap, Wbs }
 
     override fun advance(
         previousSnapshot: DiagramSnapshot,
@@ -120,12 +121,21 @@ internal class PlantUmlSessionPipeline(
         if (!blockStarted) {
             if (trimmed.equals("@startuml", ignoreCase = true)) {
                 blockStarted = true
+                closingDirective = "@enduml"
+            } else if (trimmed.equals("@startmindmap", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endmindmap"
+                attachSubPipeline(DiagramKind.Mindmap, out)
+            } else if (trimmed.equals("@startwbs", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endwbs"
+                attachSubPipeline(DiagramKind.Wbs, out)
             }
             return
         }
         if (blockClosed) return
 
-        if (trimmed.equals("@enduml", ignoreCase = true)) {
+        if (trimmed.equals(closingDirective, ignoreCase = true)) {
             blockClosed = true
             return
         }
@@ -140,7 +150,16 @@ internal class PlantUmlSessionPipeline(
         }
         if (trimmed.startsWith("skinparam", ignoreCase = true)) {
             val chosen = subPipeline
-            if (chosen is PlantUmlActivitySubPipeline || chosen is PlantUmlUsecaseSubPipeline || chosen is PlantUmlStateSubPipeline) {
+            if (
+                chosen is PlantUmlSequenceSubPipeline ||
+                chosen is PlantUmlActivitySubPipeline ||
+                chosen is PlantUmlUsecaseSubPipeline ||
+                chosen is PlantUmlStateSubPipeline ||
+                chosen is PlantUmlClassSubPipeline ||
+                chosen is PlantUmlComponentSubPipeline ||
+                chosen is PlantUmlDeploymentSubPipeline ||
+                chosen is PlantUmlObjectSubPipeline
+            ) {
                 out += chosen.acceptLine(trimmed).patches
             } else if (chosen != null) {
                 out += ignoredSkinparamWarning()
@@ -183,9 +202,20 @@ internal class PlantUmlSessionPipeline(
             DiagramKind.Object -> PlantUmlObjectSubPipeline(textMeasurer)
             DiagramKind.Deployment -> PlantUmlDeploymentSubPipeline(textMeasurer)
             DiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer)
+            DiagramKind.Mindmap -> PlantUmlMindmapSubPipeline(textMeasurer)
+            DiagramKind.Wbs -> PlantUmlWbsSubPipeline(textMeasurer)
         }
         if (bufferedSkinparamLines.isNotEmpty()) {
-            if (kind == DiagramKind.Activity || kind == DiagramKind.Usecase || kind == DiagramKind.State) {
+            if (
+                kind == DiagramKind.Sequence ||
+                kind == DiagramKind.Activity ||
+                kind == DiagramKind.Usecase ||
+                kind == DiagramKind.State ||
+                kind == DiagramKind.Class ||
+                kind == DiagramKind.Component ||
+                kind == DiagramKind.Deployment ||
+                kind == DiagramKind.Object
+            ) {
                 for (line in bufferedSkinparamLines) {
                     out += subPipeline!!.acceptLine(line).patches
                 }
@@ -346,12 +376,13 @@ internal class PlantUmlSessionPipeline(
         }
         if (!sawAmbiguousContainerCue) return false
         return when (kind) {
-            DiagramKind.Component,
-            DiagramKind.Sequence,
-                ->
+            DiagramKind.Component ->
                 lower.startsWith("database ") ||
+                    line.startsWith("[") ||
                     lower.startsWith("queue ") ||
                     lower.startsWith("frame ")
+            DiagramKind.Sequence -> true
+            DiagramKind.Activity -> line == "}"
             else -> false
         }
     }

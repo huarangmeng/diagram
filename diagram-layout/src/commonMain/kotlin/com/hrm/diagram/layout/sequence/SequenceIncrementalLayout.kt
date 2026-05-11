@@ -35,6 +35,32 @@ import com.hrm.diagram.layout.RouteKind
 class SequenceIncrementalLayout(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) : IncrementalLayout<SequenceIR> {
+    private data class ScopeStyle(
+        val fontSize: Float?,
+        val fontName: String?,
+        val lineThickness: Float?,
+        val shadowing: Boolean?,
+    )
+
+    private data class SequenceLayoutStyle(
+        val sequence: ScopeStyle,
+        val participant: ScopeStyle,
+        val actor: ScopeStyle,
+        val boundary: ScopeStyle,
+        val control: ScopeStyle,
+        val entity: ScopeStyle,
+        val database: ScopeStyle,
+        val collections: ScopeStyle,
+        val queue: ScopeStyle,
+        val note: ScopeStyle,
+        val box: ScopeStyle,
+    )
+
+    private data class SequenceLayoutFonts(
+        val messageFont: FontSpec,
+        val noteFont: FontSpec,
+        val boxFont: FontSpec,
+    )
 
     override fun layout(previous: LaidOutDiagram?, model: SequenceIR, options: LayoutOptions): LaidOutDiagram {
         return computeLayout(model)
@@ -52,15 +78,18 @@ class SequenceIncrementalLayout(
             )
         }
 
-        val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
-        val msgFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+        val style = resolveStyle(ir)
+        val fonts = resolveFonts(style)
 
         val laneWidth = HashMap<NodeId, Float>(participants.size)
+        var headerHeight = HEADER_H
         for (p in participants) {
             val text = labelOrId(p.label, p.id)
-            val m = textMeasurer.measure(text, labelFont)
+            val participantFont = participantFontFor(p.kind.name.lowercase(), style)
+            val m = textMeasurer.measure(text, participantFont)
             val w = (m.width + 2 * LANE_PAD).coerceAtLeast(LANE_W_MIN)
             laneWidth[p.id] = w
+            headerHeight = headerHeight.coerceAtLeast(m.height + 18f)
         }
 
         val laneCenter = HashMap<NodeId, Float>(participants.size)
@@ -76,8 +105,9 @@ class SequenceIncrementalLayout(
         }
         val rightEdge = x + MARGIN_X
 
-        val headerTop = START_Y
-        val headerBottom = headerTop + HEADER_H
+        val boxTitleBand = measureBoxTitleBand(ir, fonts.boxFont)
+        val headerTop = START_Y + boxTitleBand
+        val headerBottom = headerTop + headerHeight
         val nodePositions = LinkedHashMap<NodeId, Rect>()
         for (p in participants) {
             nodePositions[p.id] = Rect.ltrb(
@@ -98,7 +128,7 @@ class SequenceIncrementalLayout(
 
         for (msg in ir.messages) {
             val labelText = (msg.label as? RichLabel.Plain)?.text ?: ""
-            val measured = textMeasurer.measure(labelText, msgFont)
+            val measured = textMeasurer.measure(labelText, if (msg.kind == MessageKind.Note) fonts.noteFont else fonts.messageFont)
             val rowH = (measured.height + 16f).coerceAtLeast(ROW_H_MIN)
             val rowMid = currentY + rowH / 2f
             messageRowY += rowMid
@@ -119,8 +149,13 @@ class SequenceIncrementalLayout(
                     } else {
                         val from = laneCenter.getValue(msg.from)
                         val to = laneCenter.getValue(msg.to)
-                        val noteLeft = minOf(from, to) - 50f
-                        val noteRight = maxOf(from, to) + 50f
+                        val minX = minOf(from, to)
+                        val maxX = maxOf(from, to)
+                        val measuredWidth = textMeasurer.measure(labelText, fonts.noteFont, maxWidth = 220f).width + 24f
+                        val spanWidth = (maxX - minX + 100f).coerceAtLeast(measuredWidth)
+                        val center = (from + to) / 2f
+                        val noteLeft = center - spanWidth / 2f
+                        val noteRight = center + spanWidth / 2f
                         val rect = Rect.ltrb(noteLeft, currentY + 4f, noteRight, currentY + rowH - 4f)
                         clusterRects[NodeId("note#${noteIdx++}")] = rect
                     }
@@ -192,6 +227,84 @@ class SequenceIncrementalLayout(
 
     private fun labelOrId(label: RichLabel, id: NodeId): String =
         (label as? RichLabel.Plain)?.text?.takeIf { it.isNotEmpty() } ?: id.value
+
+    private fun resolveStyle(ir: SequenceIR): SequenceLayoutStyle {
+        val extras = ir.styleHints.extras
+        fun scope(name: String): ScopeStyle = ScopeStyle(
+            fontSize = parseFontSize(extras["plantuml.sequence.style.$name.fontSize"]),
+            fontName = parseFontFamily(extras["plantuml.sequence.style.$name.fontName"]),
+            lineThickness = parseFloat(extras["plantuml.sequence.style.$name.lineThickness"]),
+            shadowing = parseBoolean(extras["plantuml.sequence.style.$name.shadowing"]),
+        )
+        return SequenceLayoutStyle(
+            sequence = scope("sequence"),
+            participant = scope("participant"),
+            actor = scope("actor"),
+            boundary = scope("boundary"),
+            control = scope("control"),
+            entity = scope("entity"),
+            database = scope("database"),
+            collections = scope("collections"),
+            queue = scope("queue"),
+            note = scope("note"),
+            box = scope("box"),
+        )
+    }
+
+    private fun resolveFonts(style: SequenceLayoutStyle): SequenceLayoutFonts {
+        val messageFont = resolveFont(FontSpec(family = "sans-serif", sizeSp = 11f), style.sequence)
+        val noteFont = resolveFont(messageFont, style.note)
+        val boxBase = FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600)
+        val boxFont = resolveFont(boxBase, style.box)
+        return SequenceLayoutFonts(
+            messageFont = messageFont,
+            noteFont = noteFont,
+            boxFont = boxFont,
+        )
+    }
+
+    private fun participantFontFor(kind: String, style: SequenceLayoutStyle): FontSpec {
+        val base = resolveFont(FontSpec(family = "sans-serif", sizeSp = 13f), style.participant)
+        val scope = when (kind) {
+            "actor" -> style.actor
+            "boundary" -> style.boundary
+            "control" -> style.control
+            "entity" -> style.entity
+            "database" -> style.database
+            "collections" -> style.collections
+            "queue" -> style.queue
+            else -> null
+        }
+        return scope?.let { resolveFont(base, it) } ?: base
+    }
+
+    private fun measureBoxTitleBand(ir: SequenceIR, boxFont: FontSpec): Float {
+        val raw = ir.styleHints.extras["plantuml.sequence.boxes"].orEmpty()
+        if (raw.isEmpty()) return 0f
+        val titles = raw.split("||")
+            .filter { it.isNotEmpty() }
+            .map { it.split("|", limit = 3).firstOrNull().orEmpty().replace("\\|", "|") }
+            .filter { it.isNotEmpty() }
+        if (titles.isEmpty()) return 0f
+        val maxHeight = titles.maxOf { textMeasurer.measure(it, boxFont).height }
+        return maxHeight + 14f
+    }
+
+    private fun resolveFont(base: FontSpec, scope: ScopeStyle): FontSpec =
+        base.copy(
+            family = scope.fontName ?: base.family,
+            sizeSp = scope.fontSize ?: base.sizeSp,
+        )
+
+    private fun parseFontFamily(raw: String?): String? = raw?.trim()?.trim('"')?.takeIf { it.isNotEmpty() }
+    private fun parseFontSize(raw: String?): Float? = raw?.trim()?.toFloatOrNull()?.takeIf { it > 0f }
+    private fun parseFloat(raw: String?): Float? = raw?.trim()?.toFloatOrNull()?.takeIf { it > 0f }
+    private fun parseBoolean(raw: String?): Boolean? =
+        when (raw?.trim()?.lowercase()) {
+            "true", "yes", "on", "1" -> true
+            "false", "no", "off", "0" -> false
+            else -> null
+        }
 
     private companion object {
         const val LANE_PAD = 30f

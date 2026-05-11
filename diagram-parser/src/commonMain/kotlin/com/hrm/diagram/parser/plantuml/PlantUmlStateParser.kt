@@ -35,9 +35,17 @@ class PlantUmlStateParser {
         const val STYLE_STATE_FILL_KEY = "plantuml.state.style.state.fill"
         const val STYLE_STATE_STROKE_KEY = "plantuml.state.style.state.stroke"
         const val STYLE_STATE_TEXT_KEY = "plantuml.state.style.state.text"
+        const val STYLE_STATE_FONT_SIZE_KEY = "plantuml.state.style.state.fontSize"
+        const val STYLE_STATE_FONT_NAME_KEY = "plantuml.state.style.state.fontName"
+        const val STYLE_STATE_LINE_THICKNESS_KEY = "plantuml.state.style.state.lineThickness"
+        const val STYLE_STATE_SHADOWING_KEY = "plantuml.state.style.state.shadowing"
         const val STYLE_NOTE_FILL_KEY = "plantuml.state.style.note.fill"
         const val STYLE_NOTE_STROKE_KEY = "plantuml.state.style.note.stroke"
         const val STYLE_NOTE_TEXT_KEY = "plantuml.state.style.note.text"
+        const val STYLE_NOTE_FONT_SIZE_KEY = "plantuml.state.style.note.fontSize"
+        const val STYLE_NOTE_FONT_NAME_KEY = "plantuml.state.style.note.fontName"
+        const val STYLE_NOTE_LINE_THICKNESS_KEY = "plantuml.state.style.note.lineThickness"
+        const val STYLE_NOTE_SHADOWING_KEY = "plantuml.state.style.note.shadowing"
         const val STYLE_COMPOSITE_FILL_KEY = "plantuml.state.style.composite.fill"
         const val STYLE_COMPOSITE_STROKE_KEY = "plantuml.state.style.composite.stroke"
         const val STYLE_EDGE_COLOR_KEY = "plantuml.state.style.edge.color"
@@ -402,9 +410,17 @@ class PlantUmlStateParser {
             "statebackgroundcolor" -> storeSkinparam(STYLE_STATE_FILL_KEY, value)
             "statebordercolor" -> storeSkinparam(STYLE_STATE_STROKE_KEY, value)
             "statefontcolor" -> storeSkinparam(STYLE_STATE_TEXT_KEY, value)
+            "statefontsize" -> storeSkinparam(STYLE_STATE_FONT_SIZE_KEY, value)
+            "statefontname" -> storeSkinparam(STYLE_STATE_FONT_NAME_KEY, value)
+            "statelinethickness" -> storeSkinparam(STYLE_STATE_LINE_THICKNESS_KEY, value)
+            "stateshadowing" -> storeSkinparam(STYLE_STATE_SHADOWING_KEY, value)
             "notebackgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
             "notebordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
             "notefontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+            "notefontsize" -> storeSkinparam(STYLE_NOTE_FONT_SIZE_KEY, value)
+            "notefontname" -> storeSkinparam(STYLE_NOTE_FONT_NAME_KEY, value)
+            "notelinethickness" -> storeSkinparam(STYLE_NOTE_LINE_THICKNESS_KEY, value)
+            "noteshadowing" -> storeSkinparam(STYLE_NOTE_SHADOWING_KEY, value)
             "arrowcolor" -> storeSkinparam(STYLE_EDGE_COLOR_KEY, value)
             else -> warnUnsupportedSkinparam(line)
         }
@@ -424,12 +440,20 @@ class PlantUmlStateParser {
                     storeSkinparam(STYLE_COMPOSITE_STROKE_KEY, value)
                 }
                 "fontcolor" -> storeSkinparam(STYLE_STATE_TEXT_KEY, value)
+                "fontsize" -> storeSkinparam(STYLE_STATE_FONT_SIZE_KEY, value)
+                "fontname" -> storeSkinparam(STYLE_STATE_FONT_NAME_KEY, value)
+                "linethickness" -> storeSkinparam(STYLE_STATE_LINE_THICKNESS_KEY, value)
+                "shadowing" -> storeSkinparam(STYLE_STATE_SHADOWING_KEY, value)
                 else -> warnUnsupportedSkinparam("skinparam state $line")
             }
             "note" -> when (key.lowercase()) {
                 "backgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
                 "bordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
                 "fontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+                "fontsize" -> storeSkinparam(STYLE_NOTE_FONT_SIZE_KEY, value)
+                "fontname" -> storeSkinparam(STYLE_NOTE_FONT_NAME_KEY, value)
+                "linethickness" -> storeSkinparam(STYLE_NOTE_LINE_THICKNESS_KEY, value)
+                "shadowing" -> storeSkinparam(STYLE_NOTE_SHADOWING_KEY, value)
                 else -> warnUnsupportedSkinparam("skinparam note $line")
             }
             else -> warnUnsupportedSkinparam("skinparam $scope $line")

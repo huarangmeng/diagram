@@ -47,6 +47,8 @@
 | PLANTUML-E008 | object 语法不匹配（object / property / relation 行） | object parser |
 | PLANTUML-E009 | deployment 语法不匹配（node / artifact / database / relation 行） | deployment parser |
 | PLANTUML-E010 | erd 语法不匹配（entity / attribute / crowfoot relation / note 行） | erd parser |
+| PLANTUML-E011 | mindmap 语法不匹配（层级前缀 / 多行节点 / 多根 / block 闭合） | mindmap parser |
+| PLANTUML-E012 | wbs 语法不匹配（层级前缀 / 算术方向 / boxless / 多行节点 / block 闭合） | wbs parser |
 | PLANTUML-W001 | 未识别或当前图型不支持的 `skinparam`，已忽略 | dispatcher / lowering |
 | DOT-E001 | 词法错误：未闭合字符串 | lexer |
 | DOT-W001 | 不支持的属性已忽略 | attrs lowering |

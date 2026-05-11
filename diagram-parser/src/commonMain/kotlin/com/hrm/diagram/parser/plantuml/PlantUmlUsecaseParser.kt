@@ -45,16 +45,36 @@ class PlantUmlUsecaseParser {
         const val STYLE_ACTOR_FILL_KEY = "plantuml.usecase.style.actor.fill"
         const val STYLE_ACTOR_STROKE_KEY = "plantuml.usecase.style.actor.stroke"
         const val STYLE_ACTOR_TEXT_KEY = "plantuml.usecase.style.actor.text"
+        const val STYLE_ACTOR_FONT_SIZE_KEY = "plantuml.usecase.style.actor.fontSize"
+        const val STYLE_ACTOR_FONT_NAME_KEY = "plantuml.usecase.style.actor.fontName"
+        const val STYLE_ACTOR_LINE_THICKNESS_KEY = "plantuml.usecase.style.actor.lineThickness"
+        const val STYLE_ACTOR_SHADOWING_KEY = "plantuml.usecase.style.actor.shadowing"
         const val STYLE_USECASE_FILL_KEY = "plantuml.usecase.style.usecase.fill"
         const val STYLE_USECASE_STROKE_KEY = "plantuml.usecase.style.usecase.stroke"
         const val STYLE_USECASE_TEXT_KEY = "plantuml.usecase.style.usecase.text"
+        const val STYLE_USECASE_FONT_SIZE_KEY = "plantuml.usecase.style.usecase.fontSize"
+        const val STYLE_USECASE_FONT_NAME_KEY = "plantuml.usecase.style.usecase.fontName"
+        const val STYLE_USECASE_LINE_THICKNESS_KEY = "plantuml.usecase.style.usecase.lineThickness"
+        const val STYLE_USECASE_SHADOWING_KEY = "plantuml.usecase.style.usecase.shadowing"
         const val STYLE_NOTE_FILL_KEY = "plantuml.usecase.style.note.fill"
         const val STYLE_NOTE_STROKE_KEY = "plantuml.usecase.style.note.stroke"
         const val STYLE_NOTE_TEXT_KEY = "plantuml.usecase.style.note.text"
+        const val STYLE_NOTE_FONT_SIZE_KEY = "plantuml.usecase.style.note.fontSize"
+        const val STYLE_NOTE_FONT_NAME_KEY = "plantuml.usecase.style.note.fontName"
+        const val STYLE_NOTE_LINE_THICKNESS_KEY = "plantuml.usecase.style.note.lineThickness"
+        const val STYLE_NOTE_SHADOWING_KEY = "plantuml.usecase.style.note.shadowing"
         const val STYLE_RECTANGLE_FILL_KEY = "plantuml.usecase.style.rectangle.fill"
         const val STYLE_RECTANGLE_STROKE_KEY = "plantuml.usecase.style.rectangle.stroke"
+        const val STYLE_RECTANGLE_FONT_SIZE_KEY = "plantuml.usecase.style.rectangle.fontSize"
+        const val STYLE_RECTANGLE_FONT_NAME_KEY = "plantuml.usecase.style.rectangle.fontName"
+        const val STYLE_RECTANGLE_LINE_THICKNESS_KEY = "plantuml.usecase.style.rectangle.lineThickness"
+        const val STYLE_RECTANGLE_SHADOWING_KEY = "plantuml.usecase.style.rectangle.shadowing"
         const val STYLE_PACKAGE_FILL_KEY = "plantuml.usecase.style.package.fill"
         const val STYLE_PACKAGE_STROKE_KEY = "plantuml.usecase.style.package.stroke"
+        const val STYLE_PACKAGE_FONT_SIZE_KEY = "plantuml.usecase.style.package.fontSize"
+        const val STYLE_PACKAGE_FONT_NAME_KEY = "plantuml.usecase.style.package.fontName"
+        const val STYLE_PACKAGE_LINE_THICKNESS_KEY = "plantuml.usecase.style.package.lineThickness"
+        const val STYLE_PACKAGE_SHADOWING_KEY = "plantuml.usecase.style.package.shadowing"
         const val STYLE_EDGE_COLOR_KEY = "plantuml.usecase.style.edge.color"
         val RELATION_OPERATORS = listOf("<|--", "-->", "<--", "..>", "<..", ".>", "<.", "--", "..")
 
@@ -356,16 +376,36 @@ class PlantUmlUsecaseParser {
             "actorbackgroundcolor" -> storeSkinparam(STYLE_ACTOR_FILL_KEY, value)
             "actorbordercolor" -> storeSkinparam(STYLE_ACTOR_STROKE_KEY, value)
             "actorfontcolor" -> storeSkinparam(STYLE_ACTOR_TEXT_KEY, value)
+            "actorfontsize" -> storeSkinparam(STYLE_ACTOR_FONT_SIZE_KEY, value)
+            "actorfontname" -> storeSkinparam(STYLE_ACTOR_FONT_NAME_KEY, value)
+            "actorlinethickness" -> storeSkinparam(STYLE_ACTOR_LINE_THICKNESS_KEY, value)
+            "actorshadowing" -> storeSkinparam(STYLE_ACTOR_SHADOWING_KEY, value)
             "usecasebackgroundcolor" -> storeSkinparam(STYLE_USECASE_FILL_KEY, value)
             "usecasebordercolor" -> storeSkinparam(STYLE_USECASE_STROKE_KEY, value)
             "usecasefontcolor" -> storeSkinparam(STYLE_USECASE_TEXT_KEY, value)
+            "usecasefontsize" -> storeSkinparam(STYLE_USECASE_FONT_SIZE_KEY, value)
+            "usecasefontname" -> storeSkinparam(STYLE_USECASE_FONT_NAME_KEY, value)
+            "usecaselinethickness" -> storeSkinparam(STYLE_USECASE_LINE_THICKNESS_KEY, value)
+            "usecaseshadowing" -> storeSkinparam(STYLE_USECASE_SHADOWING_KEY, value)
             "notebackgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
             "notebordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
             "notefontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+            "notefontsize" -> storeSkinparam(STYLE_NOTE_FONT_SIZE_KEY, value)
+            "notefontname" -> storeSkinparam(STYLE_NOTE_FONT_NAME_KEY, value)
+            "notelinethickness" -> storeSkinparam(STYLE_NOTE_LINE_THICKNESS_KEY, value)
+            "noteshadowing" -> storeSkinparam(STYLE_NOTE_SHADOWING_KEY, value)
             "rectanglebackgroundcolor" -> storeSkinparam(STYLE_RECTANGLE_FILL_KEY, value)
             "rectanglebordercolor" -> storeSkinparam(STYLE_RECTANGLE_STROKE_KEY, value)
+            "rectanglefontsize" -> storeSkinparam(STYLE_RECTANGLE_FONT_SIZE_KEY, value)
+            "rectanglefontname" -> storeSkinparam(STYLE_RECTANGLE_FONT_NAME_KEY, value)
+            "rectanglelinethickness" -> storeSkinparam(STYLE_RECTANGLE_LINE_THICKNESS_KEY, value)
+            "rectangleshadowing" -> storeSkinparam(STYLE_RECTANGLE_SHADOWING_KEY, value)
             "packagebackgroundcolor" -> storeSkinparam(STYLE_PACKAGE_FILL_KEY, value)
             "packagebordercolor" -> storeSkinparam(STYLE_PACKAGE_STROKE_KEY, value)
+            "packagefontsize" -> storeSkinparam(STYLE_PACKAGE_FONT_SIZE_KEY, value)
+            "packagefontname" -> storeSkinparam(STYLE_PACKAGE_FONT_NAME_KEY, value)
+            "packagelinethickness" -> storeSkinparam(STYLE_PACKAGE_LINE_THICKNESS_KEY, value)
+            "packageshadowing" -> storeSkinparam(STYLE_PACKAGE_SHADOWING_KEY, value)
             "arrowcolor" -> storeSkinparam(STYLE_EDGE_COLOR_KEY, value)
             else -> warnUnsupportedSkinparam(line)
         }
@@ -379,28 +419,48 @@ class PlantUmlUsecaseParser {
                 "backgroundcolor" -> storeSkinparam(STYLE_ACTOR_FILL_KEY, value)
                 "bordercolor" -> storeSkinparam(STYLE_ACTOR_STROKE_KEY, value)
                 "fontcolor" -> storeSkinparam(STYLE_ACTOR_TEXT_KEY, value)
+                "fontsize" -> storeSkinparam(STYLE_ACTOR_FONT_SIZE_KEY, value)
+                "fontname" -> storeSkinparam(STYLE_ACTOR_FONT_NAME_KEY, value)
+                "linethickness" -> storeSkinparam(STYLE_ACTOR_LINE_THICKNESS_KEY, value)
+                "shadowing" -> storeSkinparam(STYLE_ACTOR_SHADOWING_KEY, value)
                 else -> warnUnsupportedSkinparam("skinparam actor $line")
             }
             "usecase" -> when (key.lowercase()) {
                 "backgroundcolor" -> storeSkinparam(STYLE_USECASE_FILL_KEY, value)
                 "bordercolor" -> storeSkinparam(STYLE_USECASE_STROKE_KEY, value)
                 "fontcolor" -> storeSkinparam(STYLE_USECASE_TEXT_KEY, value)
+                "fontsize" -> storeSkinparam(STYLE_USECASE_FONT_SIZE_KEY, value)
+                "fontname" -> storeSkinparam(STYLE_USECASE_FONT_NAME_KEY, value)
+                "linethickness" -> storeSkinparam(STYLE_USECASE_LINE_THICKNESS_KEY, value)
+                "shadowing" -> storeSkinparam(STYLE_USECASE_SHADOWING_KEY, value)
                 else -> warnUnsupportedSkinparam("skinparam usecase $line")
             }
             "note" -> when (key.lowercase()) {
                 "backgroundcolor" -> storeSkinparam(STYLE_NOTE_FILL_KEY, value)
                 "bordercolor" -> storeSkinparam(STYLE_NOTE_STROKE_KEY, value)
                 "fontcolor" -> storeSkinparam(STYLE_NOTE_TEXT_KEY, value)
+                "fontsize" -> storeSkinparam(STYLE_NOTE_FONT_SIZE_KEY, value)
+                "fontname" -> storeSkinparam(STYLE_NOTE_FONT_NAME_KEY, value)
+                "linethickness" -> storeSkinparam(STYLE_NOTE_LINE_THICKNESS_KEY, value)
+                "shadowing" -> storeSkinparam(STYLE_NOTE_SHADOWING_KEY, value)
                 else -> warnUnsupportedSkinparam("skinparam note $line")
             }
             "rectangle" -> when (key.lowercase()) {
                 "backgroundcolor" -> storeSkinparam(STYLE_RECTANGLE_FILL_KEY, value)
                 "bordercolor" -> storeSkinparam(STYLE_RECTANGLE_STROKE_KEY, value)
+                "fontsize" -> storeSkinparam(STYLE_RECTANGLE_FONT_SIZE_KEY, value)
+                "fontname" -> storeSkinparam(STYLE_RECTANGLE_FONT_NAME_KEY, value)
+                "linethickness" -> storeSkinparam(STYLE_RECTANGLE_LINE_THICKNESS_KEY, value)
+                "shadowing" -> storeSkinparam(STYLE_RECTANGLE_SHADOWING_KEY, value)
                 else -> warnUnsupportedSkinparam("skinparam rectangle $line")
             }
             "package" -> when (key.lowercase()) {
                 "backgroundcolor" -> storeSkinparam(STYLE_PACKAGE_FILL_KEY, value)
                 "bordercolor" -> storeSkinparam(STYLE_PACKAGE_STROKE_KEY, value)
+                "fontsize" -> storeSkinparam(STYLE_PACKAGE_FONT_SIZE_KEY, value)
+                "fontname" -> storeSkinparam(STYLE_PACKAGE_FONT_NAME_KEY, value)
+                "linethickness" -> storeSkinparam(STYLE_PACKAGE_LINE_THICKNESS_KEY, value)
+                "shadowing" -> storeSkinparam(STYLE_PACKAGE_SHADOWING_KEY, value)
                 else -> warnUnsupportedSkinparam("skinparam package $line")
             }
             else -> warnUnsupportedSkinparam("skinparam $scope $line")

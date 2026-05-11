@@ -10,6 +10,7 @@ import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
+import com.hrm.diagram.core.ir.ArgbColor
 import com.hrm.diagram.core.ir.MessageKind
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
@@ -30,6 +31,31 @@ internal class PlantUmlSequenceSubPipeline(
         val tail: String? = null,
         val head: String? = null,
         val headStyle: String? = null,
+    )
+
+    private data class ScopeStyle(
+        val fill: ArgbColor?,
+        val stroke: ArgbColor?,
+        val text: ArgbColor?,
+        val fontSize: Float?,
+        val fontName: String?,
+        val lineThickness: Float?,
+        val shadowing: Boolean?,
+    )
+
+    private data class SequencePalette(
+        val sequence: ScopeStyle,
+        val participant: ScopeStyle,
+        val actor: ScopeStyle,
+        val boundary: ScopeStyle,
+        val control: ScopeStyle,
+        val entity: ScopeStyle,
+        val database: ScopeStyle,
+        val collections: ScopeStyle,
+        val queue: ScopeStyle,
+        val note: ScopeStyle,
+        val box: ScopeStyle,
+        val edgeColor: ArgbColor?,
     )
 
     private val parser = PlantUmlSequenceParser()
@@ -59,39 +85,60 @@ internal class PlantUmlSequenceSubPipeline(
 
     private fun renderSequence(ir: SequenceIR, laidOut: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val headerFill = Color(0xFFE3F2FDU.toInt())
-        val headerStroke = Color(0xFF1565C0U.toInt())
-        val headerText = Color(0xFF0D47A1U.toInt())
-        val lifelineColor = Color(0xFF90A4AEU.toInt())
-        val msgColor = Color(0xFF263238U.toInt())
-        val msgText = Color(0xFF263238U.toInt())
-        val noteFill = Color(0xFFFFF8E1U.toInt())
-        val noteStroke = Color(0xFFFFA000U.toInt())
+        val palette = paletteOf(ir)
+        val headerFillDefault = Color(0xFFE3F2FDU.toInt())
+        val headerStrokeDefault = Color(0xFF1565C0U.toInt())
+        val headerTextDefault = Color(0xFF0D47A1U.toInt())
+        val lifelineColor = palette.sequence.stroke?.let { Color(it.argb) } ?: palette.edgeColorOrNull() ?: Color(0xFF90A4AEU.toInt())
+        val msgColor = palette.edgeColorOrNull() ?: palette.sequence.stroke?.let { Color(it.argb) } ?: Color(0xFF263238U.toInt())
+        val msgText = palette.sequence.text?.let { Color(it.argb) } ?: Color(0xFF263238U.toInt())
+        val noteFill = palette.note.fill?.let { Color(it.argb) } ?: Color(0xFFFFF8E1U.toInt())
+        val noteStroke = palette.note.stroke?.let { Color(it.argb) } ?: Color(0xFFFFA000U.toInt())
+        val noteText = palette.note.text?.let { Color(it.argb) } ?: msgText
         val activationFill = Color(0xFFFFFFFFU.toInt())
-        val activationStroke = Color(0xFF1565C0U.toInt())
-        val fragStroke = Color(0xFF6A1B9AU.toInt())
+        val activationStroke = palette.sequence.stroke?.let { Color(it.argb) } ?: Color(0xFF1565C0U.toInt())
+        val fragStroke = palette.sequence.stroke?.let { Color(it.argb) } ?: Color(0xFF6A1B9AU.toInt())
         val decorations = parseDecorations(ir)
 
-        val headerStrokeStyle = Stroke(width = 1.5f)
-        val solidStroke = Stroke(width = 1.5f)
-        val dashedStroke = Stroke(width = 1.5f, dash = listOf(6f, 4f))
-        val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
-        val msgFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+        val messageStrokeWidth = palette.sequence.lineThickness ?: 1.5f
+        val headerStrokeStyle = Stroke(width = palette.participant.lineThickness ?: 1.5f)
+        val solidStroke = Stroke(width = messageStrokeWidth)
+        val dashedStroke = Stroke(width = messageStrokeWidth, dash = listOf(6f, 4f))
+        val msgFont = scopedFont(palette.sequence, FontSpec(family = "sans-serif", sizeSp = 11f))
+        val noteFont = scopedFont(palette.note, msgFont)
+        val boxFont = scopedFont(palette.box, FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600))
         val bottomY = laidOut.bounds.bottom
 
-        drawBoxes(ir, laidOut, out)
+        palette.sequence.fill?.let {
+            out += DrawCommand.FillRect(rect = laidOut.bounds, color = Color(it.argb), z = -5)
+        }
+        drawBoxes(ir, laidOut, out, palette, boxFont)
 
         for (p in ir.participants) {
             val r = laidOut.nodePositions[p.id] ?: continue
+            val scope = participantScopeFor(p.kind.name.lowercase(), palette)
+            val headerFill = scope.fill?.let { Color(it.argb) } ?: headerFillDefault
+            val headerStroke = scope.stroke?.let { Color(it.argb) } ?: headerStrokeDefault
+            val headerText = scope.text?.let { Color(it.argb) } ?: headerTextDefault
+            val participantFont = scopedFont(scope, FontSpec(family = "sans-serif", sizeSp = 13f))
+            val participantStroke = Stroke(width = scope.lineThickness ?: palette.participant.lineThickness ?: headerStrokeStyle.width)
+            if (scope.shadowing == true) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 6f,
+                    z = 1,
+                )
+            }
             out += DrawCommand.FillRect(rect = r, color = headerFill, corner = 6f, z = 2)
-            out += DrawCommand.StrokeRect(rect = r, stroke = headerStrokeStyle, color = headerStroke, corner = 6f, z = 3)
+            out += DrawCommand.StrokeRect(rect = r, stroke = participantStroke, color = headerStroke, corner = 6f, z = 3)
             val text = (p.label as? RichLabel.Plain)?.text?.takeIf { it.isNotEmpty() } ?: p.id.value
             val cx = (r.left + r.right) / 2f
             val cy = (r.top + r.bottom) / 2f
             out += DrawCommand.DrawText(
                 text = text,
                 origin = Point(cx, cy),
-                font = labelFont,
+                font = participantFont,
                 color = headerText,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,
@@ -110,18 +157,48 @@ internal class PlantUmlSequenceSubPipeline(
         for ((id, rect) in laidOut.clusterRects) {
             when {
                 id.value.contains("#act#") -> {
+                    if (palette.sequence.shadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = 0f,
+                            z = 4,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect = rect, color = activationFill, corner = 0f, z = 5)
                     out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = activationStroke, corner = 0f, z = 6)
                 }
                 id.value.startsWith("note#") -> {
                     val noteMessage = noteMessages.getOrNull(noteStyleIndex++)
                     val isRef = (noteMessage?.label as? RichLabel.Plain)?.text?.startsWith(PlantUmlSequenceParser.REF_PREFIX) == true
-                    val fill = if (isRef) Color(0xFFE8EAF6.toInt()) else noteFill
-                    val stroke = if (isRef) Color(0xFF3949AB.toInt()) else noteStroke
+                    val fill = palette.note.fill?.let { Color(it.argb) } ?: if (isRef) Color(0xFFE8EAF6.toInt()) else noteFill
+                    val stroke = palette.note.stroke?.let { Color(it.argb) } ?: if (isRef) Color(0xFF3949AB.toInt()) else noteStroke
+                    if (palette.note.shadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = 4f,
+                            z = 6,
+                        )
+                    }
                     out += DrawCommand.FillRect(rect = rect, color = fill, corner = 4f, z = 7)
-                    out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = stroke, corner = 4f, z = 8)
+                    out += DrawCommand.StrokeRect(
+                        rect = rect,
+                        stroke = Stroke(width = palette.note.lineThickness ?: messageStrokeWidth),
+                        color = stroke,
+                        corner = 4f,
+                        z = 8,
+                    )
                 }
                 id.value.startsWith("frag#") -> {
+                    if (palette.sequence.shadowing == true) {
+                        out += DrawCommand.FillRect(
+                            rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            corner = 4f,
+                            z = 8,
+                        )
+                    }
                     out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = fragStroke, corner = 4f, z = 9)
                 }
             }
@@ -146,8 +223,8 @@ internal class PlantUmlSequenceSubPipeline(
                         out += DrawCommand.DrawText(
                             text = labelText,
                             origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
-                            font = msgFont,
-                            color = msgText,
+                            font = noteFont,
+                            color = noteText,
                             anchorX = TextAnchorX.Center,
                             anchorY = TextAnchorY.Middle,
                             z = 10,
@@ -166,12 +243,12 @@ internal class PlantUmlSequenceSubPipeline(
                         color = msgColor,
                         z = 1,
                     )
-                    decoration?.tail?.let { out += terminalMarker(from, to, it, msgColor) }
+                    decoration?.tail?.let { out += terminalMarker(from, to, it, msgColor, messageStrokeWidth) }
                     when {
-                        msg.kind == MessageKind.Destroy -> out += xMark(to, msgColor)
-                        decoration?.head != null -> out += terminalMarker(to, from, decoration.head, msgColor)
-                        decoration?.headStyle == "open" -> out += openArrowHead(from, to, msgColor)
-                        msg.kind == MessageKind.Async -> out += openArrowHead(from, to, msgColor)
+                        msg.kind == MessageKind.Destroy -> out += xMark(to, msgColor, messageStrokeWidth)
+                        decoration?.head != null -> out += terminalMarker(to, from, decoration.head, msgColor, messageStrokeWidth)
+                        decoration?.headStyle == "open" -> out += openArrowHead(from, to, msgColor, messageStrokeWidth)
+                        msg.kind == MessageKind.Async -> out += openArrowHead(from, to, msgColor, messageStrokeWidth)
                         else -> out += filledArrowHead(from, to, msgColor)
                     }
                     val labelText = (msg.label as? RichLabel.Plain)?.text.orEmpty()
@@ -208,7 +285,13 @@ internal class PlantUmlSequenceSubPipeline(
         return out
     }
 
-    private fun drawBoxes(ir: SequenceIR, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>) {
+    private fun drawBoxes(
+        ir: SequenceIR,
+        laidOut: LaidOutDiagram,
+        out: MutableList<DrawCommand>,
+        palette: SequencePalette,
+        boxFont: FontSpec,
+    ) {
         val spec = ir.styleHints.extras[PlantUmlSequenceParser.BOXES_KEY].orEmpty()
         if (spec.isEmpty()) return
         val laneRects = ir.participants.mapNotNull { participant ->
@@ -218,21 +301,38 @@ internal class PlantUmlSequenceSubPipeline(
             if (entry.isEmpty()) continue
             val parts = entry.split("|", limit = 3)
             val title = parts.getOrNull(0)?.replace("\\|", "|").orEmpty()
-            val color = parsePlantUmlColor(parts.getOrNull(1).orEmpty()) ?: Color(0xFFF3E5F5.toInt())
+            val inlineColor = PlantUmlTreeRenderSupport.parsePlantUmlColor(parts.getOrNull(1).orEmpty())
+            val fill = palette.box.fill?.let { Color(it.argb) } ?: inlineColor ?: Color(0xFFF3E5F5.toInt())
+            val strokeColor = palette.box.stroke?.let { Color(it.argb) } ?: inlineColor ?: Color(0xFFF3E5F5.toInt())
+            val textColor = palette.box.text?.let { Color(it.argb) } ?: strokeColor
             val ids = parts.getOrNull(2).orEmpty().split(',').filter { it.isNotEmpty() }.map { NodeId(it) }
             val rects = ids.mapNotNull { laneRects[it] }
             if (rects.isEmpty()) continue
             val left = rects.minOf { it.left } - 14f
             val right = rects.maxOf { it.right } + 14f
             val rect = Rect.ltrb(left, 8f, right, laidOut.bounds.bottom - 8f)
-            out += DrawCommand.FillRect(rect = rect, color = color.copyAlpha(0.18f), corner = 10f, z = -2)
-            out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1.2f), color = color, corner = 10f, z = -1)
+            if (palette.box.shadowing == true) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = 10f,
+                    z = -3,
+                )
+            }
+            out += DrawCommand.FillRect(rect = rect, color = fill.copyAlpha(0.18f), corner = 10f, z = -2)
+            out += DrawCommand.StrokeRect(
+                rect = rect,
+                stroke = Stroke(width = palette.box.lineThickness ?: palette.sequence.lineThickness ?: 1.2f),
+                color = strokeColor,
+                corner = 10f,
+                z = -1,
+            )
             if (title.isNotEmpty()) {
                 out += DrawCommand.DrawText(
                     text = title,
                     origin = Point(rect.left + 10f, rect.top + 8f),
-                    font = FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600),
-                    color = color,
+                    font = boxFont,
+                    color = textColor,
                     anchorX = TextAnchorX.Start,
                     anchorY = TextAnchorY.Top,
                     z = 0,
@@ -250,17 +350,17 @@ internal class PlantUmlSequenceSubPipeline(
         )
     }
 
-    private fun openArrowHead(from: Point, to: Point, color: Color): DrawCommand {
+    private fun openArrowHead(from: Point, to: Point, color: Color, width: Float): DrawCommand {
         val (p1, p2) = headPoints(from, to, 8f)
         return DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(p1), PathOp.LineTo(to), PathOp.LineTo(p2))),
-            stroke = Stroke(width = 1.5f),
+            stroke = Stroke(width = width),
             color = color,
             z = 2,
         )
     }
 
-    private fun xMark(at: Point, color: Color): DrawCommand {
+    private fun xMark(at: Point, color: Color, width: Float): DrawCommand {
         val size = 5f
         return DrawCommand.StrokePath(
             path = PathCmd(
@@ -271,24 +371,24 @@ internal class PlantUmlSequenceSubPipeline(
                     PathOp.LineTo(Point(at.x + size, at.y - size)),
                 ),
             ),
-            stroke = Stroke(width = 1.5f),
+            stroke = Stroke(width = width),
             color = color,
             z = 2,
         )
     }
 
-    private fun terminalMarker(at: Point, toward: Point, marker: String, color: Color): DrawCommand =
+    private fun terminalMarker(at: Point, toward: Point, marker: String, color: Color, width: Float): DrawCommand =
         when (marker.lowercase()) {
-            "o" -> openCircle(at, color)
-            "x" -> xMark(at, color)
+            "o" -> openCircle(at, color, width)
+            "x" -> xMark(at, color, width)
             else -> filledArrowHead(toward, at, color)
         }
 
-    private fun openCircle(at: Point, color: Color): DrawCommand {
+    private fun openCircle(at: Point, color: Color, width: Float): DrawCommand {
         val radius = 5f
         return DrawCommand.StrokeRect(
             rect = Rect.ltrb(at.x - radius, at.y - radius, at.x + radius, at.y + radius),
-            stroke = Stroke(width = 1.5f),
+            stroke = Stroke(width = width),
             color = color,
             corner = radius,
             z = 2,
@@ -309,30 +409,63 @@ internal class PlantUmlSequenceSubPipeline(
             Point(baseX - nx * size * 0.5f, baseY - ny * size * 0.5f)
     }
 
-    private fun parsePlantUmlColor(raw: String): Color? {
-        val text = raw.trim()
-        if (text.isEmpty()) return null
-        if (text.startsWith("#")) {
-            val hex = text.removePrefix("#")
-            val argb = when (hex.length) {
-                3 -> "FF${hex.map { "$it$it" }.joinToString("")}"
-                6 -> "FF$hex"
-                8 -> hex
-                else -> return null
-            }
-            return argb.toLongOrNull(16)?.let { Color(it.toInt()) }
-        }
-        return when (text.lowercase()) {
-            "lightblue" -> Color(0xFFADD8E6.toInt())
-            "lightgray", "lightgrey" -> Color(0xFFD3D3D3.toInt())
-            "lightyellow" -> Color(0xFFFFFFE0.toInt())
-            "ivory" -> Color(0xFFFFFFF0.toInt())
-            "navy" -> Color(0xFF000080.toInt())
-            "orange" -> Color(0xFFFFA500.toInt())
-            "peru" -> Color(0xFFCD853F.toInt())
-            else -> null
-        }
+    private fun paletteOf(ir: SequenceIR): SequencePalette {
+        val extras = ir.styleHints.extras
+        fun scope(name: String): ScopeStyle = ScopeStyle(
+            fill = extras["plantuml.sequence.style.$name.fill"]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) },
+            stroke = extras["plantuml.sequence.style.$name.stroke"]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) },
+            text = extras["plantuml.sequence.style.$name.text"]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) },
+            fontSize = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras["plantuml.sequence.style.$name.fontSize"]),
+            fontName = PlantUmlTreeRenderSupport.parsePlantUmlFontFamily(extras["plantuml.sequence.style.$name.fontName"]),
+            lineThickness = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras["plantuml.sequence.style.$name.lineThickness"]),
+            shadowing = PlantUmlTreeRenderSupport.parsePlantUmlBoolean(extras["plantuml.sequence.style.$name.shadowing"]),
+        )
+        return SequencePalette(
+            sequence = scope("sequence"),
+            participant = scope("participant"),
+            actor = scope("actor"),
+            boundary = scope("boundary"),
+            control = scope("control"),
+            entity = scope("entity"),
+            database = scope("database"),
+            collections = scope("collections"),
+            queue = scope("queue"),
+            note = scope("note"),
+            box = scope("box"),
+            edgeColor = extras[PlantUmlSequenceParser.STYLE_EDGE_COLOR_KEY]
+                ?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)
+                ?.let { ArgbColor(it.argb) },
+        )
     }
+
+    private fun SequencePalette.edgeColorOrNull(): Color? =
+        edgeColor?.let { Color(it.argb) }
+
+    private fun participantScopeFor(kind: String, palette: SequencePalette): ScopeStyle =
+        when (kind) {
+            "actor" -> mergeScope(palette.participant, palette.actor)
+            "boundary" -> mergeScope(palette.participant, palette.boundary)
+            "control" -> mergeScope(palette.participant, palette.control)
+            "entity" -> mergeScope(palette.participant, palette.entity)
+            "database" -> mergeScope(palette.participant, palette.database)
+            "collections" -> mergeScope(palette.participant, palette.collections)
+            "queue" -> mergeScope(palette.participant, palette.queue)
+            else -> palette.participant
+        }
+
+    private fun mergeScope(base: ScopeStyle, override: ScopeStyle): ScopeStyle =
+        ScopeStyle(
+            fill = override.fill ?: base.fill,
+            stroke = override.stroke ?: base.stroke,
+            text = override.text ?: base.text,
+            fontSize = override.fontSize ?: base.fontSize,
+            fontName = override.fontName ?: base.fontName,
+            lineThickness = override.lineThickness ?: base.lineThickness,
+            shadowing = override.shadowing ?: base.shadowing,
+        )
+
+    private fun scopedFont(scope: ScopeStyle, base: FontSpec): FontSpec =
+        PlantUmlTreeRenderSupport.resolveFontSpec(base, scope.fontName, scope.fontSize?.toString())
 
     private fun Color.copyAlpha(alpha: Float): Color {
         val a = (alpha.coerceIn(0f, 1f) * 255f).toInt()

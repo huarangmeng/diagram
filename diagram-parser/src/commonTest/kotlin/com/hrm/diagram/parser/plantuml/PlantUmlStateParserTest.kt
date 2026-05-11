@@ -195,11 +195,19 @@ class PlantUmlStateParserTest {
               BackgroundColor LightBlue
               BorderColor Navy
               FontColor SaddleBrown
+              FontSize 17
+              FontName monospace
+              LineThickness 2.5
+              Shadowing true
             }
             skinparam note {
               BackgroundColor Ivory
               BorderColor Orange
               FontColor Navy
+              FontSize 14
+              FontName serif
+              LineThickness 2
+              Shadowing on
             }
             skinparam ArrowColor Peru
             state A
@@ -208,8 +216,16 @@ class PlantUmlStateParserTest {
         assertEquals("LightBlue", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_FILL_KEY])
         assertEquals("Navy", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_STROKE_KEY])
         assertEquals("SaddleBrown", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_TEXT_KEY])
+        assertEquals("17", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_FONT_SIZE_KEY])
+        assertEquals("monospace", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_FONT_NAME_KEY])
+        assertEquals("2.5", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_LINE_THICKNESS_KEY])
+        assertEquals("true", ir.styleHints.extras[PlantUmlStateParser.STYLE_STATE_SHADOWING_KEY])
         assertEquals("Ivory", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_FILL_KEY])
         assertEquals("Orange", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_STROKE_KEY])
+        assertEquals("14", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_FONT_SIZE_KEY])
+        assertEquals("serif", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_FONT_NAME_KEY])
+        assertEquals("2", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_LINE_THICKNESS_KEY])
+        assertEquals("on", ir.styleHints.extras[PlantUmlStateParser.STYLE_NOTE_SHADOWING_KEY])
         assertEquals("Peru", ir.styleHints.extras[PlantUmlStateParser.STYLE_EDGE_COLOR_KEY])
     }
 
