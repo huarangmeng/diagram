@@ -25,6 +25,7 @@
 | architectureDiagram | ✅ | service、group、nested group、junction、edge with port、`{group}` boundary edge、icon、style/classDef/class/::: | 3 | 已支持 `architecture-beta` 官方语法主链路：嵌套 group、service/junction、端口侧边 `T/B/L/R` 连线、`{group}` 边界锚点、内置 icon 与 `logos:*` / `mdi:*` 等 iconify 名称透传，以及 GraphIR 样式链路 |
 | c4 | ✅ | C4Context/Container/Component/Dynamic/Deployment、Person/System/Container/Component 家族、Boundary、Rel/BiRel/RelIndex/Rel_U/D/L/R/Back、AddElementTag、AddRelTag、UpdateElementStyle、UpdateRelStyle、`$tags`、`$link`、legend | 3 | 已支持 Mermaid C4 实验语法官方可用主链路：元素/边界嵌套、关系方向变体、`$tags` / `$link`、legend、`UpdateLayoutConfig`，以及 `RoundedBoxShape` / `EightSidedShape` / `DashedLine` / `DottedLine` / `BoldLine` helper；`sprite` 仍按 Mermaid 官方现状不纳入支持面 |
 | block | ✅ | block、block-beta、columns、`space[:n]`、width span（`id:2`）、nested `block ... end`、常用形状、block arrow、边、style/classDef/class/::: | 3 | 已支持显式网格布局、空槽、嵌套 block、列跨度、`-->` / `---` 连线、带标签连接（含非引号文本）、`style/classDef/class/:::` 样式链路，以及圆角框/圆/双圆/菱形/六边形/圆柱/子程序/平行四边形/梯形/非对称块/block arrow 等官方高频形状 |
+| packet-beta | 🟡 | `packet-beta`、`title`、bit range 字段（如 `0-15: "Source Port"`）、单 bit 字段（如 `106: "URG"`）、裸字段行 | 3+ | `MermaidPacketParser` 与 `MermaidPacketSubPipeline` 已落地；当前字段降到 `StructIR` 并复用 `StructLayout` 渲染为结构化字段列表，已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。更接近官方 packet 表格/bit-grid 的二维视觉、字段跨度比例、颜色与分组仍待后续增强。 |
 
 ## 文档参考
 - 官方：https://mermaid.js.org/intro/syntax-reference.html

@@ -40,7 +40,7 @@ internal class MermaidSessionPipeline(
     private val pendingLines: MutableList<List<Token>> = ArrayList()
     private var sub: MermaidSubPipeline? = null
 
-    private enum class HeaderHint { Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block }
+    private enum class HeaderHint { Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block, Packet }
     private var headerHint: HeaderHint? = null
 
     // --- Style parsing state (Phase 1: themeVariables + classDef) ---
@@ -161,6 +161,9 @@ internal class MermaidSessionPipeline(
                     }
                     MermaidTokenKind.BLOCK_HEADER -> {
                         sub = MermaidBlockSubPipeline(textMeasurer); break
+                    }
+                    MermaidTokenKind.PACKET_HEADER -> {
+                        sub = MermaidPacketSubPipeline(textMeasurer); break
                     }
                     else -> { /* keep looking */ }
                 }

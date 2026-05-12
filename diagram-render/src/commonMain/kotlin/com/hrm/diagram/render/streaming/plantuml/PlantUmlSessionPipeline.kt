@@ -1,11 +1,13 @@
 package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.ir.Diagnostic
+import com.hrm.diagram.core.ir.SeriesKind
 import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -48,7 +50,7 @@ internal class PlantUmlSessionPipeline(
     private var subPipeline: PlantUmlSubPipeline? = null
     private var closingDirective: String = "@enduml"
 
-    private enum class DiagramKind { Sequence, Class, State, Component, Usecase, Activity, Object, Deployment, Erd, Mindmap, Wbs }
+    private enum class DiagramKind { Sequence, Class, State, Component, Usecase, Activity, Object, Deployment, Erd, Mindmap, Wbs, Json, Yaml, Network, Gantt, Timing, Salt, Archimate, C4, Ditaa, Pie, BarChart, LineChart, ScatterChart }
 
     override fun advance(
         previousSnapshot: DiagramSnapshot,
@@ -130,6 +132,46 @@ internal class PlantUmlSessionPipeline(
                 blockStarted = true
                 closingDirective = "@endwbs"
                 attachSubPipeline(DiagramKind.Wbs, out)
+            } else if (trimmed.equals("@startjson", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endjson"
+                attachSubPipeline(DiagramKind.Json, out)
+            } else if (trimmed.equals("@startyaml", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endyaml"
+                attachSubPipeline(DiagramKind.Yaml, out)
+            } else if (trimmed.equals("@startnwdiag", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endnwdiag"
+                attachSubPipeline(DiagramKind.Network, out)
+            } else if (trimmed.equals("@startgantt", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endgantt"
+                attachSubPipeline(DiagramKind.Gantt, out)
+            } else if (trimmed.equals("@startsalt", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endsalt"
+                attachSubPipeline(DiagramKind.Salt, out)
+            } else if (trimmed.equals("@startditaa", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endditaa"
+                attachSubPipeline(DiagramKind.Ditaa, out)
+            } else if (trimmed.equals("@startpie", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endpie"
+                attachSubPipeline(DiagramKind.Pie, out)
+            } else if (trimmed.equals("@startbar", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endbar"
+                attachSubPipeline(DiagramKind.BarChart, out)
+            } else if (trimmed.equals("@startline", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endline"
+                attachSubPipeline(DiagramKind.LineChart, out)
+            } else if (trimmed.equals("@startscatter", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endscatter"
+                attachSubPipeline(DiagramKind.ScatterChart, out)
             }
             return
         }
@@ -158,7 +200,8 @@ internal class PlantUmlSessionPipeline(
                 chosen is PlantUmlClassSubPipeline ||
                 chosen is PlantUmlComponentSubPipeline ||
                 chosen is PlantUmlDeploymentSubPipeline ||
-                chosen is PlantUmlObjectSubPipeline
+                chosen is PlantUmlObjectSubPipeline ||
+                (chosen is PlantUmlDitaaSubPipeline && trimmed.startsWith("skinparam handwritten", ignoreCase = true))
             ) {
                 out += chosen.acceptLine(trimmed).patches
             } else if (chosen != null) {
@@ -173,7 +216,8 @@ internal class PlantUmlSessionPipeline(
 
         val chosen = subPipeline
         if (chosen != null) {
-            out += chosen.acceptLine(trimmed).patches
+            val payloadLine = if (chosen is PlantUmlStructSubPipeline || chosen is PlantUmlDitaaSubPipeline) line else trimmed
+            out += chosen.acceptLine(payloadLine).patches
             return
         }
 
@@ -204,6 +248,19 @@ internal class PlantUmlSessionPipeline(
             DiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer)
             DiagramKind.Mindmap -> PlantUmlMindmapSubPipeline(textMeasurer)
             DiagramKind.Wbs -> PlantUmlWbsSubPipeline(textMeasurer)
+            DiagramKind.Json -> PlantUmlStructSubPipeline(PlantUmlStructParser.Format.JSON, textMeasurer)
+            DiagramKind.Yaml -> PlantUmlStructSubPipeline(PlantUmlStructParser.Format.YAML, textMeasurer)
+            DiagramKind.Network -> PlantUmlNetworkSubPipeline(textMeasurer)
+            DiagramKind.Gantt -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Gantt, textMeasurer)
+            DiagramKind.Timing -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Timing, textMeasurer)
+            DiagramKind.Salt -> PlantUmlSaltSubPipeline(textMeasurer)
+            DiagramKind.Archimate -> PlantUmlArchimateSubPipeline(textMeasurer)
+            DiagramKind.C4 -> PlantUmlC4SubPipeline(textMeasurer)
+            DiagramKind.Ditaa -> PlantUmlDitaaSubPipeline(textMeasurer)
+            DiagramKind.Pie -> PlantUmlPieSubPipeline(textMeasurer)
+            DiagramKind.BarChart -> PlantUmlXYChartSubPipeline(SeriesKind.Bar, textMeasurer)
+            DiagramKind.LineChart -> PlantUmlXYChartSubPipeline(SeriesKind.Line, textMeasurer)
+            DiagramKind.ScatterChart -> PlantUmlXYChartSubPipeline(SeriesKind.Scatter, textMeasurer)
         }
         if (bufferedSkinparamLines.isNotEmpty()) {
             if (
@@ -219,6 +276,14 @@ internal class PlantUmlSessionPipeline(
                 for (line in bufferedSkinparamLines) {
                     out += subPipeline!!.acceptLine(line).patches
                 }
+            } else if (kind == DiagramKind.Ditaa) {
+                for (line in bufferedSkinparamLines) {
+                    if (line.startsWith("skinparam handwritten", ignoreCase = true)) {
+                        out += subPipeline!!.acceptLine(line).patches
+                    } else {
+                        out += ignoredSkinparamWarning()
+                    }
+                }
             } else {
                 repeat(bufferedSkinparamLines.size) { out += ignoredSkinparamWarning() }
             }
@@ -233,6 +298,36 @@ internal class PlantUmlSessionPipeline(
 
     private fun classifyImmediate(line: String): DiagramKind? {
         val lower = line.lowercase()
+        if (lower == "nwdiag {" || lower == "nwdiag{") {
+            return DiagramKind.Network
+        }
+        if (lower == "salt" || lower == "salt {" || lower == "salt{") {
+            return DiagramKind.Salt
+        }
+        if (lower == "pie") {
+            return DiagramKind.Pie
+        }
+        if (lower == "bar") {
+            return DiagramKind.BarChart
+        }
+        if (lower == "line") {
+            return DiagramKind.LineChart
+        }
+        if (lower == "scatter") {
+            return DiagramKind.ScatterChart
+        }
+        if (isC4Cue(line)) {
+            return DiagramKind.C4
+        }
+        if (lower.startsWith("archimate ") || Regex("""^Rel(?:_[A-Za-z0-9_]+)?\(""").containsMatchIn(line)) {
+            return DiagramKind.Archimate
+        }
+        if (lower.startsWith("project starts") || Regex("""^\[[^\]]+]\s+(starts|lasts|ends|happens)\b""", RegexOption.IGNORE_CASE).containsMatchIn(line)) {
+            return DiagramKind.Gantt
+        }
+        if (isTimingCue(line)) {
+            return DiagramKind.Timing
+        }
         if (
             lower.startsWith("object ") ||
             (line.contains(':') && line.contains('=') && !line.startsWith(":") && !line.contains("->") && !line.contains("<-"))
@@ -400,10 +495,50 @@ internal class PlantUmlSessionPipeline(
         var sawObjectCue = false
         var sawDeploymentCue = false
         var sawErdCue = false
+        var sawNetworkCue = false
+        var sawGanttCue = false
+        var sawTimingCue = false
+        var sawSaltCue = false
+        var sawArchimateCue = false
+        var sawC4Cue = false
+        var sawPieCue = false
+        var sawBarCue = false
+        var sawLineCue = false
+        var sawScatterCue = false
         var sawAmbiguousContainerCue = false
         var sawBracketArtifactCue = false
         for (line in bufferedBodyLines) {
             val lower = line.lowercase()
+            if (lower == "nwdiag {" || lower == "nwdiag{") {
+                sawNetworkCue = true
+            }
+            if (lower == "salt" || lower == "salt {" || lower == "salt{") {
+                sawSaltCue = true
+            }
+            if (lower == "pie") {
+                sawPieCue = true
+            }
+            if (lower == "bar") {
+                sawBarCue = true
+            }
+            if (lower == "line") {
+                sawLineCue = true
+            }
+            if (lower == "scatter") {
+                sawScatterCue = true
+            }
+            if (isC4Cue(line)) {
+                sawC4Cue = true
+            }
+            if (lower.startsWith("archimate ") || Regex("""^Rel(?:_[A-Za-z0-9_]+)?\(""").containsMatchIn(line)) {
+                sawArchimateCue = true
+            }
+            if (lower.startsWith("project starts") || Regex("""^\[[^\]]+]\s+(starts|lasts|ends|happens)\b""", RegexOption.IGNORE_CASE).containsMatchIn(line)) {
+                sawGanttCue = true
+            }
+            if (isTimingCue(line)) {
+                sawTimingCue = true
+            }
             if (
                 lower.startsWith("object ") ||
                 (line.contains(':') && line.contains('=') && !line.startsWith(":") && !line.contains("->") && !line.contains("<-"))
@@ -557,6 +692,16 @@ internal class PlantUmlSessionPipeline(
             }
         }
         return when {
+            sawNetworkCue -> DiagramKind.Network
+            sawSaltCue -> DiagramKind.Salt
+            sawPieCue -> DiagramKind.Pie
+            sawBarCue -> DiagramKind.BarChart
+            sawLineCue -> DiagramKind.LineChart
+            sawScatterCue -> DiagramKind.ScatterChart
+            sawC4Cue -> DiagramKind.C4
+            sawArchimateCue -> DiagramKind.Archimate
+            sawGanttCue -> DiagramKind.Gantt
+            sawTimingCue -> DiagramKind.Timing
             sawObjectCue -> DiagramKind.Object
             sawErdCue -> DiagramKind.Erd
             sawAmbiguousContainerCue && sawBracketArtifactCue && !sawExplicitComponentCue -> DiagramKind.Deployment
@@ -596,6 +741,24 @@ internal class PlantUmlSessionPipeline(
             trimmed.startsWith("(*)") ||
             trimmed.startsWith("(*top)") ||
             trimmed.startsWith("\"")
+    }
+
+    private fun isTimingCue(line: String): Boolean {
+        val lower = line.lowercase()
+        return lower.startsWith("clock ") ||
+            lower.startsWith("binary ") ||
+            lower.startsWith("concise ") ||
+            lower.startsWith("robust ") ||
+            line.startsWith("@") ||
+            Regex("""^[A-Za-z0-9_.:-]+\s+is\s+.+$""", RegexOption.IGNORE_CASE).matches(line)
+    }
+
+    private fun isC4Cue(line: String): Boolean {
+        val trimmed = line.trim()
+        val lower = trimmed.lowercase()
+        if (lower.startsWith("!include") && lower.contains("c4")) return true
+        if (trimmed in setOf("C4Context", "C4Container", "C4Component", "C4Dynamic", "C4Deployment")) return true
+        return Regex("""^(Person|Person_Ext|System|System_Ext|SystemDb|SystemDb_Ext|SystemQueue|SystemQueue_Ext|Container|Container_Ext|ContainerDb|ContainerDb_Ext|ContainerQueue|ContainerQueue_Ext|Component|Component_Ext|ComponentDb|ComponentDb_Ext|ComponentQueue|ComponentQueue_Ext|Boundary|Enterprise_Boundary|System_Boundary|Container_Boundary)\(""").containsMatchIn(trimmed)
     }
 
     private fun ignoredSkinparamWarning(): IrPatch =

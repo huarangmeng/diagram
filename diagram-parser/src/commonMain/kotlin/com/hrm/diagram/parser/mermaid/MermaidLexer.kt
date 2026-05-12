@@ -13,7 +13,7 @@ import com.hrm.diagram.core.streaming.Token
  *  - [LexMode.Sequence]  : Phase-2 sequenceDiagram tokens (arrows ->>/-->/-x, COLON-LABEL, keywords).
  *  - [LexMode.Er]        : Mermaid `erDiagram` tokens (relationship operators + entity blocks).
  */
-enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block }
+enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block, Packet }
 
 /**
  * Resumable lexer for the Mermaid Phase 1 + 2 subset (see [MermaidTokenKind]).
@@ -102,6 +102,13 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     safePoint = baseOffset + pos
                     mode = LexMode.Block
                 }
+                mode == LexMode.Auto && buf.startsWith("packet-beta", pos) -> {
+                    val end = pos + "packet-beta".length
+                    tokens += Token(MermaidTokenKind.PACKET_HEADER, baseOffset + pos, baseOffset + end, "packet-beta")
+                    pos = end
+                    safePoint = baseOffset + pos
+                    mode = LexMode.Packet
+                }
                 mode == LexMode.Auto && startsWithAny(buf, pos, C4_HEADERS) != null -> {
                     val header = startsWithAny(buf, pos, C4_HEADERS)!!
                     val end = pos + header.length
@@ -165,7 +172,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
                     pos = end
                     safePoint = baseOffset + pos
                 }
-                mode == LexMode.Journey || mode == LexMode.Sankey || mode == LexMode.GitGraph || mode == LexMode.Requirement || mode == LexMode.Architecture || mode == LexMode.C4 || mode == LexMode.Block -> {
+                mode == LexMode.Journey || mode == LexMode.Sankey || mode == LexMode.GitGraph || mode == LexMode.Requirement || mode == LexMode.Architecture || mode == LexMode.C4 || mode == LexMode.Block || mode == LexMode.Packet -> {
                     var end = pos
                     while (end < buf.length && buf[end] != '\n' && buf[end] != '\r') end++
                     if (end >= buf.length && !eos) {

@@ -33,6 +33,7 @@
 | MERMAID-E212 | architectureDiagram 语法不匹配（group / service / junction / edge 行） | architectureDiagram parser |
 | MERMAID-E213 | c4Diagram 语法不匹配（header / element / boundary / relation / update style 行） | c4 parser |
 | MERMAID-E214 | block 图语法不匹配（block-beta / columns / row item / block / edge 行） | block parser |
+| MERMAID-E215 | packet-beta 语法不匹配（header / bit range / field 行） | packet parser |
 | MERMAID-W001 | 节点未声明，自动创建占位 | 任意图 |
 | MERMAID-W010 | 外部 CSS class 已忽略（不支持） | mermaid style resolver / parser |
 | MERMAID-W011 | 无法识别的颜色值已忽略（支持 CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`、以及 hex） | mermaid themeVariables / style parser |
@@ -49,6 +50,16 @@
 | PLANTUML-E010 | erd 语法不匹配（entity / attribute / crowfoot relation / note 行） | erd parser |
 | PLANTUML-E011 | mindmap 语法不匹配（层级前缀 / 多行节点 / 多根 / block 闭合） | mindmap parser |
 | PLANTUML-E012 | wbs 语法不匹配（层级前缀 / 算术方向 / boxless / 多行节点 / block 闭合） | wbs parser |
+| PLANTUML-E013 | json/yaml 结构语法不匹配或专用块闭合缺失 | struct parser |
+| PLANTUML-E014 | nwdiag/network 语法不匹配或 block 闭合缺失 | network parser |
+| PLANTUML-E015 | gantt 语法不匹配或 `@startgantt` 块闭合缺失 | gantt parser |
+| PLANTUML-E016 | timing 语法不匹配或 timing 图闭合缺失 | timing parser |
+| PLANTUML-E017 | Salt wireframe 专用块闭合缺失 | salt parser |
+| PLANTUML-E018 | archimate 元素 / 关系语法不匹配或块闭合缺失 | archimate parser |
+| PLANTUML-E019 | C4-PlantUML 元素 / 边界 / 关系语法不匹配或块闭合缺失 | C4 parser |
+| PLANTUML-E020 | ditaa 专用块闭合缺失 | ditaa parser |
+| PLANTUML-E021 | pie chart 切片语法不匹配或专用块闭合缺失 | pie parser |
+| PLANTUML-E022 | bar/line chart 语法不匹配或专用块闭合缺失 | xy chart parser |
 | PLANTUML-W001 | 未识别或当前图型不支持的 `skinparam`，已忽略 | dispatcher / lowering |
 | DOT-E001 | 词法错误：未闭合字符串 | lexer |
 | DOT-W001 | 不支持的属性已忽略 | attrs lowering |

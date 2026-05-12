@@ -131,6 +131,7 @@ object MermaidTokenKind {
     const val ARCHITECTURE_HEADER: Int = 147  // "architecture-beta"
     const val C4_HEADER: Int = 148            // "C4Context" / "C4Container" / "C4Component" / "C4Dynamic" / "C4Deployment"
     const val BLOCK_HEADER: Int = 149         // "block-beta" / "block"
+    const val PACKET_HEADER: Int = 150        // "packet-beta"
 
     fun nameOf(kind: Int): String = when (kind) {
         NEWLINE -> "NEWLINE"
@@ -232,6 +233,7 @@ object MermaidTokenKind {
         ARCHITECTURE_HEADER -> "ARCHITECTURE_HEADER"
         C4_HEADER -> "C4_HEADER"
         BLOCK_HEADER -> "BLOCK_HEADER"
+        PACKET_HEADER -> "PACKET_HEADER"
         else -> "UNKNOWN($kind)"
     }
 }
