@@ -76,6 +76,64 @@ class PlantUmlStructParserTest {
     }
 
     @Test
+    fun parses_json_unicode_escapes_and_strict_literals_with_type_extras() {
+        val ir = parse(
+            PlantUmlStructParser.Format.JSON,
+            """{"emoji":"\u263A","count":1.5e2,"ok":false,"none":null}""",
+        )
+
+        val root = assertIs<StructNode.ObjectNode>(ir.root)
+        assertEquals("☺", assertIs<StructNode.Scalar>(root.entries[0]).value)
+        assertEquals("1.5e2", assertIs<StructNode.Scalar>(root.entries[1]).value)
+        assertEquals("false", assertIs<StructNode.Scalar>(root.entries[2]).value)
+        assertEquals("null", assertIs<StructNode.Scalar>(root.entries[3]).value)
+        assertTrue(ir.styleHints.extras[PlantUmlStructParser.COLLAPSIBLE_PATHS_KEY].orEmpty().contains("root"))
+        assertTrue(ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty().contains("root.1|number"))
+        assertTrue(ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty().contains("root.2|boolean"))
+        assertTrue(ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty().contains("root.3|null"))
+    }
+
+    @Test
+    fun parses_yaml_comments_quotes_inline_objects_and_block_chomping() {
+        val ir = parse(
+            PlantUmlStructParser.Format.YAML,
+            """
+            ---
+            title: "A # quoted value" # trailing comment
+            flags: { enabled: yes, count: 3, tags: ["a,b", c] }
+            items:
+              - meta:
+                  id: 1
+                  active: off
+              - { name: "Inline", score: 2.5 }
+            literal: |-
+              keep
+              newlines
+            folded: >+
+              fold
+              me
+            ...
+            """.trimIndent(),
+        )
+
+        val root = assertIs<StructNode.ObjectNode>(ir.root)
+        assertEquals("A # quoted value", assertIs<StructNode.Scalar>(root.entries[0]).value)
+        val flags = assertIs<StructNode.ObjectNode>(root.entries[1])
+        assertEquals("true", assertIs<StructNode.Scalar>(flags.entries[0]).value)
+        assertEquals("3", assertIs<StructNode.Scalar>(flags.entries[1]).value)
+        val tags = assertIs<StructNode.ArrayNode>(flags.entries[2])
+        assertEquals(listOf("a,b", "c"), tags.items.map { assertIs<StructNode.Scalar>(it).value })
+        val items = assertIs<StructNode.ArrayNode>(root.entries[2])
+        val meta = assertIs<StructNode.ObjectNode>(assertIs<StructNode.ObjectNode>(items.items[0]).entries.single())
+        assertEquals(listOf("id", "active"), meta.entries.map { it.key })
+        assertEquals("false", assertIs<StructNode.Scalar>(meta.entries[1]).value)
+        val inline = assertIs<StructNode.ObjectNode>(items.items[1])
+        assertEquals(listOf("name", "score"), inline.entries.map { it.key })
+        assertEquals("keep\nnewlines", assertIs<StructNode.Scalar>(root.entries[3]).value)
+        assertEquals("fold me\n", assertIs<StructNode.Scalar>(root.entries[4]).value)
+    }
+
+    @Test
     fun invalid_final_json_reports_diagnostic() {
         val parser = PlantUmlStructParser(PlantUmlStructParser.Format.JSON)
         parser.acceptLine("""{"name":""")

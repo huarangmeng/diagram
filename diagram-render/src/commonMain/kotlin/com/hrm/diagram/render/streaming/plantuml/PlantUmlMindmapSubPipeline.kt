@@ -3,6 +3,7 @@ package com.hrm.diagram.render.streaming.plantuml
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.FontSpec
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.ir.TreeNode
@@ -12,7 +13,6 @@ import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.tree.MindmapLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlMindmapParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import kotlin.math.min
 
 internal class PlantUmlMindmapSubPipeline(
     private val textMeasurer: TextMeasurer,
@@ -60,11 +60,17 @@ internal class PlantUmlMindmapSubPipeline(
 
     private fun render(ir: TreeIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
+        val boxless = parseBoxless(ir)
         val inlineColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlMindmapParser.INLINE_COLOR_KEY].orEmpty())
         val styleColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_COLOR_KEY].orEmpty())
         val styleLineColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_LINE_COLOR_KEY].orEmpty())
         val styleFontColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_FONT_COLOR_KEY].orEmpty())
+        val styleFontNames = PlantUmlTreeRenderSupport.parseNodeStringMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_FONT_NAME_KEY].orEmpty())
+        val styleFontSizes = PlantUmlTreeRenderSupport.parseNodeFloatMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_FONT_SIZE_KEY].orEmpty())
+        val styleFontStyles = PlantUmlTreeRenderSupport.parseNodeStringMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_FONT_STYLE_KEY].orEmpty())
+        val styleLineThickness = PlantUmlTreeRenderSupport.parseNodeFloatMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_LINE_THICKNESS_KEY].orEmpty())
         val styleRoundCorners = PlantUmlTreeRenderSupport.parseNodeFloatMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_ROUND_CORNER_KEY].orEmpty())
+        val styleShadowing = PlantUmlTreeRenderSupport.parseNodeBooleanMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_SHADOWING_KEY].orEmpty())
         val stereotypes = PlantUmlTreeRenderSupport.parseNodeStringMap(ir.styleHints.extras[PlantUmlMindmapParser.STEREOTYPE_KEY].orEmpty())
         val leadingVisuals = PlantUmlTreeRenderSupport.parseNodeLeadingVisualMap(ir.styleHints.extras[PlantUmlMindmapParser.LEADING_VISUAL_KEY].orEmpty())
 
@@ -77,6 +83,7 @@ internal class PlantUmlMindmapSubPipeline(
                     parentRect = pr,
                     childRect = cr,
                     color = styleLineColors[c.id] ?: palette.edgeColor,
+                    strokeWidth = styleLineThickness[c.id] ?: 1.5f,
                 )
                 drawEdges(c)
             }
@@ -84,32 +91,51 @@ internal class PlantUmlMindmapSubPipeline(
 
         fun drawNode(n: TreeNode, isRoot: Boolean) {
             val r = laid.nodePositions[n.id] ?: return
+            val nodeBoxless = n.id in boxless
             val inlineColor = inlineColors[n.id]
             val styleColor = styleColors[n.id]
             val styleLineColor = styleLineColors[n.id]
             val styleFontColor = styleFontColors[n.id]
             val styleRoundCorner = styleRoundCorners[n.id]
+            val shadowing = styleShadowing[n.id] == true
             val fill = inlineColor ?: styleColor ?: if (isRoot) palette.rootFill else palette.defaultNodeFill
             val strokeColor = styleLineColor
                 ?: (inlineColor ?: styleColor)?.let { PlantUmlTreeRenderSupport.darken(it, 0.18f) }
                 ?: if (isRoot) palette.rootStroke else palette.defaultNodeStroke
+            if (shadowing && !nodeBoxless) {
+                out += DrawCommand.FillRect(
+                    rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
+                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    corner = styleRoundCorner ?: if (isRoot) chrome.rootCornerRadius else chrome.childCornerRadius,
+                    z = 0,
+                )
+            }
             PlantUmlTreeRenderSupport.appendNodeChrome(
                 out = out,
                 rect = r,
                 isRoot = isRoot,
-                boxless = false,
+                boxless = nodeBoxless,
                 fill = fill,
                 strokeColor = strokeColor,
                 chrome = chrome,
                 cornerRadiusOverride = styleRoundCorner,
+                strokeWidthOverride = styleLineThickness[n.id],
             )
 
             val label = (n.label as? RichLabel.Plain)?.text ?: ""
             val stereotype = stereotypes[n.id]
             val leadingVisual = leadingVisuals[n.id]
-            val bodyFont = if (isRoot) font.copy(weight = 600) else font
-            val effectiveTextColor = styleFontColor
-                ?: if (PlantUmlTreeRenderSupport.isDark(fill)) Color(0xFFFFFFFF.toInt()) else palette.textColor
+            val bodyFont = styledFont(
+                base = if (isRoot) font.copy(weight = 600) else font,
+                family = styleFontNames[n.id],
+                size = styleFontSizes[n.id],
+                style = styleFontStyles[n.id],
+            )
+            val effectiveTextColor = if (nodeBoxless) {
+                styleFontColor ?: (inlineColor ?: styleColor)?.let { PlantUmlTreeRenderSupport.darken(it, 0.45f) } ?: palette.textColor
+            } else {
+                styleFontColor ?: if (PlantUmlTreeRenderSupport.isDark(fill)) Color(0xFFFFFFFF.toInt()) else palette.textColor
+            }
             PlantUmlTreeRenderSupport.appendCenteredNodeText(
                 out = out,
                 textMeasurer = textMeasurer,
@@ -127,5 +153,25 @@ internal class PlantUmlMindmapSubPipeline(
         drawEdges(ir.root)
         drawNode(ir.root, true)
         return out
+    }
+
+    private fun parseBoxless(ir: TreeIR): Set<NodeId> =
+        ir.styleHints.extras[PlantUmlMindmapParser.BOXLESS_KEY]
+            .orEmpty()
+            .split("||")
+            .filter { it.isNotEmpty() }
+            .map { NodeId(it) }
+            .toSet()
+
+    private fun styledFont(base: FontSpec, family: String?, size: Float?, style: String?): FontSpec {
+        val normalizedStyle = style.orEmpty().lowercase()
+        val bold = "bold" in normalizedStyle
+        val italic = "italic" in normalizedStyle
+        return base.copy(
+            family = PlantUmlTreeRenderSupport.parsePlantUmlFontFamily(family) ?: base.family,
+            sizeSp = size ?: base.sizeSp,
+            weight = if (bold) 700 else base.weight,
+            italic = italic || base.italic,
+        )
     }
 }

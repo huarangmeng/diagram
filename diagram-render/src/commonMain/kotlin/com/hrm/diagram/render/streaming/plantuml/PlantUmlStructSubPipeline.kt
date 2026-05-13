@@ -28,6 +28,9 @@ internal class PlantUmlStructSubPipeline(
         val stroke = Color(0xFFD0D7DE.toInt())
         val rootStroke = Color(0xFF0969DA.toInt())
         val text = Color(0xFF24292F.toInt())
+        val numberText = Color(0xFF0550AE.toInt())
+        val booleanText = Color(0xFF8250DF.toInt())
+        val nullText = Color(0xFF6E7781.toInt())
         val edge = Color(0xFF8C959F.toInt())
     }
 
@@ -57,6 +60,8 @@ internal class PlantUmlStructSubPipeline(
 
     private fun render(ir: StructIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
+        val collapsiblePaths = parsePathSet(ir.styleHints.extras[PlantUmlStructParser.COLLAPSIBLE_PATHS_KEY].orEmpty())
+        val scalarKinds = parsePathMap(ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty())
         for (route in laid.edgeRoutes) {
             val ops = route.points.mapIndexed { index, point ->
                 if (index == 0) PathOp.MoveTo(point) else PathOp.LineTo(point)
@@ -70,10 +75,10 @@ internal class PlantUmlStructSubPipeline(
             out += DrawCommand.FillRect(rect, if (isRoot) rootFill else fill, corner = 6f, z = 1)
             out += DrawCommand.StrokeRect(rect, Stroke(width = if (isRoot) 1.6f else 1f), if (isRoot) rootStroke else stroke, corner = 6f, z = 2)
             out += DrawCommand.DrawText(
-                text = labelFor(node),
+                text = labelFor(node, path in collapsiblePaths),
                 origin = Point(rect.left + 12f, rect.top + rect.size.height / 2f),
                 font = if (isRoot) rootFont else font,
-                color = text,
+                color = scalarTextColor(scalarKinds[path]) ?: text,
                 maxWidth = rect.size.width - 24f,
                 anchorY = TextAnchorY.Middle,
                 z = 3,
@@ -89,12 +94,29 @@ internal class PlantUmlStructSubPipeline(
         return out
     }
 
-    private fun labelFor(node: StructNode): String {
+    private fun labelFor(node: StructNode, collapsible: Boolean): String {
         val prefix = node.key?.let { "$it: " }.orEmpty()
+        val marker = if (collapsible) "[-] " else ""
         return when (node) {
-            is StructNode.ArrayNode -> "$prefix[${node.items.size}]"
-            is StructNode.ObjectNode -> "$prefix{${node.entries.size}}"
+            is StructNode.ArrayNode -> "$marker$prefix[${node.items.size}]"
+            is StructNode.ObjectNode -> "$marker$prefix{${node.entries.size}}"
             is StructNode.Scalar -> "$prefix${node.value}"
         }
     }
+
+    private fun scalarTextColor(kind: String?): Color? = when (kind) {
+        "number" -> numberText
+        "boolean" -> booleanText
+        "null" -> nullText
+        else -> null
+    }
+
+    private fun parsePathSet(raw: String): Set<String> =
+        raw.split("||").filterTo(LinkedHashSet()) { it.isNotBlank() }
+
+    private fun parsePathMap(raw: String): Map<String, String> =
+        raw.split("||").mapNotNull { entry ->
+            val split = entry.lastIndexOf('|')
+            if (split <= 0) null else entry.substring(0, split) to entry.substring(split + 1)
+        }.toMap()
 }

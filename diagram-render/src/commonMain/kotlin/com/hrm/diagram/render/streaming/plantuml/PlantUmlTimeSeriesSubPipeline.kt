@@ -30,6 +30,10 @@ internal class PlantUmlTimeSeriesSubPipeline(
 ) : PlantUmlSubPipeline {
     enum class Kind { Gantt, Timing }
 
+    private companion object {
+        const val DAY_MS: Long = 86_400_000L
+    }
+
     private val ganttParser = if (kind == Kind.Gantt) PlantUmlGanttParser() else null
     private val timingParser = if (kind == Kind.Timing) PlantUmlTimingParser() else null
     private val layout = GanttLayout(textMeasurer)
@@ -80,6 +84,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
         if (axis != null && !hideTimingAxis) {
             out += DrawCommand.StrokeRect(axis, Stroke(width = 1f), Color(0xFFB0BEC5.toInt()), z = 1)
             if (isTiming) drawTimingScale(ir, axis, out) else drawDefaultGrid(axis, out)
+            if (!isTiming) drawGanttClosedBands(ir, axis, out)
         }
         laid.nodePositions[NodeId("gantt:title")]?.let { rect ->
             ir.title?.takeIf { it.isNotBlank() }?.let {
@@ -118,9 +123,14 @@ internal class PlantUmlTimeSeriesSubPipeline(
                 drawTimingConciseSegment(item, bar, labelRect, ir, out)
                 continue
             }
+            if (!isTiming && item.payload["gantt.kind"] == "milestone") {
+                drawGanttMilestone(item, bar, labelRect, out)
+                continue
+            }
             val color = if (isTiming) stateColor(labelText(item.label)) else itemColor(item.payload["gantt.color"])
             out += DrawCommand.FillRect(bar, color, corner = if (isTiming) 2f else 4f, z = 3)
-            out += DrawCommand.StrokeRect(bar, Stroke(width = 1f), Color(0xFF78909C.toInt()), corner = if (isTiming) 2f else 4f, z = 4)
+            if (!isTiming) drawGanttProgress(item, bar, out)
+            out += DrawCommand.StrokeRect(bar, ganttStroke(item), ganttStrokeColor(item), corner = if (isTiming) 2f else 4f, z = 4)
             val label = labelText(item.label)
             labelRect?.let {
                 out += DrawCommand.DrawText(label, Point(it.left, it.top), itemFont, text, maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
@@ -137,9 +147,85 @@ internal class PlantUmlTimeSeriesSubPipeline(
                     z = 10,
                 )
             }
+            if (!isTiming) drawGanttNote(item, bar, out)
         }
         return out
     }
+
+    private fun drawGanttProgress(
+        item: com.hrm.diagram.core.ir.TimeItem,
+        bar: Rect,
+        out: MutableList<DrawCommand>,
+    ) {
+        val progress = item.payload["gantt.progress"]?.toIntOrNull()?.coerceIn(0, 100) ?: return
+        if (progress <= 0) return
+        val width = bar.size.width * progress / 100f
+        out += DrawCommand.FillRect(Rect(Point(bar.left, bar.top), Size(width, bar.size.height)), Color(0x662E7D32), corner = 4f, z = 5)
+        out += DrawCommand.DrawText(
+            "$progress%",
+            Point((bar.left + bar.right) / 2f, (bar.top + bar.bottom) / 2f),
+            itemFont,
+            Color(0xFFFFFFFF.toInt()),
+            maxWidth = bar.size.width - 8f,
+            anchorX = TextAnchorX.Center,
+            anchorY = TextAnchorY.Middle,
+            z = 10,
+        )
+    }
+
+    private fun drawGanttMilestone(
+        item: com.hrm.diagram.core.ir.TimeItem,
+        bar: Rect,
+        labelRect: Rect?,
+        out: MutableList<DrawCommand>,
+    ) {
+        val center = Point((bar.left + bar.right) / 2f, (bar.top + bar.bottom) / 2f)
+        val radius = (minOf(bar.size.height, 18f) / 2f).coerceAtLeast(5f)
+        val path = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(center.x, center.y - radius)),
+                PathOp.LineTo(Point(center.x + radius, center.y)),
+                PathOp.LineTo(Point(center.x, center.y + radius)),
+                PathOp.LineTo(Point(center.x - radius, center.y)),
+                PathOp.Close,
+            ),
+        )
+        val fill = itemColor(item.payload["gantt.color"])
+        out += DrawCommand.FillPath(path, fill, z = 4)
+        out += DrawCommand.StrokePath(path, ganttStroke(item), ganttStrokeColor(item), z = 5)
+        labelRect?.let {
+            out += DrawCommand.DrawText(labelText(item.label), Point(it.left, it.top), itemFont, Color(0xFF263238.toInt()), maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
+        }
+        drawGanttNote(item, bar, out)
+    }
+
+    private fun drawGanttNote(
+        item: com.hrm.diagram.core.ir.TimeItem,
+        bar: Rect,
+        out: MutableList<DrawCommand>,
+    ) {
+        val note = item.payload["gantt.note"]?.takeIf { it.isNotBlank() } ?: return
+        out += DrawCommand.DrawText(
+            note,
+            Point(bar.right + 6f, (bar.top + bar.bottom) / 2f),
+            itemFont,
+            Color(0xFF6D4C41.toInt()),
+            maxWidth = 180f,
+            anchorY = TextAnchorY.Middle,
+            z = 10,
+        )
+    }
+
+    private fun ganttStroke(item: com.hrm.diagram.core.ir.TimeItem): Stroke =
+        when (item.payload["gantt.style"]?.lowercase()) {
+            "dashed" -> Stroke(width = 1.2f, dash = listOf(5f, 3f))
+            "bold" -> Stroke(width = 2.2f)
+            "critical" -> Stroke(width = 2f)
+            else -> Stroke(width = 1f)
+        }
+
+    private fun ganttStrokeColor(item: com.hrm.diagram.core.ir.TimeItem): Color =
+        if (item.payload["gantt.style"] == "critical") Color(0xFFD32F2F.toInt()) else Color(0xFF78909C.toInt())
 
     private fun drawDefaultGrid(axis: Rect, out: MutableList<DrawCommand>) {
         for (i in 0..4) {
@@ -151,6 +237,78 @@ internal class PlantUmlTimeSeriesSubPipeline(
                 z = 1,
             )
         }
+    }
+
+    private fun drawGanttClosedBands(ir: TimeSeriesIR, axis: Rect, out: MutableList<DrawCommand>) {
+        val ranges = parseClosedRanges(ir.styleHints.extras["gantt.closedRanges"]).toMutableList()
+        val closedWeekdays = ir.styleHints.extras["gantt.closedWeekdays"]
+            ?.split(',')
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?.toSet()
+            .orEmpty()
+        if (closedWeekdays.isNotEmpty()) {
+            var dayStart = floorDay(ir.range.startMs)
+            val end = ceilDay(ir.range.endMs)
+            var guard = 0
+            while (dayStart < end && guard < 4096) {
+                if (weekdayIndex(dayStart) in closedWeekdays) {
+                    ranges += dayStart to (dayStart + DAY_MS)
+                }
+                dayStart += DAY_MS
+                guard++
+            }
+        }
+        for ((start, end) in ranges) {
+            val left = xOf(start.coerceAtLeast(ir.range.startMs), ir, axis)
+            val right = xOf(end.coerceAtMost(ir.range.endMs), ir, axis)
+            if (right <= left) continue
+            out += DrawCommand.FillRect(Rect.ltrb(left, axis.top, right, axis.bottom), Color(0x14FFB74D), z = 1)
+            out += DrawCommand.StrokePath(
+                PathCmd(listOf(PathOp.MoveTo(Point(left, axis.top)), PathOp.LineTo(Point(left, axis.bottom)))),
+                Stroke(width = 1f, dash = listOf(2f, 3f)),
+                Color(0x55EF6C00),
+                z = 2,
+            )
+        }
+    }
+
+    private fun parseClosedRanges(raw: String?): List<Pair<Long, Long>> =
+        raw?.split('|')
+            ?.mapNotNull { token ->
+                val parts = token.split(':')
+                val start = parts.getOrNull(0)?.toLongOrNull()
+                val end = parts.getOrNull(1)?.toLongOrNull()
+                if (start != null && end != null) start to end else null
+            }
+            .orEmpty()
+
+    private fun xOf(ms: Long, ir: TimeSeriesIR, axis: Rect): Float {
+        val span = (ir.range.endMs - ir.range.startMs).coerceAtLeast(1L).toDouble()
+        val t = ((ms - ir.range.startMs).toDouble() / span).coerceIn(0.0, 1.0)
+        return (axis.left + axis.size.width * t).toFloat()
+    }
+
+    private fun floorDay(ms: Long): Long = floorDiv(ms, DAY_MS) * DAY_MS
+
+    private fun ceilDay(ms: Long): Long {
+        val floor = floorDay(ms)
+        return if (floor == ms) floor else floor + DAY_MS
+    }
+
+    private fun weekdayIndex(dayStartMs: Long): Int {
+        val epochDay = floorDiv(dayStartMs, DAY_MS)
+        return floorMod(epochDay + 3L, 7L).toInt() + 1
+    }
+
+    private fun floorDiv(value: Long, divisor: Long): Long {
+        val quotient = value / divisor
+        val remainder = value % divisor
+        return if (remainder != 0L && (value xor divisor) < 0L) quotient - 1L else quotient
+    }
+
+    private fun floorMod(value: Long, divisor: Long): Long {
+        val mod = value % divisor
+        return if (mod < 0L) mod + divisor else mod
     }
 
     private fun drawTimingScale(ir: TimeSeriesIR, axis: Rect, out: MutableList<DrawCommand>) {

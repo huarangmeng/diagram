@@ -195,6 +195,54 @@ class PlantUmlWbsIntegrationTest {
         assertTrue(strokeRects.none { it.corner == 24f }, "boxless descendant should not render stroke rect even with round corner style")
     }
 
+    @Test
+    fun startuml_wbs_cue_and_advanced_style_fields_render_consistently() {
+        val src =
+            """
+            @startuml
+            <style>
+            wbsDiagram {
+              .node {
+                FontName "JetBrains Mono"
+                FontSize 18
+                FontStyle bold italic
+                LineThickness 3
+                Shadowing true
+                MaximumWidth 120
+              }
+              .branch * {
+                FontSize 15
+                LineThickness 4
+                MaximumWidth 96
+              }
+            }
+            </style>
+            * Root
+            ** Node <<node>>
+            ** Branch <<branch>>
+            *** Child with a long label to wrap inside width
+            @enduml
+            """.trimIndent() + "\n"
+        val one = run(src, src.length)
+        val chunked = run(src, 5)
+        val oneIr = assertIs<TreeIR>(one.ir)
+        val chunkedIr = assertIs<TreeIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        val texts = one.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        val strokeRects = one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>()
+        val strokePaths = one.drawCommands.filterIsInstance<DrawCommand.StrokePath>()
+        val fills = one.drawCommands.filterIsInstance<DrawCommand.FillRect>()
+        assertTrue(texts.any { it.text == "Node" && it.font.family == "JetBrains Mono" && it.font.sizeSp == 18f && it.font.weight == 700 && it.font.italic })
+        assertTrue(strokeRects.any { it.stroke.width == 3f })
+        assertTrue(strokePaths.any { it.stroke.width == 4f })
+        assertTrue(fills.any { it.color.argb == 0x26000000 }, "shadowing should emit deterministic shadow fill")
+        val child = oneIr.root.children[1].children.single()
+        val childRect = assertNotNull(one.laidOut).nodePositions.getValue(child.id)
+        assertTrue(childRect.size.width <= 124f, "MaximumWidth should constrain layout width, actual=${childRect.size.width}")
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

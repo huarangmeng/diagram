@@ -31,7 +31,11 @@ class MindmapLayout(
 ) {
     private companion object {
         const val MINDMAP_SIDE_KEY = "plantuml.mindmap.side"
+        const val MINDMAP_FONT_SIZE_KEY = "plantuml.mindmap.styleFontSize"
+        const val MINDMAP_MAXIMUM_WIDTH_KEY = "plantuml.mindmap.styleMaximumWidth"
         const val WBS_SIDE_KEY = "plantuml.wbs.side"
+        const val WBS_FONT_SIZE_KEY = "plantuml.wbs.styleFontSize"
+        const val WBS_MAXIMUM_WIDTH_KEY = "plantuml.wbs.styleMaximumWidth"
     }
 
     private val font = FontSpec(family = "sans-serif", sizeSp = 12f)
@@ -44,12 +48,22 @@ class MindmapLayout(
         val rowGap = 18f
 
         val measured = HashMap<NodeId, Size>()
+        val fontSizes = parseNodeFloatMap(
+            model.styleHints.extras[MINDMAP_FONT_SIZE_KEY]
+                ?: model.styleHints.extras[WBS_FONT_SIZE_KEY].orEmpty(),
+        )
+        val maximumWidths = parseNodeFloatMap(
+            model.styleHints.extras[MINDMAP_MAXIMUM_WIDTH_KEY]
+                ?: model.styleHints.extras[WBS_MAXIMUM_WIDTH_KEY].orEmpty(),
+        )
         fun measure(n: TreeNode): Size {
             return measured.getOrPut(n.id) {
                 val text = (n.label as? RichLabel.Plain)?.text ?: ""
-                val m = textMeasurer.measure(text, font, maxWidth = 180f)
+                val nodeFont = fontSizes[n.id]?.let { font.copy(sizeSp = it) } ?: font
+                val maxWidth = maximumWidths[n.id]?.coerceIn(72f, 360f) ?: 180f
+                val m = textMeasurer.measure(text, nodeFont, maxWidth = maxWidth)
                 Size(
-                    width = (m.width + 28f).coerceAtLeast(56f),
+                    width = (m.width + 28f).coerceAtLeast(56f).coerceAtMost(maxWidth + 28f),
                     height = (m.height + 20f).coerceAtLeast(34f),
                 )
             }
@@ -180,4 +194,13 @@ class MindmapLayout(
         }
         return out
     }
+
+    private fun parseNodeFloatMap(raw: String): Map<NodeId, Float> =
+        raw.split("||").mapNotNull { entry ->
+            if (entry.isEmpty()) return@mapNotNull null
+            val split = entry.lastIndexOf('|')
+            if (split <= 0) return@mapNotNull null
+            val value = entry.substring(split + 1).trim().toFloatOrNull() ?: return@mapNotNull null
+            NodeId(entry.substring(0, split)) to value
+        }.toMap()
 }

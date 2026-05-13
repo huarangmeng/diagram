@@ -53,6 +53,9 @@ internal object PlantUmlTreeRenderSupport {
     fun parseNodeFloatMap(raw: String): Map<NodeId, Float> =
         parseNodeStringMap(raw).mapNotNull { (id, value) -> value.toFloatOrNull()?.let { id to it } }.toMap()
 
+    fun parseNodeBooleanMap(raw: String): Map<NodeId, Boolean> =
+        parseNodeStringMap(raw).mapNotNull { (id, value) -> parsePlantUmlBoolean(value)?.let { id to it } }.toMap()
+
     fun parsePlantUmlFloat(raw: String?): Float? =
         raw?.trim()?.toFloatOrNull()?.takeIf { it > 0f }
 
@@ -73,6 +76,14 @@ internal object PlantUmlTreeRenderSupport {
             family = parsePlantUmlFontFamily(familyRaw) ?: base.family,
             sizeSp = parsePlantUmlFloat(sizeRaw) ?: base.sizeSp,
         )
+
+    fun resolveFontSpec(base: FontSpec, familyRaw: String?, sizeRaw: String?, styleRaw: String?): FontSpec {
+        val lower = styleRaw?.lowercase().orEmpty()
+        return resolveFontSpec(base, familyRaw, sizeRaw).copy(
+            weight = if ("bold" in lower) 700 else base.weight,
+            italic = "italic" in lower,
+        )
+    }
 
     fun parseNodeLeadingVisualMap(raw: String): Map<NodeId, PlantUmlTreeLeadingVisualSpec> =
         parseNodeStringMap(raw).mapNotNull { (id, value) ->
@@ -194,12 +205,22 @@ internal object PlantUmlTreeRenderSupport {
         strokeColor: Color,
         chrome: PlantUmlTreeNodeChrome,
         cornerRadiusOverride: Float? = null,
+        strokeWidthOverride: Float? = null,
+        shadow: Boolean = false,
         fillZ: Int = 1,
         strokeZ: Int = 2,
     ) {
         if (boxless) return
         val cornerRadius = cornerRadiusOverride ?: if (isRoot) chrome.rootCornerRadius else chrome.childCornerRadius
-        val strokeWidth = if (isRoot) chrome.rootStrokeWidth else chrome.childStrokeWidth
+        val strokeWidth = strokeWidthOverride ?: if (isRoot) chrome.rootStrokeWidth else chrome.childStrokeWidth
+        if (shadow) {
+            out += DrawCommand.FillRect(
+                rect = offsetRect(rect, 4f, 5f),
+                color = shadowColor(),
+                corner = cornerRadius,
+                z = fillZ - 1,
+            )
+        }
         out += DrawCommand.FillRect(
             rect = rect,
             color = fill,

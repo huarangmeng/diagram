@@ -145,6 +145,82 @@ class PlantUmlSaltIntegrationTest {
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().size >= 8)
     }
 
+    @Test
+    fun startsalt_renders_checkboxes_radios_and_separators_with_streaming_consistency() {
+        val src =
+            """
+            @startsalt
+            salt {
+              [X] Remember me
+              [ ] Subscribe
+              (X) Admin
+              ( ) Viewer
+              --
+            }
+            @endsalt
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 5)
+        val oneIr = assertIs<WireframeIR>(one.ir)
+        val chunkedIr = assertIs<WireframeIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        val root = assertIs<WireBox.Plain>(oneIr.root)
+        assertEquals(5, root.children.size)
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "[x] Remember me" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "(o) Admin" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().any { it.stroke.dash == listOf(7f, 5f) })
+    }
+
+    @Test
+    fun startsalt_renders_advanced_controls_with_streaming_consistency() {
+        val src =
+            """
+            @startsalt
+            salt {
+              <img:https://cdn.example.com/ui/login.png>
+              {^ Main Menu
+                [File]
+                [Edit]
+              }
+              {! Tasks
+                [X] Done
+                [ ] Todo
+              }
+              {S Log
+                line 1
+                line 2
+              }
+              {* Home | Settings
+                Home dashboard
+                Settings panel
+              }
+              Name | Role | Enabled
+              [X] Alice | ^Admin^ | .
+            }
+            @endsalt
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 6)
+        val oneIr = assertIs<WireframeIR>(one.ir)
+        val chunkedIr = assertIs<WireframeIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        val root = assertIs<WireBox.Plain>(oneIr.root)
+        assertIs<WireBox.Image>(root.children[0])
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Image: login.png" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Main Menu" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Tasks" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Log" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Home" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "[x] Alice" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().isNotEmpty())
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

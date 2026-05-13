@@ -15,6 +15,7 @@ import com.hrm.diagram.core.ir.Cluster
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
@@ -40,6 +41,7 @@ internal class PlantUmlNetworkSubPipeline(
     private val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val detailFont = FontSpec(family = "monospace", sizeSp = 10f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
+    private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -142,8 +144,21 @@ internal class PlantUmlNetworkSubPipeline(
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1976D2.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
-        out += DrawCommand.FillRect(rect, fill, corner = 10f, z = 4)
-        out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.5f), strokeColor, corner = 10f, z = 5)
+        when (node.shape) {
+            is NodeShape.Cloud -> drawCloudNode(rect, fill, strokeColor, out)
+            is NodeShape.Cylinder -> drawCylinderNode(rect, fill, strokeColor, out)
+            is NodeShape.Hexagon -> drawHexagonNode(rect, fill, strokeColor, out)
+            is NodeShape.Actor -> drawActorNode(rect, fill, strokeColor, out)
+            is NodeShape.Component -> drawComponentNode(rect, fill, strokeColor, out)
+            is NodeShape.Box -> {
+                out += DrawCommand.FillRect(rect, fill, corner = 2f, z = 4)
+                out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.5f), strokeColor, corner = 2f, z = 5)
+            }
+            else -> {
+                out += DrawCommand.FillRect(rect, fill, corner = 10f, z = 4)
+                out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.5f), strokeColor, corner = 10f, z = 5)
+            }
+        }
         val lines = labelTextOf(node).split('\n')
         out += DrawCommand.DrawText(
             text = lines.firstOrNull().orEmpty(),
@@ -170,6 +185,68 @@ internal class PlantUmlNetworkSubPipeline(
         }
     }
 
+    private fun drawCylinderNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        out += DrawCommand.FillRect(rect, fill, corner = 10f, z = 4)
+        out += DrawCommand.StrokeRect(rect, Stroke(width = 1.5f), strokeColor, corner = 10f, z = 5)
+        out += DrawCommand.StrokeRect(Rect(rect.origin, Size(rect.size.width, 18f)), Stroke(width = 1f), strokeColor, corner = 9f, z = 6)
+    }
+
+    private fun drawHexagonNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        val inset = minOf(rect.size.width, rect.size.height) * 0.18f
+        val path = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(rect.left + inset, rect.top)),
+                PathOp.LineTo(Point(rect.right - inset, rect.top)),
+                PathOp.LineTo(Point(rect.right, rect.top + rect.size.height / 2f)),
+                PathOp.LineTo(Point(rect.right - inset, rect.bottom)),
+                PathOp.LineTo(Point(rect.left + inset, rect.bottom)),
+                PathOp.LineTo(Point(rect.left, rect.top + rect.size.height / 2f)),
+                PathOp.Close,
+            ),
+        )
+        out += DrawCommand.FillPath(path, fill, z = 4)
+        out += DrawCommand.StrokePath(path, Stroke(width = 1.5f), strokeColor, z = 5)
+    }
+
+    private fun drawActorNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        out += DrawCommand.FillRect(rect, fill, corner = rect.size.height / 2f, z = 4)
+        out += DrawCommand.StrokeRect(rect, Stroke(width = 1.5f), strokeColor, corner = rect.size.height / 2f, z = 5)
+    }
+
+    private fun drawComponentNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        out += DrawCommand.FillRect(rect, fill, corner = 8f, z = 4)
+        out += DrawCommand.StrokeRect(rect, Stroke(width = 1.5f), strokeColor, corner = 8f, z = 5)
+        val tab = Rect.ltrb(rect.right - 26f, rect.top + 10f, rect.right - 8f, rect.top + 28f)
+        out += DrawCommand.StrokeRect(tab, Stroke(width = 1f), strokeColor, corner = 3f, z = 6)
+    }
+
+    private fun drawCloudNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        val path = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(rect.left + rect.size.width * 0.18f, rect.bottom - rect.size.height * 0.28f)),
+                PathOp.CubicTo(
+                    Point(rect.left, rect.bottom - rect.size.height * 0.38f),
+                    Point(rect.left + rect.size.width * 0.08f, rect.top + rect.size.height * 0.24f),
+                    Point(rect.left + rect.size.width * 0.30f, rect.top + rect.size.height * 0.34f),
+                ),
+                PathOp.CubicTo(
+                    Point(rect.left + rect.size.width * 0.36f, rect.top + rect.size.height * 0.08f),
+                    Point(rect.left + rect.size.width * 0.66f, rect.top + rect.size.height * 0.08f),
+                    Point(rect.left + rect.size.width * 0.72f, rect.top + rect.size.height * 0.34f),
+                ),
+                PathOp.CubicTo(
+                    Point(rect.right, rect.top + rect.size.height * 0.28f),
+                    Point(rect.right, rect.bottom - rect.size.height * 0.22f),
+                    Point(rect.left + rect.size.width * 0.76f, rect.bottom - rect.size.height * 0.22f),
+                ),
+                PathOp.LineTo(Point(rect.left + rect.size.width * 0.18f, rect.bottom - rect.size.height * 0.28f)),
+                PathOp.Close,
+            ),
+        )
+        out += DrawCommand.FillPath(path, fill, z = 4)
+        out += DrawCommand.StrokePath(path, Stroke(width = 1.5f), strokeColor, z = 5)
+    }
+
     private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge?, route: EdgeRoute, out: MutableList<DrawCommand>) {
         val pts = route.points
         if (pts.size < 2) return
@@ -188,8 +265,20 @@ internal class PlantUmlNetworkSubPipeline(
         }
         val color = edge?.style?.color?.let { Color(it.argb) } ?: Color(0xFF78909C.toInt())
         out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = edge?.style?.width ?: 1.4f, dash = edge?.style?.dash), color, z = 2)
-        if (edge?.arrow == com.hrm.diagram.core.ir.ArrowEnds.ToOnly) {
-            out += openArrowHead(pts[pts.size - 2], pts.last(), color)
+        when (edge?.arrow) {
+            com.hrm.diagram.core.ir.ArrowEnds.ToOnly -> out += openArrowHead(pts[pts.size - 2], pts.last(), color)
+            com.hrm.diagram.core.ir.ArrowEnds.FromOnly -> out += openArrowHead(pts[1], pts.first(), color)
+            com.hrm.diagram.core.ir.ArrowEnds.Both -> {
+                out += openArrowHead(pts[pts.size - 2], pts.last(), color)
+                out += openArrowHead(pts[1], pts.first(), color)
+            }
+            else -> Unit
+        }
+        val label = edge?.label?.let(::labelTextOf).orEmpty()
+        if (label.isNotBlank()) {
+            val mid = pts[pts.size / 2]
+            out += DrawCommand.FillRect(Rect(Point(mid.x - 42f, mid.y - 10f), Size(84f, 20f)), Color(0xDDFFFFFF.toInt()), corner = 4f, z = 3)
+            out += DrawCommand.DrawText(label, mid, edgeFont, Color(0xFF455A64.toInt()), maxWidth = 80f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 4)
         }
     }
 
@@ -223,6 +312,13 @@ internal class PlantUmlNetworkSubPipeline(
             is RichLabel.Plain -> label.text.takeIf { it.isNotBlank() } ?: node.id.value
             is RichLabel.Markdown -> label.source.takeIf { it.isNotBlank() } ?: node.id.value
             is RichLabel.Html -> label.html.takeIf { it.isNotBlank() } ?: node.id.value
+        }
+
+    private fun labelTextOf(label: RichLabel): String =
+        when (label) {
+            is RichLabel.Plain -> label.text
+            is RichLabel.Markdown -> label.source
+            is RichLabel.Html -> label.html
         }
 
     private fun clusterTitle(cluster: Cluster): String {

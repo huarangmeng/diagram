@@ -197,6 +197,75 @@ class PlantUmlMindmapParserTest {
     }
 
     @Test
+    fun boxless_and_lightweight_creole_markup_are_parsed() {
+        val ir = parse(
+            """
+            *_ **Root**
+            **_ //Branch//
+            *** __Leaf__
+            """.trimIndent() + "\n",
+        ).snapshot()
+        val boxless = decodeBoxless(ir)
+        assertTrue(ir.root.id in boxless)
+        assertTrue(ir.root.children.single().id in boxless)
+        assertEquals("Root", (ir.root.label as RichLabel.Plain).text)
+        assertEquals("Branch", (ir.root.children.single().label as RichLabel.Plain).text)
+        assertEquals("Leaf", (ir.root.children.single().children.single().label as RichLabel.Plain).text)
+    }
+
+    @Test
+    fun font_name_size_style_and_shadowing_are_resolved_from_style_block() {
+        val ir = parse(
+            """
+            <style>
+            mindmapDiagram {
+              .node {
+                FontName serif
+                FontSize 18
+                FontStyle bold italic
+                LineThickness 3
+                Shadowing true
+                MaximumWidth 120
+              }
+              .branch * {
+                FontName monospace
+                FontSize 15
+                FontStyle italic
+                LineThickness 4
+                Shadowing false
+                MaximumWidth 96
+              }
+            }
+            </style>
+            * Root
+            ** Node <<node>>
+            ** Branch <<branch>>
+            *** Child
+            """.trimIndent() + "\n",
+        ).snapshot()
+        val fontNames = decodeMap(ir, PlantUmlMindmapParser.STYLE_FONT_NAME_KEY)
+        val fontSizes = decodeMap(ir, PlantUmlMindmapParser.STYLE_FONT_SIZE_KEY)
+        val fontStyles = decodeMap(ir, PlantUmlMindmapParser.STYLE_FONT_STYLE_KEY)
+        val lineThickness = decodeMap(ir, PlantUmlMindmapParser.STYLE_LINE_THICKNESS_KEY)
+        val shadowing = decodeMap(ir, PlantUmlMindmapParser.STYLE_SHADOWING_KEY)
+        val maxWidths = decodeMap(ir, PlantUmlMindmapParser.STYLE_MAXIMUM_WIDTH_KEY)
+        val node = ir.root.children[0]
+        val child = ir.root.children[1].children.single()
+        assertEquals("serif", fontNames[node.id])
+        assertEquals("18", fontSizes[node.id])
+        assertEquals("bold italic", fontStyles[node.id])
+        assertEquals("3", lineThickness[node.id])
+        assertEquals("true", shadowing[node.id])
+        assertEquals("120", maxWidths[node.id])
+        assertEquals("monospace", fontNames[child.id])
+        assertEquals("15", fontSizes[child.id])
+        assertEquals("italic", fontStyles[child.id])
+        assertEquals("4", lineThickness[child.id])
+        assertEquals("false", shadowing[child.id])
+        assertEquals("96", maxWidths[child.id])
+    }
+
+    @Test
     fun multiple_roots_are_reported() {
         val parser = parse(
             """
@@ -223,6 +292,13 @@ class PlantUmlMindmapParserTest {
         Regex("""([^|]+)\|([^|]+)""").findAll(ir.styleHints.extras[PlantUmlMindmapParser.SIDE_KEY].orEmpty()).associate {
             NodeId(it.groupValues[1]) to it.groupValues[2]
         }
+
+    private fun decodeBoxless(ir: TreeIR): Set<NodeId> =
+        ir.styleHints.extras[PlantUmlMindmapParser.BOXLESS_KEY].orEmpty()
+            .split("||")
+            .filter { it.isNotEmpty() }
+            .map { NodeId(it) }
+            .toSet()
 
     private fun decodeStereotypes(ir: TreeIR): Map<NodeId, String> =
         Regex("""([^|]+)\|([^|]+)""").findAll(ir.styleHints.extras[PlantUmlMindmapParser.STEREOTYPE_KEY].orEmpty()).associate {
@@ -256,6 +332,11 @@ class PlantUmlMindmapParserTest {
 
     private fun decodeStyleRoundCorners(ir: TreeIR): Map<NodeId, String> =
         Regex("""([^|]+)\|([^|]+)""").findAll(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_ROUND_CORNER_KEY].orEmpty()).associate {
+            NodeId(it.groupValues[1]) to it.groupValues[2]
+        }
+
+    private fun decodeMap(ir: TreeIR, key: String): Map<NodeId, String> =
+        Regex("""([^|]+)\|([^|]+)""").findAll(ir.styleHints.extras[key].orEmpty()).associate {
             NodeId(it.groupValues[1]) to it.groupValues[2]
         }
 }

@@ -1,6 +1,9 @@
 package com.hrm.diagram.parser.plantuml
 
+import com.hrm.diagram.core.ir.ArrowEnds
+import com.hrm.diagram.core.ir.EdgeKind
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeShape
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -60,6 +63,34 @@ class PlantUmlDitaaParserTest {
         assertEquals("true", round.payload[PlantUmlDitaaParser.ROUNDED_KEY])
         assertEquals("true", round.payload[PlantUmlDitaaParser.HANDWRITTEN_KEY])
         assertEquals("true", ir.styleHints.extras[PlantUmlDitaaParser.HANDWRITTEN_KEY])
+        assertTrue(parser.diagnosticsSnapshot().isEmpty(), "diagnostics=${parser.diagnosticsSnapshot()}")
+    }
+
+    @Test
+    fun parses_ditaa_shape_markers_and_rich_connectors() {
+        val parser = PlantUmlDitaaParser()
+        """
+        +---------+   +---------+   +---------+
+        | {d} Doc |<=>| {s} DB  |:::| {io} IO |
+        +---------+   +---------+   +---------+
+              ^             |
+              |             v
+        +---------+   +---------+
+        | {c} Dec |===| {o} End |
+        +---------+   +---------+
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val ir = assertIs<GraphIR>(parser.snapshot())
+        assertEquals(NodeShape.Note, ir.nodes.single { labelOf(it.label) == "Doc" }.shape)
+        assertEquals(NodeShape.Cylinder, ir.nodes.single { labelOf(it.label) == "DB" }.shape)
+        assertEquals(NodeShape.Parallelogram, ir.nodes.single { labelOf(it.label) == "IO" }.shape)
+        assertEquals(NodeShape.Diamond, ir.nodes.single { labelOf(it.label) == "Dec" }.shape)
+        assertEquals(NodeShape.Ellipse, ir.nodes.single { labelOf(it.label) == "End" }.shape)
+        assertTrue(ir.edges.any { it.arrow == ArrowEnds.Both })
+        assertTrue(ir.edges.any { it.kind == EdgeKind.Dashed && it.style.dash == listOf(4f, 4f) })
+        assertTrue(ir.edges.any { it.style.width == 2.4f })
+        assertTrue(ir.edges.any { it.arrow == ArrowEnds.FromOnly || it.arrow == ArrowEnds.ToOnly })
         assertTrue(parser.diagnosticsSnapshot().isEmpty(), "diagnostics=${parser.diagnosticsSnapshot()}")
     }
 

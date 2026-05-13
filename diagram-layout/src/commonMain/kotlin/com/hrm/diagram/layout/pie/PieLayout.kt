@@ -19,6 +19,7 @@ import kotlin.math.max
  *
  * Output uses synthetic [NodeId]s for legend rows and title:
  * - `pie:title`
+ * - `pie:plot`
  * - `pie:legend:<index>`
  *
  * The actual wedge geometry is computed in the renderer; layout only decides text rectangles
@@ -36,6 +37,7 @@ class PieLayout(
         val gap = 18f
         val radius = 120f
         val diameter = radius * 2f
+        val legendMode = model.styleHints.extras["plantuml.chart.legend"] ?: "right"
 
         val nodePositions = LinkedHashMap<NodeId, Rect>()
 
@@ -47,15 +49,8 @@ class PieLayout(
             y0 += m.height + 10f
         }
 
-        val pieTop = y0
-        val pieLeft = pad
-        val pieRect = Rect(Point(pieLeft, pieTop), Size(diameter, diameter))
-
-        val legendLeft = pieRect.right + gap
-        var legendY = pieTop
-
         var maxLegendW = 0f
-        for ((i, s) in model.slices.withIndex()) {
+        val legendRows = model.slices.mapIndexed { i, s ->
             val label = (s.label as? com.hrm.diagram.core.ir.RichLabel.Plain)?.text ?: "slice$i"
             val valueText = formatValue(s.value)
             val m1 = textMeasurer.measure(label, legendFont)
@@ -63,12 +58,41 @@ class PieLayout(
             val rowH = max(m1.height, m2.height) + 6f
             val rowW = 14f + 8f + m1.width + 12f + m2.width
             maxLegendW = max(maxLegendW, rowW)
-            nodePositions[NodeId("pie:legend:$i")] = Rect(Point(legendLeft, legendY), Size(rowW, rowH))
-            legendY += rowH + 4f
+            Size(rowW, rowH)
+        }
+        val legendHeight = legendRows.sumOf { it.height.toDouble() }.toFloat() + (legendRows.size - 1).coerceAtLeast(0) * 4f
+        val showLegend = legendMode != "none" && model.slices.isNotEmpty()
+        val pieTop = if (showLegend && legendMode == "top") y0 + legendHeight + gap else y0
+        val pieLeft = if (showLegend && legendMode == "left") pad + maxLegendW + gap else pad
+        val pieRect = Rect(Point(pieLeft, pieTop), Size(diameter, diameter))
+        nodePositions[NodeId("pie:plot")] = pieRect
+
+        if (showLegend) {
+            val legendLeft = when (legendMode) {
+                "left", "top", "bottom" -> pad
+                else -> pieRect.right + gap
+            }
+            var legendY = when (legendMode) {
+                "top" -> y0
+                "bottom" -> pieRect.bottom + gap
+                else -> pieTop
+            }
+            for ((i, rowSize) in legendRows.withIndex()) {
+                nodePositions[NodeId("pie:legend:$i")] = Rect(Point(legendLeft, legendY), rowSize)
+                legendY += rowSize.height + 4f
+            }
         }
 
-        val boundsRight = if (model.slices.isEmpty()) pieRect.right else (legendLeft + maxLegendW)
-        val boundsBottom = max(pieRect.bottom, legendY)
+        val legendRight = when {
+            !showLegend -> pieRect.right
+            legendMode == "right" -> pieRect.right + gap + maxLegendW
+            legendMode == "left" -> max(pieRect.right, pad + maxLegendW)
+            else -> max(pieRect.right, pad + maxLegendW)
+        }
+        val legendBottom = nodePositions.filterKeys { it.value.startsWith("pie:legend:") }.values.maxOfOrNull { it.bottom } ?: pieRect.bottom
+
+        val boundsRight = legendRight
+        val boundsBottom = max(pieRect.bottom, legendBottom)
         val bounds = Rect.ltrb(0f, 0f, boundsRight + pad, boundsBottom + pad)
 
         return LaidOutDiagram(
@@ -83,4 +107,3 @@ class PieLayout(
     private fun formatValue(v: Double): String =
         if (v % 1.0 == 0.0) v.toInt().toString() else v.toString()
 }
-

@@ -57,21 +57,26 @@ internal class PlantUmlPieSubPipeline(
     private fun render(ir: PieIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
         val pad = 20f
-        val radius = 120f
-        val pieTop = laid.nodePositions[NodeId("pie:title")]?.bottom?.plus(10f) ?: pad
-        val center = Point(pad + radius, pieTop + radius)
+        val pieRect = laid.nodePositions[NodeId("pie:plot")] ?: Rect(Point(pad, laid.nodePositions[NodeId("pie:title")]?.bottom?.plus(10f) ?: pad), Size(240f, 240f))
+        val radius = pieRect.size.width.coerceAtMost(pieRect.size.height) / 2f
+        val center = Point(pieRect.left + radius, pieRect.top + radius)
         val total = ir.slices.sumOf { it.value }.takeIf { it > 0.0 } ?: 1.0
         var angle = -PI / 2.0
-        val palette = listOf(
-            Color(0xFF42A5F5.toInt()),
-            Color(0xFF66BB6A.toInt()),
-            Color(0xFFFFCA28.toInt()),
-            Color(0xFFEF5350.toInt()),
-            Color(0xFFAB47BC.toInt()),
-            Color(0xFF26C6DA.toInt()),
-        )
-        val border = Stroke(width = 1f)
-        val borderColor = Color(0xFF263238.toInt())
+        val palette = ir.slices.indices.map { idx ->
+            parseColor(ir.styleHints.extras["${PlantUmlPieParser.STYLE_SLICE_COLOR_PREFIX}$idx"])
+        }.mapIndexed { index, color ->
+            color ?: defaultPalette()[index % defaultPalette().size]
+        }
+        val border = Stroke(width = ir.styleHints.extras[PlantUmlPieParser.STYLE_LINE_THICKNESS_KEY]?.toFloatOrNull() ?: 1f)
+        val borderColor = parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_BORDER_KEY]) ?: Color(0xFF263238.toInt())
+        val textColor = parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_TEXT_KEY]) ?: borderColor
+        parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_BACKGROUND_KEY])?.let {
+            out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), it, z = -1)
+        }
+        val showShadow = ir.styleHints.extras[PlantUmlPieParser.STYLE_SHADOWING_KEY]?.lowercase() in setOf("true", "yes", "on", "1")
+        if (showShadow) {
+            out += DrawCommand.FillPath(path = wedgePath(Point(center.x + 4f, center.y + 5f), radius, 0.0, 2.0 * PI), color = Color(0x22000000), z = 0)
+        }
 
         val titleRect = laid.nodePositions[NodeId("pie:title")]
         if (titleRect != null && !ir.title.isNullOrBlank()) {
@@ -79,7 +84,7 @@ internal class PlantUmlPieSubPipeline(
                 text = ir.title!!,
                 origin = Point(titleRect.left, titleRect.top),
                 font = titleFont,
-                color = borderColor,
+                color = textColor,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -97,6 +102,8 @@ internal class PlantUmlPieSubPipeline(
             angle = end
         }
 
+        if (ir.styleHints.extras[PlantUmlPieParser.STYLE_LEGEND_KEY] == "none") return out
+
         for ((index, slice) in ir.slices.withIndex()) {
             val row = laid.nodePositions[NodeId("pie:legend:$index")] ?: continue
             val swatch = Rect.ltrb(row.left, row.top + 3f, row.left + 14f, row.bottom - 3f)
@@ -107,7 +114,7 @@ internal class PlantUmlPieSubPipeline(
                 text = labelOf(slice.label, index),
                 origin = Point(swatch.right + 8f, (row.top + row.bottom) / 2f),
                 font = legendFont,
-                color = borderColor,
+                color = textColor,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Middle,
                 z = 7,
@@ -116,7 +123,7 @@ internal class PlantUmlPieSubPipeline(
                 text = formatValue(slice.value),
                 origin = Point(row.right, (row.top + row.bottom) / 2f),
                 font = legendFont,
-                color = borderColor,
+                color = textColor,
                 anchorX = TextAnchorX.End,
                 anchorY = TextAnchorY.Middle,
                 z = 7,
@@ -131,6 +138,16 @@ internal class PlantUmlPieSubPipeline(
         )
         return out
     }
+
+    private fun defaultPalette(): List<Color> =
+        listOf(
+            Color(0xFF42A5F5.toInt()),
+            Color(0xFF66BB6A.toInt()),
+            Color(0xFFFFCA28.toInt()),
+            Color(0xFFEF5350.toInt()),
+            Color(0xFFAB47BC.toInt()),
+            Color(0xFF26C6DA.toInt()),
+        )
 
     private fun wedgePath(center: Point, radius: Float, start: Double, end: Double): PathCmd {
         val ops = ArrayList<PathOp>()
@@ -181,4 +198,35 @@ internal class PlantUmlPieSubPipeline(
 
     private fun formatValue(value: Double): String =
         if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+
+    private fun parseColor(raw: String?): Color? {
+        val s = raw?.trim()?.lowercase() ?: return null
+        if (s.isEmpty()) return null
+        if (s.startsWith("#")) {
+            val hex = s.removePrefix("#")
+            return when (hex.length) {
+                3 -> Color(0xFF000000.toInt() or expand3(hex))
+                6 -> hex.toIntOrNull(16)?.let { Color(0xFF000000.toInt() or it) }
+                8 -> hex.toLongOrNull(16)?.toInt()?.let { Color(it) }
+                else -> null
+            }
+        }
+        return when (s) {
+            "white" -> Color(0xFFFFFFFF.toInt())
+            "black" -> Color(0xFF000000.toInt())
+            "red" -> Color(0xFFE53935.toInt())
+            "green", "lime" -> Color(0xFF43A047.toInt())
+            "blue" -> Color(0xFF1E88E5.toInt())
+            "yellow" -> Color(0xFFFDD835.toInt())
+            "orange" -> Color(0xFFFB8C00.toInt())
+            "purple" -> Color(0xFF8E24AA.toInt())
+            "gray", "grey" -> Color(0xFF78909C.toInt())
+            else -> null
+        }
+    }
+
+    private fun expand3(hex: String): Int =
+        ("${hex[0]}${hex[0]}".toInt(16) shl 16) or
+            ("${hex[1]}${hex[1]}".toInt(16) shl 8) or
+            "${hex[2]}${hex[2]}".toInt(16)
 }

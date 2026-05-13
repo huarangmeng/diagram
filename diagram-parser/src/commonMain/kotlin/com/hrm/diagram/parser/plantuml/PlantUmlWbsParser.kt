@@ -33,7 +33,13 @@ class PlantUmlWbsParser {
         const val STYLE_COLOR_KEY = "plantuml.wbs.styleColor"
         const val STYLE_LINE_COLOR_KEY = "plantuml.wbs.styleLineColor"
         const val STYLE_FONT_COLOR_KEY = "plantuml.wbs.styleFontColor"
+        const val STYLE_FONT_NAME_KEY = "plantuml.wbs.styleFontName"
+        const val STYLE_FONT_SIZE_KEY = "plantuml.wbs.styleFontSize"
+        const val STYLE_FONT_STYLE_KEY = "plantuml.wbs.styleFontStyle"
+        const val STYLE_LINE_THICKNESS_KEY = "plantuml.wbs.styleLineThickness"
         const val STYLE_ROUND_CORNER_KEY = "plantuml.wbs.styleRoundCorner"
+        const val STYLE_SHADOWING_KEY = "plantuml.wbs.styleShadowing"
+        const val STYLE_MAXIMUM_WIDTH_KEY = "plantuml.wbs.styleMaximumWidth"
 
         private val PREFIX = Regex("""^([*+\-]+)([<>]?)(_?)\s*(.*)$""")
     }
@@ -57,8 +63,20 @@ class PlantUmlWbsParser {
         val branchStyleLineColor: String?,
         val nodeStyleFontColor: String?,
         val branchStyleFontColor: String?,
+        val nodeStyleFontName: String?,
+        val branchStyleFontName: String?,
+        val nodeStyleFontSize: String?,
+        val branchStyleFontSize: String?,
+        val nodeStyleFontStyle: String?,
+        val branchStyleFontStyle: String?,
+        val nodeStyleLineThickness: String?,
+        val branchStyleLineThickness: String?,
         val nodeStyleRoundCorner: String?,
         val branchStyleRoundCorner: String?,
+        val nodeStyleShadowing: String?,
+        val branchStyleShadowing: String?,
+        val nodeStyleMaximumWidth: String?,
+        val branchStyleMaximumWidth: String?,
         val lines: MutableList<String> = ArrayList(),
     )
 
@@ -73,8 +91,20 @@ class PlantUmlWbsParser {
         val branchStyleLineColor: String?,
         val nodeStyleFontColor: String?,
         val branchStyleFontColor: String?,
+        val nodeStyleFontName: String?,
+        val branchStyleFontName: String?,
+        val nodeStyleFontSize: String?,
+        val branchStyleFontSize: String?,
+        val nodeStyleFontStyle: String?,
+        val branchStyleFontStyle: String?,
+        val nodeStyleLineThickness: String?,
+        val branchStyleLineThickness: String?,
         val nodeStyleRoundCorner: String?,
         val branchStyleRoundCorner: String?,
+        val nodeStyleShadowing: String?,
+        val branchStyleShadowing: String?,
+        val nodeStyleMaximumWidth: String?,
+        val branchStyleMaximumWidth: String?,
     )
 
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
@@ -93,8 +123,20 @@ class PlantUmlWbsParser {
     private val branchStyleLineColorByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
     private val styleFontColorByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
     private val branchStyleFontColorByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val styleFontNameByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val branchStyleFontNameByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val styleFontSizeByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val branchStyleFontSizeByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val styleFontStyleByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val branchStyleFontStyleByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val styleLineThicknessByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val branchStyleLineThicknessByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
     private val styleRoundCornerByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
     private val branchStyleRoundCornerByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val styleShadowingByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val branchStyleShadowingByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val styleMaximumWidthByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
+    private val branchStyleMaximumWidthByNode: LinkedHashMap<NodeId, String> = LinkedHashMap()
     private val styleSupport = PlantUmlTreeStyleSupport("wbsDiagram")
     private var pendingMultiline: PendingMultiline? = null
 
@@ -123,8 +165,20 @@ class PlantUmlWbsParser {
                     branchStyleLineColor = pending.branchStyleLineColor ?: suffixDecorations?.branchStyleLineColor,
                     nodeStyleFontColor = pending.nodeStyleFontColor ?: suffixDecorations?.nodeStyleFontColor,
                     branchStyleFontColor = pending.branchStyleFontColor ?: suffixDecorations?.branchStyleFontColor,
+                    nodeStyleFontName = pending.nodeStyleFontName ?: suffixDecorations?.nodeStyleFontName,
+                    branchStyleFontName = pending.branchStyleFontName ?: suffixDecorations?.branchStyleFontName,
+                    nodeStyleFontSize = pending.nodeStyleFontSize ?: suffixDecorations?.nodeStyleFontSize,
+                    branchStyleFontSize = pending.branchStyleFontSize ?: suffixDecorations?.branchStyleFontSize,
+                    nodeStyleFontStyle = pending.nodeStyleFontStyle ?: suffixDecorations?.nodeStyleFontStyle,
+                    branchStyleFontStyle = pending.branchStyleFontStyle ?: suffixDecorations?.branchStyleFontStyle,
+                    nodeStyleLineThickness = pending.nodeStyleLineThickness ?: suffixDecorations?.nodeStyleLineThickness,
+                    branchStyleLineThickness = pending.branchStyleLineThickness ?: suffixDecorations?.branchStyleLineThickness,
                     nodeStyleRoundCorner = pending.nodeStyleRoundCorner ?: suffixDecorations?.nodeStyleRoundCorner,
                     branchStyleRoundCorner = pending.branchStyleRoundCorner ?: suffixDecorations?.branchStyleRoundCorner,
+                    nodeStyleShadowing = pending.nodeStyleShadowing ?: suffixDecorations?.nodeStyleShadowing,
+                    branchStyleShadowing = pending.branchStyleShadowing ?: suffixDecorations?.branchStyleShadowing,
+                    nodeStyleMaximumWidth = pending.nodeStyleMaximumWidth ?: suffixDecorations?.nodeStyleMaximumWidth,
+                    branchStyleMaximumWidth = pending.branchStyleMaximumWidth ?: suffixDecorations?.branchStyleMaximumWidth,
                 )
             }
             pending.lines += trimmed
@@ -183,8 +237,20 @@ class PlantUmlWbsParser {
                     branchStyleLineColor = decorations.branchStyleLineColor,
                     nodeStyleFontColor = decorations.nodeStyleFontColor,
                     branchStyleFontColor = decorations.branchStyleFontColor,
+                    nodeStyleFontName = decorations.nodeStyleFontName,
+                    branchStyleFontName = decorations.branchStyleFontName,
+                    nodeStyleFontSize = decorations.nodeStyleFontSize,
+                    branchStyleFontSize = decorations.branchStyleFontSize,
+                    nodeStyleFontStyle = decorations.nodeStyleFontStyle,
+                    branchStyleFontStyle = decorations.branchStyleFontStyle,
+                    nodeStyleLineThickness = decorations.nodeStyleLineThickness,
+                    branchStyleLineThickness = decorations.branchStyleLineThickness,
                     nodeStyleRoundCorner = decorations.nodeStyleRoundCorner,
                     branchStyleRoundCorner = decorations.branchStyleRoundCorner,
+                    nodeStyleShadowing = decorations.nodeStyleShadowing,
+                    branchStyleShadowing = decorations.branchStyleShadowing,
+                    nodeStyleMaximumWidth = decorations.nodeStyleMaximumWidth,
+                    branchStyleMaximumWidth = decorations.branchStyleMaximumWidth,
                 )
             }
             pendingMultiline = PendingMultiline(
@@ -200,8 +266,20 @@ class PlantUmlWbsParser {
                 branchStyleLineColor = decorations.branchStyleLineColor,
                 nodeStyleFontColor = decorations.nodeStyleFontColor,
                 branchStyleFontColor = decorations.branchStyleFontColor,
+                nodeStyleFontName = decorations.nodeStyleFontName,
+                branchStyleFontName = decorations.branchStyleFontName,
+                nodeStyleFontSize = decorations.nodeStyleFontSize,
+                branchStyleFontSize = decorations.branchStyleFontSize,
+                nodeStyleFontStyle = decorations.nodeStyleFontStyle,
+                branchStyleFontStyle = decorations.branchStyleFontStyle,
+                nodeStyleLineThickness = decorations.nodeStyleLineThickness,
+                branchStyleLineThickness = decorations.branchStyleLineThickness,
                 nodeStyleRoundCorner = decorations.nodeStyleRoundCorner,
                 branchStyleRoundCorner = decorations.branchStyleRoundCorner,
+                nodeStyleShadowing = decorations.nodeStyleShadowing,
+                branchStyleShadowing = decorations.branchStyleShadowing,
+                nodeStyleMaximumWidth = decorations.nodeStyleMaximumWidth,
+                branchStyleMaximumWidth = decorations.branchStyleMaximumWidth,
             )
             if (firstLine.isNotEmpty()) pendingMultiline!!.lines += firstLine
             return IrPatchBatch(seq, emptyList())
@@ -224,8 +302,20 @@ class PlantUmlWbsParser {
             branchStyleLineColor = decorations.branchStyleLineColor,
             nodeStyleFontColor = decorations.nodeStyleFontColor,
             branchStyleFontColor = decorations.branchStyleFontColor,
+            nodeStyleFontName = decorations.nodeStyleFontName,
+            branchStyleFontName = decorations.branchStyleFontName,
+            nodeStyleFontSize = decorations.nodeStyleFontSize,
+            branchStyleFontSize = decorations.branchStyleFontSize,
+            nodeStyleFontStyle = decorations.nodeStyleFontStyle,
+            branchStyleFontStyle = decorations.branchStyleFontStyle,
+            nodeStyleLineThickness = decorations.nodeStyleLineThickness,
+            branchStyleLineThickness = decorations.branchStyleLineThickness,
             nodeStyleRoundCorner = decorations.nodeStyleRoundCorner,
             branchStyleRoundCorner = decorations.branchStyleRoundCorner,
+            nodeStyleShadowing = decorations.nodeStyleShadowing,
+            branchStyleShadowing = decorations.branchStyleShadowing,
+            nodeStyleMaximumWidth = decorations.nodeStyleMaximumWidth,
+            branchStyleMaximumWidth = decorations.branchStyleMaximumWidth,
         ).also {
             inlineColor?.let { color -> inlineColorByNode[nodeId] = color }
             stereotype?.let { value -> stereotypeByNode[nodeId] = value }
@@ -287,8 +377,26 @@ class PlantUmlWbsParser {
         if (styleFontColorByNode.isNotEmpty()) {
             extras[STYLE_FONT_COLOR_KEY] = styleFontColorByNode.entries.joinToString("||") { (id, color) -> "${id.value}|$color" }
         }
+        if (styleFontNameByNode.isNotEmpty()) {
+            extras[STYLE_FONT_NAME_KEY] = styleFontNameByNode.entries.joinToString("||") { (id, value) -> "${id.value}|$value" }
+        }
+        if (styleFontSizeByNode.isNotEmpty()) {
+            extras[STYLE_FONT_SIZE_KEY] = styleFontSizeByNode.entries.joinToString("||") { (id, value) -> "${id.value}|$value" }
+        }
+        if (styleFontStyleByNode.isNotEmpty()) {
+            extras[STYLE_FONT_STYLE_KEY] = styleFontStyleByNode.entries.joinToString("||") { (id, value) -> "${id.value}|$value" }
+        }
+        if (styleLineThicknessByNode.isNotEmpty()) {
+            extras[STYLE_LINE_THICKNESS_KEY] = styleLineThicknessByNode.entries.joinToString("||") { (id, value) -> "${id.value}|$value" }
+        }
         if (styleRoundCornerByNode.isNotEmpty()) {
             extras[STYLE_ROUND_CORNER_KEY] = styleRoundCornerByNode.entries.joinToString("||") { (id, value) -> "${id.value}|$value" }
+        }
+        if (styleShadowingByNode.isNotEmpty()) {
+            extras[STYLE_SHADOWING_KEY] = styleShadowingByNode.entries.joinToString("||") { (id, value) -> "${id.value}|$value" }
+        }
+        if (styleMaximumWidthByNode.isNotEmpty()) {
+            extras[STYLE_MAXIMUM_WIDTH_KEY] = styleMaximumWidthByNode.entries.joinToString("||") { (id, value) -> "${id.value}|$value" }
         }
         return TreeIR(
             root = freeze(actualRoot),
@@ -311,8 +419,20 @@ class PlantUmlWbsParser {
         branchStyleLineColor: String?,
         nodeStyleFontColor: String?,
         branchStyleFontColor: String?,
+        nodeStyleFontName: String?,
+        branchStyleFontName: String?,
+        nodeStyleFontSize: String?,
+        branchStyleFontSize: String?,
+        nodeStyleFontStyle: String?,
+        branchStyleFontStyle: String?,
+        nodeStyleLineThickness: String?,
+        branchStyleLineThickness: String?,
         nodeStyleRoundCorner: String?,
         branchStyleRoundCorner: String?,
+        nodeStyleShadowing: String?,
+        branchStyleShadowing: String?,
+        nodeStyleMaximumWidth: String?,
+        branchStyleMaximumWidth: String?,
     ): IrPatchBatch {
         if (root == null) {
             root = node
@@ -324,8 +444,20 @@ class PlantUmlWbsParser {
             branchStyleLineColor?.let { branchStyleLineColorByNode[node.id] = it }
             nodeStyleFontColor?.let { styleFontColorByNode[node.id] = it }
             branchStyleFontColor?.let { branchStyleFontColorByNode[node.id] = it }
+            nodeStyleFontName?.let { styleFontNameByNode[node.id] = it }
+            branchStyleFontName?.let { branchStyleFontNameByNode[node.id] = it }
+            nodeStyleFontSize?.let { styleFontSizeByNode[node.id] = it }
+            branchStyleFontSize?.let { branchStyleFontSizeByNode[node.id] = it }
+            nodeStyleFontStyle?.let { styleFontStyleByNode[node.id] = it }
+            branchStyleFontStyle?.let { branchStyleFontStyleByNode[node.id] = it }
+            nodeStyleLineThickness?.let { styleLineThicknessByNode[node.id] = it }
+            branchStyleLineThickness?.let { branchStyleLineThicknessByNode[node.id] = it }
             nodeStyleRoundCorner?.let { styleRoundCornerByNode[node.id] = it }
             branchStyleRoundCorner?.let { branchStyleRoundCornerByNode[node.id] = it }
+            nodeStyleShadowing?.let { styleShadowingByNode[node.id] = it }
+            branchStyleShadowing?.let { branchStyleShadowingByNode[node.id] = it }
+            nodeStyleMaximumWidth?.let { styleMaximumWidthByNode[node.id] = it }
+            branchStyleMaximumWidth?.let { branchStyleMaximumWidthByNode[node.id] = it }
             stack.clear()
             stack += depth to node
             return IrPatchBatch(seq, emptyList())
@@ -348,10 +480,34 @@ class PlantUmlWbsParser {
         val effectiveFontColor = nodeStyleFontColor ?: inheritedBranchFontColor
         effectiveFontColor?.let { styleFontColorByNode[node.id] = it }
         (branchStyleFontColor ?: inheritedBranchFontColor)?.let { branchStyleFontColorByNode[node.id] = it }
+        val inheritedBranchFontName = branchStyleFontNameByNode[parent.id]
+        val effectiveFontName = nodeStyleFontName ?: inheritedBranchFontName
+        effectiveFontName?.let { styleFontNameByNode[node.id] = it }
+        (branchStyleFontName ?: inheritedBranchFontName)?.let { branchStyleFontNameByNode[node.id] = it }
+        val inheritedBranchFontSize = branchStyleFontSizeByNode[parent.id]
+        val effectiveFontSize = nodeStyleFontSize ?: inheritedBranchFontSize
+        effectiveFontSize?.let { styleFontSizeByNode[node.id] = it }
+        (branchStyleFontSize ?: inheritedBranchFontSize)?.let { branchStyleFontSizeByNode[node.id] = it }
+        val inheritedBranchFontStyle = branchStyleFontStyleByNode[parent.id]
+        val effectiveFontStyle = nodeStyleFontStyle ?: inheritedBranchFontStyle
+        effectiveFontStyle?.let { styleFontStyleByNode[node.id] = it }
+        (branchStyleFontStyle ?: inheritedBranchFontStyle)?.let { branchStyleFontStyleByNode[node.id] = it }
+        val inheritedBranchLineThickness = branchStyleLineThicknessByNode[parent.id]
+        val effectiveLineThickness = nodeStyleLineThickness ?: inheritedBranchLineThickness
+        effectiveLineThickness?.let { styleLineThicknessByNode[node.id] = it }
+        (branchStyleLineThickness ?: inheritedBranchLineThickness)?.let { branchStyleLineThicknessByNode[node.id] = it }
         val inheritedBranchRoundCorner = branchStyleRoundCornerByNode[parent.id]
         val effectiveRoundCorner = nodeStyleRoundCorner ?: inheritedBranchRoundCorner
         effectiveRoundCorner?.let { styleRoundCornerByNode[node.id] = it }
         (branchStyleRoundCorner ?: inheritedBranchRoundCorner)?.let { branchStyleRoundCornerByNode[node.id] = it }
+        val inheritedBranchShadowing = branchStyleShadowingByNode[parent.id]
+        val effectiveShadowing = nodeStyleShadowing ?: inheritedBranchShadowing
+        effectiveShadowing?.let { styleShadowingByNode[node.id] = it }
+        (branchStyleShadowing ?: inheritedBranchShadowing)?.let { branchStyleShadowingByNode[node.id] = it }
+        val inheritedBranchMaximumWidth = branchStyleMaximumWidthByNode[parent.id]
+        val effectiveMaximumWidth = nodeStyleMaximumWidth ?: inheritedBranchMaximumWidth
+        effectiveMaximumWidth?.let { styleMaximumWidthByNode[node.id] = it }
+        (branchStyleMaximumWidth ?: inheritedBranchMaximumWidth)?.let { branchStyleMaximumWidthByNode[node.id] = it }
         if (boxless) boxlessNodeIds += node.id
         return IrPatchBatch(seq, emptyList())
     }
@@ -367,8 +523,20 @@ class PlantUmlWbsParser {
         branchStyleLineColor: String?,
         nodeStyleFontColor: String?,
         branchStyleFontColor: String?,
+        nodeStyleFontName: String?,
+        branchStyleFontName: String?,
+        nodeStyleFontSize: String?,
+        branchStyleFontSize: String?,
+        nodeStyleFontStyle: String?,
+        branchStyleFontStyle: String?,
+        nodeStyleLineThickness: String?,
+        branchStyleLineThickness: String?,
         nodeStyleRoundCorner: String?,
         branchStyleRoundCorner: String?,
+        nodeStyleShadowing: String?,
+        branchStyleShadowing: String?,
+        nodeStyleMaximumWidth: String?,
+        branchStyleMaximumWidth: String?,
     ): IrPatchBatch {
         val node = MutableWbsNode(
             id = NodeId(nextAutoId("wbs")),
@@ -392,8 +560,20 @@ class PlantUmlWbsParser {
             branchStyleLineColor = branchStyleLineColor,
             nodeStyleFontColor = nodeStyleFontColor,
             branchStyleFontColor = branchStyleFontColor,
+            nodeStyleFontName = nodeStyleFontName,
+            branchStyleFontName = branchStyleFontName,
+            nodeStyleFontSize = nodeStyleFontSize,
+            branchStyleFontSize = branchStyleFontSize,
+            nodeStyleFontStyle = nodeStyleFontStyle,
+            branchStyleFontStyle = branchStyleFontStyle,
+            nodeStyleLineThickness = nodeStyleLineThickness,
+            branchStyleLineThickness = branchStyleLineThickness,
             nodeStyleRoundCorner = nodeStyleRoundCorner,
             branchStyleRoundCorner = branchStyleRoundCorner,
+            nodeStyleShadowing = nodeStyleShadowing,
+            branchStyleShadowing = branchStyleShadowing,
+            nodeStyleMaximumWidth = nodeStyleMaximumWidth,
+            branchStyleMaximumWidth = branchStyleMaximumWidth,
         )
     }
 
@@ -413,8 +593,20 @@ class PlantUmlWbsParser {
             branchStyleLineColor = resolvedStyle?.branchLineColor,
             nodeStyleFontColor = resolvedStyle?.nodeFontColor,
             branchStyleFontColor = resolvedStyle?.branchFontColor,
+            nodeStyleFontName = resolvedStyle?.nodeFontName,
+            branchStyleFontName = resolvedStyle?.branchFontName,
+            nodeStyleFontSize = resolvedStyle?.nodeFontSize,
+            branchStyleFontSize = resolvedStyle?.branchFontSize,
+            nodeStyleFontStyle = resolvedStyle?.nodeFontStyle,
+            branchStyleFontStyle = resolvedStyle?.branchFontStyle,
+            nodeStyleLineThickness = resolvedStyle?.nodeLineThickness,
+            branchStyleLineThickness = resolvedStyle?.branchLineThickness,
             nodeStyleRoundCorner = resolvedStyle?.nodeRoundCorner,
             branchStyleRoundCorner = resolvedStyle?.branchRoundCorner,
+            nodeStyleShadowing = resolvedStyle?.nodeShadowing,
+            branchStyleShadowing = resolvedStyle?.branchShadowing,
+            nodeStyleMaximumWidth = resolvedStyle?.nodeMaximumWidth,
+            branchStyleMaximumWidth = resolvedStyle?.branchMaximumWidth,
         )
     }
 

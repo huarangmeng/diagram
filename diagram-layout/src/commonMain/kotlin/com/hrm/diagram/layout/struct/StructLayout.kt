@@ -23,6 +23,10 @@ import com.hrm.diagram.layout.LaidOutDiagram
 class StructLayout(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) : IncrementalLayout<StructIR> {
+    private companion object {
+        const val COLLAPSIBLE_PATHS_KEY = "plantuml.struct.collapsiblePaths"
+    }
+
     private data class Entry(
         val id: NodeId,
         val parent: NodeId?,
@@ -33,7 +37,8 @@ class StructLayout(
     private val font = FontSpec(family = "monospace", sizeSp = 12f)
 
     override fun layout(previous: LaidOutDiagram?, model: StructIR, options: LayoutOptions): LaidOutDiagram {
-        val entries = flatten(model.root)
+        val collapsiblePaths = parsePathSet(model.styleHints.extras[COLLAPSIBLE_PATHS_KEY].orEmpty())
+        val entries = flatten(model.root, collapsiblePaths)
         val previousPositions = previous?.nodePositions.orEmpty()
         val nodePositions = LinkedHashMap<NodeId, Rect>()
         val routes = ArrayList<EdgeRoute>()
@@ -82,11 +87,11 @@ class StructLayout(
         )
     }
 
-    private fun flatten(root: StructNode): List<Entry> {
+    private fun flatten(root: StructNode, collapsiblePaths: Set<String>): List<Entry> {
         val out = ArrayList<Entry>()
         fun visit(node: StructNode, path: String, parent: NodeId?, depth: Int) {
             val id = NodeId("struct_$path")
-            out += Entry(id = id, parent = parent, depth = depth, label = labelFor(node))
+            out += Entry(id = id, parent = parent, depth = depth, label = labelFor(node, path in collapsiblePaths))
             when (node) {
                 is StructNode.ArrayNode -> node.items.forEachIndexed { index, child ->
                     visit(child, "$path.$index", id, depth + 1)
@@ -101,12 +106,16 @@ class StructLayout(
         return out
     }
 
-    private fun labelFor(node: StructNode): String {
+    private fun labelFor(node: StructNode, collapsible: Boolean): String {
         val prefix = node.key?.let { "$it: " }.orEmpty()
+        val marker = if (collapsible) "[-] " else ""
         return when (node) {
-            is StructNode.ArrayNode -> "$prefix[${node.items.size}]"
-            is StructNode.ObjectNode -> "$prefix{${node.entries.size}}"
+            is StructNode.ArrayNode -> "$marker$prefix[${node.items.size}]"
+            is StructNode.ObjectNode -> "$marker$prefix{${node.entries.size}}"
             is StructNode.Scalar -> "$prefix${node.value}"
         }
     }
+
+    private fun parsePathSet(raw: String): Set<String> =
+        raw.split("||").filterTo(LinkedHashSet()) { it.isNotBlank() }
 }

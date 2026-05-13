@@ -99,6 +99,44 @@ class PlantUmlNetworkIntegrationTest {
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("servers") })
     }
 
+    @Test
+    fun nwdiag_inet_shapes_and_explicit_edges_are_streaming_consistent() {
+        val src =
+            """
+            @startnwdiag
+            nwdiag {
+              inet internet {
+                router [shape = cloud, label = "Internet", color = "#E0F7FA"];
+              }
+              network office {
+                address = "10.0.0.0/24"
+                client [shape = actor, description = "user"];
+                app [shape = component, color = "orange"];
+                db [shape = database, address = "10.0.0.20"];
+                mq [shape = queue];
+                app -> db : sql;
+                client <-> app : https;
+              }
+            }
+            @endnwdiag
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 6)
+        val oneIr = assertIs<GraphIR>(one.ir)
+        val chunkedIr = assertIs<GraphIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertEquals(5, oneIr.nodes.size)
+        assertEquals(2, oneIr.clusters.size)
+        assertEquals(2, oneIr.edges.size)
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.FillPath>().isNotEmpty())
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().size >= 2)
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("sql") })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("internet") })
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

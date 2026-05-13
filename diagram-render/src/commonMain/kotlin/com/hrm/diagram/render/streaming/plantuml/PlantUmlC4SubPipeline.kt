@@ -14,6 +14,7 @@ import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.ArrowEnds
 import com.hrm.diagram.core.ir.Cluster
 import com.hrm.diagram.core.ir.Edge
+import com.hrm.diagram.core.ir.EdgeKind
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
@@ -109,13 +110,16 @@ internal class PlantUmlC4SubPipeline(
     private fun render(ir: GraphIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
         out += DrawCommand.FillRect(laid.bounds, Color(0xFFFFFFFF.toInt()), z = -1)
-        for (cluster in ir.clusters) drawCluster(cluster, laid.clusterRects, out)
-        for ((idx, route) in laid.edgeRoutes.withIndex()) drawEdge(ir.edges.getOrNull(idx), route, out)
-        for (node in ir.nodes) drawNode(node, laid.nodePositions[node.id] ?: continue, out)
+        val nodeLinks = parser.nodeLinkSnapshot()
+        val edgeLinks = parser.edgeLinkSnapshot()
+        val edgePresentation = parser.edgePresentationSnapshot()
+        for (cluster in ir.clusters) drawCluster(cluster, laid.clusterRects, nodeLinks, out)
+        for ((idx, route) in laid.edgeRoutes.withIndex()) drawEdge(ir.edges.getOrNull(idx), edgePresentation[idx], edgeLinks[idx], route, out)
+        for (node in ir.nodes) drawNode(node, laid.nodePositions[node.id] ?: continue, nodeLinks[node.id], out)
         return out
     }
 
-    private fun drawCluster(cluster: Cluster, rects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {
+    private fun drawCluster(cluster: Cluster, rects: Map<NodeId, Rect>, links: Map<NodeId, String>, out: MutableList<DrawCommand>) {
         val rect = rects[cluster.id] ?: return
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90A4AE.toInt())
         out += DrawCommand.FillRect(rect, cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FBFF.toInt()), corner = 14f, z = 0)
@@ -124,20 +128,37 @@ internal class PlantUmlC4SubPipeline(
         out += DrawCommand.FillRect(chip, Color(0xFFFFFFFF.toInt()), corner = 10f, z = 2)
         out += DrawCommand.StrokeRect(chip, Stroke(width = 1f), strokeColor, corner = 10f, z = 3)
         out += DrawCommand.DrawText(clusterTitle(cluster), Point(chip.left + 10f, chip.top + 10f), clusterFont, strokeColor, maxWidth = chip.size.width - 20f, anchorY = TextAnchorY.Top, z = 4)
+        links[cluster.id]?.let { href ->
+            out += DrawCommand.Hyperlink(href, rect, z = 9)
+            drawLinkBadge(rect, strokeColor, out)
+        }
     }
 
-    private fun drawNode(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+    private fun drawNode(node: Node, rect: Rect, link: String?, out: MutableList<DrawCommand>) {
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1E88E5.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
-        when (node.shape) {
-            is NodeShape.Actor -> drawActorNode(rect, fill, strokeColor, out)
+        val shape = node.shape
+        when (shape) {
+            is NodeShape.Actor, is NodeShape.Stadium -> drawActorNode(rect, fill, strokeColor, out)
             is NodeShape.Cylinder -> drawCylinderNode(rect, fill, strokeColor, out)
+            is NodeShape.Hexagon -> drawHexagonNode(rect, fill, strokeColor, out)
             is NodeShape.Component -> drawComponentNode(rect, fill, strokeColor, out)
+            is NodeShape.Package -> drawDeploymentNode(rect, fill, strokeColor, out)
+            is NodeShape.Custom -> if (shape.name == "octagon") {
+                drawOctagonNode(rect, fill, strokeColor, out)
+            } else {
+                out += DrawCommand.FillRect(rect, fill, corner = 12f, z = 4)
+                out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.4f), strokeColor, corner = 12f, z = 5)
+            }
             else -> {
                 out += DrawCommand.FillRect(rect, fill, corner = 12f, z = 4)
                 out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.4f), strokeColor, corner = 12f, z = 5)
             }
+        }
+        if (!link.isNullOrBlank() || node.payload[PlantUmlC4Parser.LINK_KEY]?.isNotBlank() == true) {
+            drawLinkBadge(rect, strokeColor, out)
+            out += DrawCommand.Hyperlink(link ?: node.payload[PlantUmlC4Parser.LINK_KEY].orEmpty(), rect, z = 10)
         }
         val lines = labelTextOf(node).lines()
         val stereo = lines.firstOrNull().orEmpty()
@@ -146,9 +167,60 @@ internal class PlantUmlC4SubPipeline(
         out += DrawCommand.DrawText(body, Point(rect.left + 14f, rect.top + 30f), labelFont, textColor, maxWidth = rect.size.width - 28f, anchorY = TextAnchorY.Top, z = 6)
     }
 
+    private fun drawDeploymentNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        out += DrawCommand.FillRect(rect, fill, corner = 8f, z = 4)
+        out += DrawCommand.StrokeRect(rect, Stroke(width = 1.4f), strokeColor, corner = 8f, z = 5)
+        val tab = Rect.ltrb(rect.left + 10f, rect.top - 8f, rect.left + 72f, rect.top + 12f)
+        out += DrawCommand.FillRect(tab, fill, corner = 5f, z = 4)
+        out += DrawCommand.StrokeRect(tab, Stroke(width = 1.2f), strokeColor, corner = 5f, z = 5)
+    }
+
+    private fun drawLinkBadge(rect: Rect, strokeColor: Color, out: MutableList<DrawCommand>) {
+        val badge = Rect.ltrb(rect.right - 28f, rect.bottom - 24f, rect.right - 8f, rect.bottom - 6f)
+        out += DrawCommand.FillRect(badge, Color(0xEEFFFFFF.toInt()), corner = 9f, z = 7)
+        out += DrawCommand.StrokeRect(badge, Stroke(width = 1f), strokeColor, corner = 9f, z = 8)
+        out += DrawCommand.DrawText("L", Point((badge.left + badge.right) / 2f, (badge.top + badge.bottom) / 2f), stereoFont, strokeColor, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 9)
+    }
+
     private fun drawActorNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
         out += DrawCommand.FillRect(rect, fill, corner = 16f, z = 4)
         out += DrawCommand.StrokeRect(rect, Stroke(width = 1.4f), strokeColor, corner = 16f, z = 5)
+    }
+
+    private fun drawHexagonNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        val inset = min(rect.size.width, rect.size.height) * 0.18f
+        val path = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(rect.left + inset, rect.top)),
+                PathOp.LineTo(Point(rect.right - inset, rect.top)),
+                PathOp.LineTo(Point(rect.right, rect.top + rect.size.height / 2f)),
+                PathOp.LineTo(Point(rect.right - inset, rect.bottom)),
+                PathOp.LineTo(Point(rect.left + inset, rect.bottom)),
+                PathOp.LineTo(Point(rect.left, rect.top + rect.size.height / 2f)),
+                PathOp.Close,
+            ),
+        )
+        out += DrawCommand.FillPath(path, fill, z = 4)
+        out += DrawCommand.StrokePath(path, Stroke(width = 1.4f), strokeColor, z = 5)
+    }
+
+    private fun drawOctagonNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
+        val inset = min(rect.size.width, rect.size.height) * 0.18f
+        val path = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(rect.left + inset, rect.top)),
+                PathOp.LineTo(Point(rect.right - inset, rect.top)),
+                PathOp.LineTo(Point(rect.right, rect.top + inset)),
+                PathOp.LineTo(Point(rect.right, rect.bottom - inset)),
+                PathOp.LineTo(Point(rect.right - inset, rect.bottom)),
+                PathOp.LineTo(Point(rect.left + inset, rect.bottom)),
+                PathOp.LineTo(Point(rect.left, rect.bottom - inset)),
+                PathOp.LineTo(Point(rect.left, rect.top + inset)),
+                PathOp.Close,
+            ),
+        )
+        out += DrawCommand.FillPath(path, fill, z = 4)
+        out += DrawCommand.StrokePath(path, Stroke(width = 1.4f), strokeColor, z = 5)
     }
 
     private fun drawCylinderNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
@@ -164,7 +236,14 @@ internal class PlantUmlC4SubPipeline(
         out += DrawCommand.StrokeRect(tab, Stroke(width = 1f), strokeColor, corner = 3f, z = 6)
     }
 
-    private fun drawEdge(edge: Edge?, route: EdgeRoute, out: MutableList<DrawCommand>) {
+    private fun drawEdge(
+        edge: Edge?,
+        presentation: PlantUmlC4Parser.C4EdgePresentation?,
+        link: String?,
+        route: EdgeRoute,
+        out: MutableList<DrawCommand>,
+    ) {
+        if (edge?.kind == EdgeKind.Invisible) return
         val pts = route.points
         if (pts.size < 2) return
         val ops = ArrayList<PathOp>()
@@ -187,8 +266,15 @@ internal class PlantUmlC4SubPipeline(
         val label = edge?.label?.let(::labelTextOf).orEmpty()
         if (label.isNotBlank()) {
             val mid = pts[pts.size / 2]
-            out += DrawCommand.FillRect(Rect(Point(mid.x - 52f, mid.y - 12f), Size(104f, 24f)), Color(0xEEFFFFFF.toInt()), corner = 4f, z = 3)
-            out += DrawCommand.DrawText(label, mid, edgeFont, Color(0xFF37474F.toInt()), maxWidth = 100f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 4)
+            val origin = Point(mid.x + (presentation?.offsetX ?: 0f), mid.y + (presentation?.offsetY ?: 0f))
+            val labelRect = Rect(Point(origin.x - 52f, origin.y - 12f), Size(104f, 24f))
+            out += DrawCommand.FillRect(labelRect, Color(0xEEFFFFFF.toInt()), corner = 4f, z = 3)
+            val labelColor = presentation?.textColor?.let { Color(it.argb) } ?: Color(0xFF37474F.toInt())
+            out += DrawCommand.DrawText(label, origin, edgeFont, labelColor, maxWidth = 100f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 4)
+            link?.let {
+                out += DrawCommand.Hyperlink(it, labelRect, z = 10)
+                out += DrawCommand.DrawText("L", Point(labelRect.right - 8f, labelRect.top + 8f), stereoFont, color, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 5)
+            }
         }
     }
 

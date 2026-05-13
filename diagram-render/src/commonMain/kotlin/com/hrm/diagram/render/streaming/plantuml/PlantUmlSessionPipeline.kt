@@ -36,6 +36,7 @@ internal class PlantUmlSessionPipeline(
             "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*$",
             RegexOption.IGNORE_CASE,
         )
+        private val WBS_PREFIX_CUE = Regex("""^(?:\*+|[+\-]+)[<>]?_?(?:\s+|:).+""")
     }
 
     private val diagnosticsAll: MutableList<Diagnostic> = ArrayList()
@@ -46,6 +47,7 @@ internal class PlantUmlSessionPipeline(
     private val bufferedBodyLines: MutableList<String> = ArrayList()
     private val bufferedSkinparamLines: MutableList<String> = ArrayList()
     private var bufferingSkinparamBlock: Boolean = false
+    private var bufferingStyleBlock: Boolean = false
     private var ignoredSkinparamBlock: Boolean = false
     private var subPipeline: PlantUmlSubPipeline? = null
     private var closingDirective: String = "@enduml"
@@ -172,6 +174,10 @@ internal class PlantUmlSessionPipeline(
                 blockStarted = true
                 closingDirective = "@endscatter"
                 attachSubPipeline(DiagramKind.ScatterChart, out)
+            } else if (trimmed.equals("@startchart", ignoreCase = true)) {
+                blockStarted = true
+                closingDirective = "@endchart"
+                attachSubPipeline(DiagramKind.BarChart, out)
             }
             return
         }
@@ -190,6 +196,26 @@ internal class PlantUmlSessionPipeline(
             if (trimmed == "}") ignoredSkinparamBlock = false
             return
         }
+        if (bufferingStyleBlock) {
+            val chosen = subPipeline
+            if (chosen != null) {
+                out += chosen.acceptLine(trimmed).patches
+            } else {
+                bufferedBodyLines += trimmed
+            }
+            if (trimmed.equals("</style>", ignoreCase = true)) bufferingStyleBlock = false
+            return
+        }
+        if (trimmed.equals("<style>", ignoreCase = true) || trimmed.startsWith("<style ", ignoreCase = true)) {
+            bufferingStyleBlock = true
+            val chosen = subPipeline
+            if (chosen != null) {
+                out += chosen.acceptLine(trimmed).patches
+            } else {
+                bufferedBodyLines += trimmed
+            }
+            return
+        }
         if (trimmed.startsWith("skinparam", ignoreCase = true)) {
             val chosen = subPipeline
             if (
@@ -201,6 +227,8 @@ internal class PlantUmlSessionPipeline(
                 chosen is PlantUmlComponentSubPipeline ||
                 chosen is PlantUmlDeploymentSubPipeline ||
                 chosen is PlantUmlObjectSubPipeline ||
+                chosen is PlantUmlPieSubPipeline ||
+                chosen is PlantUmlXYChartSubPipeline ||
                 (chosen is PlantUmlDitaaSubPipeline && trimmed.startsWith("skinparam handwritten", ignoreCase = true))
             ) {
                 out += chosen.acceptLine(trimmed).patches
@@ -271,7 +299,11 @@ internal class PlantUmlSessionPipeline(
                 kind == DiagramKind.Class ||
                 kind == DiagramKind.Component ||
                 kind == DiagramKind.Deployment ||
-                kind == DiagramKind.Object
+                kind == DiagramKind.Object ||
+                kind == DiagramKind.Pie ||
+                kind == DiagramKind.BarChart ||
+                kind == DiagramKind.LineChart ||
+                kind == DiagramKind.ScatterChart
             ) {
                 for (line in bufferedSkinparamLines) {
                     out += subPipeline!!.acceptLine(line).patches
@@ -304,6 +336,9 @@ internal class PlantUmlSessionPipeline(
         if (lower == "salt" || lower == "salt {" || lower == "salt{") {
             return DiagramKind.Salt
         }
+        if (isWbsCue(line)) {
+            return DiagramKind.Wbs
+        }
         if (lower == "pie") {
             return DiagramKind.Pie
         }
@@ -314,6 +349,18 @@ internal class PlantUmlSessionPipeline(
             return DiagramKind.LineChart
         }
         if (lower == "scatter") {
+            return DiagramKind.ScatterChart
+        }
+        if (lower == "chart") {
+            return DiagramKind.BarChart
+        }
+        if (lower.startsWith("bar ") || lower.startsWith("h-axis ") || lower.startsWith("v-axis ")) {
+            return DiagramKind.BarChart
+        }
+        if (lower.startsWith("line ")) {
+            return DiagramKind.LineChart
+        }
+        if (lower.startsWith("scatter ")) {
             return DiagramKind.ScatterChart
         }
         if (isC4Cue(line)) {
@@ -414,6 +461,9 @@ internal class PlantUmlSessionPipeline(
         ) {
             return DiagramKind.State
         }
+        if (isWbsCue(line)) {
+            return DiagramKind.Wbs
+        }
         if (
             lower.startsWith("class ") ||
             lower.startsWith("abstract class ") ||
@@ -501,6 +551,7 @@ internal class PlantUmlSessionPipeline(
         var sawSaltCue = false
         var sawArchimateCue = false
         var sawC4Cue = false
+        var sawWbsCue = false
         var sawPieCue = false
         var sawBarCue = false
         var sawLineCue = false
@@ -514,6 +565,9 @@ internal class PlantUmlSessionPipeline(
             }
             if (lower == "salt" || lower == "salt {" || lower == "salt{") {
                 sawSaltCue = true
+            }
+            if (isWbsCue(line)) {
+                sawWbsCue = true
             }
             if (lower == "pie") {
                 sawPieCue = true
@@ -708,6 +762,7 @@ internal class PlantUmlSessionPipeline(
             sawAmbiguousContainerCue && sawActorCue && !sawUsecaseCue && !sawExplicitComponentCue -> DiagramKind.Deployment
             sawComponentCue -> DiagramKind.Component
             sawDeploymentCue -> DiagramKind.Deployment
+            sawWbsCue -> DiagramKind.Wbs
             sawActivityCue -> DiagramKind.Activity
             sawStateCue -> DiagramKind.State
             sawClassCue -> DiagramKind.Class
@@ -728,6 +783,13 @@ internal class PlantUmlSessionPipeline(
             lower == "right to left direction" ||
             lower == "top to bottom direction" ||
             lower == "bottom to top direction"
+
+    private fun isWbsCue(line: String): Boolean {
+        val trimmed = line.trim()
+        if (trimmed == "--" || trimmed.contains("->") || trimmed.contains("<-")) return false
+        if (trimmed.startsWith("@") || trimmed.startsWith("!") || trimmed.startsWith("'") || trimmed.startsWith("//")) return false
+        return WBS_PREFIX_CUE.matches(trimmed)
+    }
 
     private fun isLegacyActivityArrowCue(line: String): Boolean {
         val trimmed = line.trim()

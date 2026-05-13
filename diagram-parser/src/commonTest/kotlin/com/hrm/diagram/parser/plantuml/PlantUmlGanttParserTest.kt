@@ -52,4 +52,73 @@ class PlantUmlGanttParserTest {
         assertTrue(design.trackId.value.startsWith("gantt:resource:"))
         assertTrue(parser.diagnosticsSnapshot().isEmpty())
     }
+
+    @Test
+    fun parses_closed_weekdays_and_holiday_ranges() {
+        val parser = PlantUmlGanttParser()
+        """
+        Project starts 2024-01-01
+        saturday are closed
+        sunday are closed
+        2024-01-03 is closed
+        2024-01-05 to 2024-01-06 are closed
+        [Design] starts 2024-01-01
+        [Design] lasts 7 days
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val ir = assertIs<TimeSeriesIR>(parser.snapshot())
+        assertEquals("6,7", ir.styleHints.extras["gantt.closedWeekdays"])
+        val ranges = ir.styleHints.extras["gantt.closedRanges"].orEmpty()
+        assertTrue(ranges.contains(":"))
+        assertTrue(ranges.contains("|"))
+        assertTrue(parser.diagnosticsSnapshot().isEmpty())
+    }
+
+    @Test
+    fun parses_progress_milestones_notes_and_task_styles() {
+        val parser = PlantUmlGanttParser()
+        """
+        Project starts 2024-01-01
+        [Design] lasts 3 days
+        [Design] is 40% complete
+        [Design] is critical
+        note bottom of [Design] : review pending
+        [Release] happens at 2024-01-05
+        [Release] is milestone
+        [Audit] lasts 1 day
+        [Audit] is dashed
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val ir = assertIs<TimeSeriesIR>(parser.snapshot())
+        val design = ir.items.single { it.id.value == "design" }
+        val release = ir.items.single { it.id.value == "release" }
+        val audit = ir.items.single { it.id.value == "audit" }
+        assertEquals("40", design.payload["gantt.progress"])
+        assertEquals("critical", design.payload["gantt.style"])
+        assertEquals("review pending", design.payload["gantt.note"])
+        assertEquals("milestone", release.payload["gantt.kind"])
+        assertEquals("dashed", audit.payload["gantt.style"])
+        assertTrue(parser.diagnosticsSnapshot().isEmpty())
+    }
+
+    @Test
+    fun infers_task_end_from_working_calendar() {
+        val parser = PlantUmlGanttParser()
+        """
+        Project starts 2024-01-05
+        saturday are closed
+        sunday are closed
+        [Design] starts 2024-01-05
+        [Design] lasts 2 days
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val ir = assertIs<TimeSeriesIR>(parser.snapshot())
+        val design = ir.items.single { it.id.value == "design" }
+        assertEquals("2", design.payload["gantt.workingDays"])
+        assertEquals(4 * PlantUmlTemporalSupport.MS_PER_DAY, design.range.endMs - design.range.startMs)
+        assertTrue(parser.diagnosticsSnapshot().isEmpty())
+    }
 }

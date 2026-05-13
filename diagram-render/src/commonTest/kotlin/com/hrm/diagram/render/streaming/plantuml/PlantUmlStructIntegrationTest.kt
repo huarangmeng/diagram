@@ -58,7 +58,7 @@ class PlantUmlStructIntegrationTest {
         val laid = assertNotNull(snapshot.laidOut)
         assertTrue(laid.nodePositions.size >= 6, "nested YAML rows should be laid out")
         val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.text }
-        assertTrue("children: [2]" in texts)
+        assertTrue("[-] children: [2]" in texts)
         assertTrue("name: Bob" in texts)
         assertTrue("[1]: Carol" in texts)
     }
@@ -90,6 +90,31 @@ class PlantUmlStructIntegrationTest {
         val texts = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.text }
         assertTrue(texts.any { it.startsWith("description: first line") })
         assertTrue("summary: folded text" in texts)
+    }
+
+    @Test
+    fun yaml_inline_structures_render_collapse_markers_and_typed_scalars() {
+        val src =
+            """
+            @startyaml
+            title: "A # quoted value"
+            flags: { enabled: yes, count: 3, tags: ["a,b", c] }
+            @endyaml
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 4)
+        val oneIr = assertIs<StructIR>(one.ir)
+        val chunkedIr = assertIs<StructIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        val texts = one.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        assertTrue(texts.any { it.text == "A # quoted value" || it.text == "title: A # quoted value" })
+        assertTrue(texts.any { it.text == "[-] flags: {3}" })
+        assertTrue(texts.any { it.text == "enabled: true" && it.color.argb == 0xFF8250DF.toInt() })
+        assertTrue(texts.any { it.text == "count: 3" && it.color.argb == 0xFF0550AE.toInt() })
+        assertTrue(texts.any { it.text == "[-] tags: [2]" })
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->

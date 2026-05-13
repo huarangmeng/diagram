@@ -2,6 +2,7 @@ package com.hrm.diagram.parser.plantuml
 
 import com.hrm.diagram.core.ir.EdgeKind
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeShape
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -78,6 +79,41 @@ class PlantUmlNetworkParserTest {
         val group = network.nestedClusters.single()
         assertEquals("nw_office_group_servers", group.id.value)
         assertEquals(listOf("nw_office_app", "nw_office_db"), group.children.map { it.value })
+    }
+
+    @Test
+    fun parses_inet_shapes_colors_and_explicit_edges() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                nwdiag {
+                  inet internet {
+                    router [shape = cloud, label = "Internet", color = "#E0F7FA"];
+                  }
+                  network office {
+                    address = "10.0.0.0/24"
+                    client [shape = actor, description = "user"];
+                    app [shape = component, color = "orange"];
+                    db [shape = database, address = "10.0.0.20"];
+                    mq [shape = queue];
+                    app -> db : sql;
+                    client <-> app : https;
+                  }
+                }
+                """.trimIndent(),
+            ).snapshot(),
+        )
+
+        assertEquals(5, ir.nodes.size)
+        assertEquals(2, ir.clusters.size)
+        assertTrue(ir.clusters.any { labelOf(it.label!!).startsWith("inet\ninternet") })
+        assertEquals(NodeShape.Cloud, ir.nodes.single { it.id.value == "nw_internet_router" }.shape)
+        assertEquals(NodeShape.Actor, ir.nodes.single { it.id.value == "nw_office_client" }.shape)
+        assertEquals(NodeShape.Component, ir.nodes.single { it.id.value == "nw_office_app" }.shape)
+        assertEquals(NodeShape.Cylinder, ir.nodes.single { it.id.value == "nw_office_db" }.shape)
+        assertEquals(NodeShape.Hexagon, ir.nodes.single { it.id.value == "nw_office_mq" }.shape)
+        assertTrue(ir.edges.any { labelOf(it.label!!) == "sql" })
+        assertTrue(ir.edges.any { labelOf(it.label!!) == "https" && it.arrow == com.hrm.diagram.core.ir.ArrowEnds.Both })
     }
 
     private fun parse(source: String, blockClosed: Boolean = true): PlantUmlNetworkParser {

@@ -16,6 +16,7 @@ import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
@@ -74,9 +75,15 @@ internal class PlantUmlDitaaSubPipeline(
         val routes = ir.edges.mapNotNull { edge ->
             val from = positions[edge.from] ?: return@mapNotNull null
             val to = positions[edge.to] ?: return@mapNotNull null
-            val start = Point(from.right, (from.top + from.bottom) / 2f)
-            val end = Point(to.left, (to.top + to.bottom) / 2f)
-            EdgeRoute(edge.from, edge.to, listOf(start, Point((start.x + end.x) / 2f, start.y), Point((start.x + end.x) / 2f, end.y), end), RouteKind.Orthogonal)
+            val (start, end) = routeEndpoints(from, to)
+            val mid = if (kotlin.math.abs(start.x - end.x) > kotlin.math.abs(start.y - end.y)) {
+                val x = (start.x + end.x) / 2f
+                listOf(start, Point(x, start.y), Point(x, end.y), end)
+            } else {
+                val y = (start.y + end.y) / 2f
+                listOf(start, Point(start.x, y), Point(end.x, y), end)
+            }
+            EdgeRoute(edge.from, edge.to, mid, RouteKind.Orthogonal)
         }
         return LaidOutDiagram(
             source = ir,
@@ -102,13 +109,8 @@ internal class PlantUmlDitaaSubPipeline(
         val rounded = node.payload[PlantUmlDitaaParser.ROUNDED_KEY] == "true"
         val handwritten = handwrittenGraph || node.payload[PlantUmlDitaaParser.HANDWRITTEN_KEY] == "true"
         val corner = if (rounded) 16f else 8f
-        out += DrawCommand.FillRect(rect, fill, corner = corner, z = 3)
         val strokeSpec = Stroke(width = node.style.strokeWidth ?: 1.4f)
-        if (handwritten) {
-            out += sketchRect(node.id.value, rect, strokeSpec, stroke)
-        } else {
-            out += DrawCommand.StrokeRect(rect, strokeSpec, stroke, corner = corner, z = 4)
-        }
+        drawShape(node, rect, fill, stroke, strokeSpec, corner, handwritten, out)
         out += DrawCommand.DrawText(
             text = labelTextOf(node),
             origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
@@ -121,6 +123,89 @@ internal class PlantUmlDitaaSubPipeline(
         )
     }
 
+    private fun drawShape(
+        node: Node,
+        rect: Rect,
+        fill: Color,
+        stroke: Color,
+        strokeSpec: Stroke,
+        corner: Float,
+        handwritten: Boolean,
+        out: MutableList<DrawCommand>,
+    ) {
+        when (node.shape) {
+            is NodeShape.Cylinder -> drawCylinder(rect, fill, stroke, strokeSpec, out)
+            is NodeShape.Parallelogram -> drawParallelogram(rect, fill, stroke, strokeSpec, out)
+            is NodeShape.Diamond -> drawDiamond(rect, fill, stroke, strokeSpec, out)
+            is NodeShape.Ellipse -> drawEllipse(rect, fill, stroke, strokeSpec, out)
+            is NodeShape.Hexagon -> drawHexagon(rect, fill, stroke, strokeSpec, out)
+            is NodeShape.Trapezoid -> drawTrapezoid(rect, fill, stroke, strokeSpec, out)
+            is NodeShape.Note -> drawNote(rect, fill, stroke, strokeSpec, out)
+            else -> {
+                out += DrawCommand.FillRect(rect, fill, corner = corner, z = 3)
+                if (handwritten) out += sketchRect(node.id.value, rect, strokeSpec, stroke) else out += DrawCommand.StrokeRect(rect, strokeSpec, stroke, corner = corner, z = 4)
+            }
+        }
+    }
+
+    private fun drawCylinder(rect: Rect, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        out += DrawCommand.FillRect(rect, fill, corner = 10f, z = 3)
+        out += DrawCommand.StrokeRect(rect, strokeSpec, stroke, corner = 10f, z = 4)
+        out += DrawCommand.StrokeRect(Rect(rect.origin, Size(rect.size.width, 18f)), strokeSpec.copy(width = 1f), stroke, corner = 9f, z = 5)
+    }
+
+    private fun drawParallelogram(rect: Rect, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        val s = rect.size.height * 0.22f
+        drawPolygon(listOf(Point(rect.left + s, rect.top), Point(rect.right, rect.top), Point(rect.right - s, rect.bottom), Point(rect.left, rect.bottom)), fill, stroke, strokeSpec, out)
+    }
+
+    private fun drawDiamond(rect: Rect, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        drawPolygon(listOf(Point(rect.left + rect.size.width / 2f, rect.top), Point(rect.right, rect.top + rect.size.height / 2f), Point(rect.left + rect.size.width / 2f, rect.bottom), Point(rect.left, rect.top + rect.size.height / 2f)), fill, stroke, strokeSpec, out)
+    }
+
+    private fun drawHexagon(rect: Rect, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        val s = minOf(rect.size.width, rect.size.height) * 0.18f
+        drawPolygon(listOf(Point(rect.left + s, rect.top), Point(rect.right - s, rect.top), Point(rect.right, rect.top + rect.size.height / 2f), Point(rect.right - s, rect.bottom), Point(rect.left + s, rect.bottom), Point(rect.left, rect.top + rect.size.height / 2f)), fill, stroke, strokeSpec, out)
+    }
+
+    private fun drawTrapezoid(rect: Rect, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        val s = rect.size.width * 0.18f
+        drawPolygon(listOf(Point(rect.left + s, rect.top), Point(rect.right - s, rect.top), Point(rect.right, rect.bottom), Point(rect.left, rect.bottom)), fill, stroke, strokeSpec, out)
+    }
+
+    private fun drawNote(rect: Rect, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        val fold = 14f.coerceAtMost(rect.size.width * 0.18f).coerceAtMost(rect.size.height * 0.25f)
+        val path = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(rect.left, rect.top)),
+                PathOp.LineTo(Point(rect.right - fold, rect.top)),
+                PathOp.LineTo(Point(rect.right, rect.top + fold)),
+                PathOp.LineTo(Point(rect.right, rect.bottom)),
+                PathOp.LineTo(Point(rect.left, rect.bottom)),
+                PathOp.Close,
+            ),
+        )
+        out += DrawCommand.FillPath(path, fill, z = 3)
+        out += DrawCommand.StrokePath(path, strokeSpec, stroke, z = 4)
+        out += DrawCommand.StrokePath(PathCmd(listOf(PathOp.MoveTo(Point(rect.right - fold, rect.top)), PathOp.LineTo(Point(rect.right - fold, rect.top + fold)), PathOp.LineTo(Point(rect.right, rect.top + fold)))), strokeSpec.copy(width = 1f), stroke, z = 5)
+    }
+
+    private fun drawEllipse(rect: Rect, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        val path = ovalPath(rect)
+        out += DrawCommand.FillPath(path, fill, z = 3)
+        out += DrawCommand.StrokePath(path, strokeSpec, stroke, z = 4)
+    }
+
+    private fun drawPolygon(points: List<Point>, fill: Color, stroke: Color, strokeSpec: Stroke, out: MutableList<DrawCommand>) {
+        val ops = ArrayList<PathOp>()
+        ops += PathOp.MoveTo(points.first())
+        for (p in points.drop(1)) ops += PathOp.LineTo(p)
+        ops += PathOp.Close
+        val path = PathCmd(ops)
+        out += DrawCommand.FillPath(path, fill, z = 3)
+        out += DrawCommand.StrokePath(path, strokeSpec, stroke, z = 4)
+    }
+
     private fun drawEdge(edge: Edge?, route: EdgeRoute, out: MutableList<DrawCommand>, handwritten: Boolean) {
         val pts = route.points
         if (pts.size < 2) return
@@ -130,9 +215,37 @@ internal class PlantUmlDitaaSubPipeline(
         ops += PathOp.MoveTo(drawnPoints.first())
         for (i in 1 until drawnPoints.size) ops += PathOp.LineTo(drawnPoints[i])
         val color = edge?.style?.color?.let { Color(it.argb) } ?: Color(0xFF6D4C41.toInt())
-        val stroke = Stroke(width = edge?.style?.width ?: 1.5f, dash = if (handwritten) listOf(7f, 2f, 2f, 2f) else null)
+        val stroke = Stroke(width = edge?.style?.width ?: 1.5f, dash = if (handwritten) listOf(7f, 2f, 2f, 2f) else edge?.style?.dash)
         out += DrawCommand.StrokePath(PathCmd(ops), stroke, color, z = 1)
-        if (edge?.arrow == ArrowEnds.ToOnly) out += openArrowHead(drawnPoints[drawnPoints.size - 2], drawnPoints.last(), color)
+        when (edge?.arrow) {
+            ArrowEnds.ToOnly -> out += openArrowHead(drawnPoints[drawnPoints.size - 2], drawnPoints.last(), color)
+            ArrowEnds.FromOnly -> out += openArrowHead(drawnPoints[1], drawnPoints.first(), color)
+            ArrowEnds.Both -> {
+                out += openArrowHead(drawnPoints[drawnPoints.size - 2], drawnPoints.last(), color)
+                out += openArrowHead(drawnPoints[1], drawnPoints.first(), color)
+            }
+            else -> Unit
+        }
+    }
+
+    private fun routeEndpoints(from: Rect, to: Rect): Pair<Point, Point> {
+        val fromCx = (from.left + from.right) / 2f
+        val fromCy = (from.top + from.bottom) / 2f
+        val toCx = (to.left + to.right) / 2f
+        val toCy = (to.top + to.bottom) / 2f
+        return if (kotlin.math.abs(toCx - fromCx) >= kotlin.math.abs(toCy - fromCy)) {
+            if (toCx >= fromCx) {
+                Point(from.right, fromCy) to Point(to.left, toCy)
+            } else {
+                Point(from.left, fromCy) to Point(to.right, toCy)
+            }
+        } else {
+            if (toCy >= fromCy) {
+                Point(fromCx, from.bottom) to Point(toCx, to.top)
+            } else {
+                Point(fromCx, from.top) to Point(toCx, to.bottom)
+            }
+        }
     }
 
     private fun sketchRect(key: String, rect: Rect, stroke: Stroke, color: Color): DrawCommand =
@@ -179,6 +292,24 @@ internal class PlantUmlDitaaSubPipeline(
             Stroke(width = 1.5f),
             color,
             z = 2,
+        )
+    }
+
+    private fun ovalPath(rect: Rect): PathCmd {
+        val c = 0.5522848f
+        val rx = rect.size.width / 2f
+        val ry = rect.size.height / 2f
+        val cx = rect.left + rx
+        val cy = rect.top + ry
+        return PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(cx + rx, cy)),
+                PathOp.CubicTo(Point(cx + rx, cy + ry * c), Point(cx + rx * c, cy + ry), Point(cx, cy + ry)),
+                PathOp.CubicTo(Point(cx - rx * c, cy + ry), Point(cx - rx, cy + ry * c), Point(cx - rx, cy)),
+                PathOp.CubicTo(Point(cx - rx, cy - ry * c), Point(cx - rx * c, cy - ry), Point(cx, cy - ry)),
+                PathOp.CubicTo(Point(cx + rx * c, cy - ry), Point(cx + rx, cy - ry * c), Point(cx + rx, cy)),
+                PathOp.Close,
+            ),
         )
     }
 

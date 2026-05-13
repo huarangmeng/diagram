@@ -20,9 +20,12 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
  * - button lines written as `[Button]`
  * - input lines written as `"placeholder"` or `Label: "placeholder"`
  * - dropdown shorthand lines written as `^Choice^`
- * - basic tab rows written as `{* General | Advanced | Help }`
+ * - checkbox/radio shorthand lines written as `[X] Label`, `[ ] Label`, `(X) Label`, `( ) Label`
+ * - separator rows written as `--`, `==`, or `..`
+ * - image shorthand lines written as `<img:source>` / `img:source` / `{img source}`
+ * - basic tab rows written as `{* General | Advanced | Help }` and tab blocks written as `{* ... }`
  * - tree blocks written as `{T ... }` with `+` / `++` / `+++` item prefixes
- * - frame blocks written as `{+ Title ... }`, `{# Title ... }`, or `{frame Title ... }`
+ * - frame/list/menu/scroll/group blocks written as `{+ Title ... }`, `{# Title ... }`, `{^ Title ... }`, `{! Title ... }`, `{S Title ... }`, `{frame Title ... }`, or plain `{ ... }`
  * - table grid rows written as `A | B | C`
  *
  * Example:
@@ -44,6 +47,7 @@ class PlantUmlSaltParser {
     private var frameChildren: MutableList<WireBox>? = null
     private var treeTitle: String? = null
     private var treeItems: MutableList<TreeItem>? = null
+    private var tabItems: MutableList<WireBox>? = null
     private val tableRows: MutableList<List<String>> = ArrayList()
     private var seq: Long = 0L
 
@@ -106,6 +110,11 @@ class PlantUmlSaltParser {
             treeItems = ArrayList()
             return true
         }
+        parseTabsStart(line)?.let { tabs ->
+            flushTableRows()
+            tabItems = ArrayList<WireBox>().also { it += tabs }
+            return true
+        }
         parseFrameStart(line)?.let { title ->
             flushTableRows()
             frameTitle = title
@@ -127,10 +136,20 @@ class PlantUmlSaltParser {
             return true
         }
 
+        tabItems?.let { tabs ->
+            if (line == "}") {
+                children += WireBox.TabbedGroup(RichLabel.Plain("tabs"), tabs.toList())
+                tabItems = null
+            } else if (isExplicitTabLine(line)) {
+                parseTabItems(line).takeIf { it.isNotEmpty() }?.let(tabs::addAll)
+            }
+            return true
+        }
+
         frameChildren?.let { nested ->
             if (line == "}") {
                 flushTableRows(nested)
-                children += WireBox.Plain(RichLabel.Plain(frameLabel(frameTitle)), nested.toList())
+                children += WireBox.Plain(RichLabel.Plain(frameTitle ?: "Group"), nested.toList())
                 frameTitle = null
                 frameChildren = null
             } else if (!isWrapperLine(line)) {
@@ -148,8 +167,9 @@ class PlantUmlSaltParser {
 
     private fun openBlockSnapshots(): List<WireBox> {
         val open = ArrayList<WireBox>()
-        frameChildren?.let { open += WireBox.Plain(RichLabel.Plain(frameLabel(frameTitle)), it.toList() + openTableSnapshot()) }
+        frameChildren?.let { open += WireBox.Plain(RichLabel.Plain(frameTitle ?: "Group"), it.toList() + openTableSnapshot()) }
         treeItems?.let { open += buildTreeBox(treeTitle, it) }
+        tabItems?.let { open += WireBox.TabbedGroup(RichLabel.Plain("tabs"), it.toList()) }
         return open
     }
 
@@ -164,7 +184,7 @@ class PlantUmlSaltParser {
         val cells = line.trim('|')
             .split('|')
             .map { it.trim() }
-            .filter { it.isNotEmpty() }
+            .map(::normalizeCellText)
         return cells.takeIf { it.size >= 2 }
     }
 
@@ -189,28 +209,40 @@ class PlantUmlSaltParser {
         )
 
     private fun parseWidget(line: String): WireBox =
-        parseTabbedGroup(line)
+        parseSeparator(line)?.let { WireBox.Plain(RichLabel.Plain(it)) }
+            ?: parseTabbedGroup(line)
+            ?: parseImage(line)
             ?: parseInput(line)
+            ?: parseCheckbox(line)?.let { WireBox.Button(RichLabel.Plain(it)) }
+            ?: parseRadio(line)?.let { WireBox.Button(RichLabel.Plain(it)) }
             ?: parseButton(line)?.let { WireBox.Button(RichLabel.Plain(it)) }
             ?: parseDropdown(line)?.let { WireBox.Button(RichLabel.Plain("$it v")) }
             ?: WireBox.Plain(RichLabel.Plain(line))
 
     private fun parseTreeStart(line: String): String? {
+        if (line.endsWith("}")) return null
         val lower = line.lowercase()
         if (lower != "{t" && !lower.startsWith("{t ")) return null
         return line.drop(2).trim().takeIf { it.isNotEmpty() }
     }
 
     private fun parseFrameStart(line: String): String? {
+        if (line.endsWith("}")) return null
         val lower = line.lowercase()
-        val rawTitle = when {
-            lower.startsWith("{+") -> line.drop(2)
-            lower.startsWith("{#") -> line.drop(2)
-            lower.startsWith("{frame ") -> line.drop("{frame".length)
-            lower == "{frame" -> ""
+        val (kind, rawTitle) = when {
+            lower.startsWith("{+") -> "Frame" to line.drop(2)
+            lower.startsWith("{#") -> "Grid" to line.drop(2)
+            lower.startsWith("{^") -> "Menu" to line.drop(2)
+            lower.startsWith("{!") -> "List" to line.drop(2)
+            lower.startsWith("{s ") || lower == "{s" -> "Scroll" to line.drop(2)
+            lower.startsWith("{si ") || lower == "{si" -> "Scroll" to line.drop(3)
+            lower.startsWith("{frame ") -> "Frame" to line.drop("{frame".length)
+            lower == "{frame" -> "Frame" to ""
+            line == "{" -> "Group" to ""
             else -> return null
         }
-        return rawTitle.trim().trimEnd('{').trim().takeIf { it.isNotEmpty() }
+        val title = rawTitle.trim().trimEnd('{').trim()
+        return if (title.isEmpty()) kind else "$kind: $title"
     }
 
     private fun parseTreeItem(line: String): TreeItem? {
@@ -243,8 +275,6 @@ class PlantUmlSaltParser {
             children = children.map { it.toWireBox() },
         )
 
-    private fun frameLabel(title: String?): String = title?.let { "Frame: $it" } ?: "Frame"
-
     private fun parseButton(line: String): String? {
         if (!line.startsWith("[") || !line.endsWith("]")) return null
         val label = line.removePrefix("[").removeSuffix("]").trim()
@@ -259,8 +289,9 @@ class PlantUmlSaltParser {
         val colon = line.indexOf(':')
         if (colon <= 0) return null
         val label = line.substring(0, colon).trim()
-        val placeholder = parseQuoted(line.substring(colon + 1).trim()) ?: return null
-        if (label.isEmpty() || placeholder.isEmpty()) return null
+        val right = line.substring(colon + 1).trim()
+        val placeholder = parseQuoted(right) ?: if (right == ".") "" else return null
+        if (label.isEmpty()) return null
         return WireBox.Input(label = RichLabel.Plain(label), placeholder = placeholder)
     }
 
@@ -268,6 +299,38 @@ class PlantUmlSaltParser {
         if (!line.startsWith("^") || !line.endsWith("^")) return null
         return line.removePrefix("^").removeSuffix("^").trim().takeIf { it.isNotEmpty() }
     }
+
+    private fun parseCheckbox(line: String): String? {
+        if (!line.startsWith("[") || line.length < 3) return null
+        val close = line.indexOf(']')
+        if (close != 2) return null
+        val checked = when (line[1].lowercaseChar()) {
+            'x', '*' -> true
+            ' ' -> false
+            else -> return null
+        }
+        val label = line.substring(close + 1).trim().ifBlank { "Option" }
+        return "${if (checked) "[x]" else "[ ]"} $label"
+    }
+
+    private fun parseRadio(line: String): String? {
+        if (!line.startsWith("(") || line.length < 3) return null
+        val close = line.indexOf(')')
+        if (close != 2) return null
+        val checked = when (line[1].lowercaseChar()) {
+            'x', '*' -> true
+            ' ' -> false
+            else -> return null
+        }
+        val label = line.substring(close + 1).trim().ifBlank { "Option" }
+        return "${if (checked) "(o)" else "( )"} $label"
+    }
+
+    private fun parseSeparator(line: String): String? =
+        when (line) {
+            "--", "==", ".." -> "Separator:$line"
+            else -> null
+        }
 
     private fun parseTabbedGroup(line: String): WireBox.TabbedGroup? {
         if (!line.startsWith("{") || !line.endsWith("}") || "|" !in line) return null
@@ -284,8 +347,58 @@ class PlantUmlSaltParser {
         return WireBox.TabbedGroup(label = RichLabel.Plain("tabs"), tabs = tabs)
     }
 
+    private fun parseTabsStart(line: String): List<WireBox>? {
+        if (line.endsWith("}")) return null
+        val lower = line.lowercase()
+        if (!lower.startsWith("{*") && !lower.startsWith("{/")) return null
+        return parseTabItems(line.drop(2).trim()).takeIf { it.isNotEmpty() } ?: emptyList()
+    }
+
+    private fun isExplicitTabLine(line: String): Boolean =
+        "|" in line || line.trimStart().startsWith("*") || line.trimStart().startsWith("/")
+
+    private fun parseTabItems(line: String): List<WireBox> =
+        line.trim().trimEnd('}').split('|')
+            .map { it.trim().removePrefix("*").trim() }
+            .filter { it.isNotEmpty() }
+            .map { WireBox.Plain(RichLabel.Plain(normalizeCellText(it))) }
+
+    private fun parseImage(line: String): WireBox.Image? {
+        val source = when {
+            line.startsWith("<img:", ignoreCase = true) && line.endsWith(">") ->
+                line.removePrefix("<img:").removeSuffix(">").trim()
+            line.startsWith("img:", ignoreCase = true) ->
+                line.substringAfter(':').trim()
+            line.startsWith("{img ", ignoreCase = true) && line.endsWith("}") ->
+                line.removePrefix("{img").removeSuffix("}").trim()
+            else -> return null
+        }.removeSurrounding("\"")
+        if (source.isBlank()) return null
+        val label = source.substringAfterLast('/').substringAfterLast('\\').ifBlank { source }
+        return WireBox.Image(label = RichLabel.Plain("Image: $label"), src = source)
+    }
+
+    private fun normalizeCellText(raw: String): String {
+        val text = raw.trim()
+        if (text == ".") return ""
+        parseCheckbox(text)?.let { return it }
+        parseRadio(text)?.let { return it }
+        parseButton(text)?.let { return "[$it]" }
+        parseDropdown(text)?.let { return "$it v" }
+        parseQuoted(text)?.let { return it }
+        parseImage(text)?.let { return labelOf(it) }
+        return text
+    }
+
+    private fun labelOf(box: WireBox): String =
+        when (val label = box.label) {
+            is RichLabel.Plain -> label.text
+            is RichLabel.Markdown -> label.source
+            is RichLabel.Html -> label.html
+        }
+
     private fun parseQuoted(text: String): String? {
         if (text.length < 2 || text.first() != '"' || text.last() != '"') return null
-        return text.substring(1, text.lastIndex).trim().takeIf { it.isNotEmpty() }
+        return text.substring(1, text.lastIndex).trim()
     }
 }

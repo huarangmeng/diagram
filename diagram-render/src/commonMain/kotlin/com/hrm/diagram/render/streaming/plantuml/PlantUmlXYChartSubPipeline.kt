@@ -58,19 +58,17 @@ internal class PlantUmlXYChartSubPipeline(
         val out = ArrayList<DrawCommand>()
         val bounds = laid.bounds
         val plot = laid.nodePositions[NodeId("xychart:plot")] ?: return emptyList()
-        val bg = Color(0xFFFFFFFF.toInt())
-        val axis = Color(0xFF90A4AE.toInt())
-        val text = Color(0xFF263238.toInt())
-        val palette = listOf(
-            Color(0xFF42A5F5.toInt()),
-            Color(0xFFEF5350.toInt()),
-            Color(0xFF66BB6A.toInt()),
-            Color(0xFFFFCA28.toInt()),
-        )
+        val bg = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_BACKGROUND_KEY]) ?: Color(0xFFFFFFFF.toInt())
+        val axis = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_AXIS_COLOR_KEY]) ?: Color(0xFF90A4AE.toInt())
+        val text = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_TEXT_KEY]) ?: Color(0xFF263238.toInt())
+        val lineWidth = ir.styleHints.extras[PlantUmlXYChartParser.STYLE_LINE_THICKNESS_KEY]?.toFloatOrNull() ?: 1.5f
+        val palette = ir.series.indices.map { idx ->
+            parseColor(ir.styleHints.extras["${PlantUmlXYChartParser.STYLE_SERIES_COLOR_PREFIX}$idx"])
+        }.mapIndexed { index, color -> color ?: defaultPalette()[index % defaultPalette().size] }
 
         out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), bg, z = 0)
         drawTitles(ir, laid, out, text)
-        drawAxes(plot, out, axis)
+        drawAxes(plot, out, axis, lineWidth)
 
         val yMin = ir.yAxis.min ?: 0.0
         val yMax = ir.yAxis.max ?: 1.0
@@ -80,7 +78,7 @@ internal class PlantUmlXYChartSubPipeline(
             val y = plot.bottom - plot.size.height * t
             out += DrawCommand.StrokePath(
                 PathCmd(listOf(PathOp.MoveTo(Point(plot.left - 4f, y)), PathOp.LineTo(Point(plot.right, y)))),
-                Stroke(width = if (i == 0) 1.5f else 0.75f, dash = if (i == 0) null else listOf(4f, 4f)),
+                Stroke(width = if (i == 0) lineWidth else 0.75f, dash = if (i == 0) null else listOf(4f, 4f)),
                 axis,
                 z = 1,
             )
@@ -92,7 +90,7 @@ internal class PlantUmlXYChartSubPipeline(
 
         val itemCount = when {
             ir.xAxis.kind == AxisKind.Category -> ir.xAxis.categories.size
-            else -> ir.series.maxOfOrNull { it.ys.size } ?: 0
+            else -> (ir.series.maxOfOrNull { it.ys.size } ?: 0).coerceAtLeast(2)
         }
         if (itemCount <= 0) return out
         val slot = plot.size.width / itemCount.toFloat()
@@ -112,6 +110,18 @@ internal class PlantUmlXYChartSubPipeline(
         fun pointAt(index: Int, value: Double): Point =
             Point(plot.left + slot * (index + 0.5f), yOf(value))
 
+        fun xOf(value: Double, fallbackIndex: Int): Float {
+            if (ir.xAxis.kind != AxisKind.Linear) return pointAt(fallbackIndex, 0.0).x
+            val min = ir.xAxis.min ?: 0.0
+            val max = ir.xAxis.max ?: 1.0
+            val denom = (max - min).takeIf { it != 0.0 } ?: 1.0
+            val t = ((value - min) / denom).coerceIn(0.0, 1.0)
+            return (plot.left + plot.size.width * t).toFloat()
+        }
+
+        fun pointOf(index: Int, x: Double, y: Double): Point =
+            if (ir.xAxis.kind == AxisKind.Linear) Point(xOf(x, index), yOf(y)) else pointAt(index, y)
+
         ir.series.forEachIndexed { seriesIndex, series ->
             val color = palette[seriesIndex % palette.size]
             when (series.kind) {
@@ -126,13 +136,17 @@ internal class PlantUmlXYChartSubPipeline(
                 SeriesKind.Line -> {
                     if (series.ys.isEmpty()) return@forEachIndexed
                     val ops = ArrayList<PathOp>()
-                    ops += PathOp.MoveTo(pointAt(0, series.ys[0]))
-                    for (i in 1 until series.ys.size) ops += PathOp.LineTo(pointAt(i, series.ys[i]))
-                    out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = 2f), color, z = 4)
+                    ops += PathOp.MoveTo(pointOf(0, series.xs[0], series.ys[0]))
+                    for (i in 1 until series.ys.size) ops += PathOp.LineTo(pointOf(i, series.xs[i], series.ys[i]))
+                    out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = (lineWidth + 0.5f).coerceAtLeast(2f)), color, z = 4)
+                    for (i in series.ys.indices) {
+                        val point = pointOf(i, series.xs[i], series.ys[i])
+                        out += DrawCommand.FillRect(Rect.ltrb(point.x - 3f, point.y - 3f, point.x + 3f, point.y + 3f), color, corner = 3f, z = 5)
+                    }
                 }
                 SeriesKind.Scatter -> {
                     for (i in series.ys.indices) {
-                        val point = pointAt(i, series.ys[i])
+                        val point = pointOf(i, series.xs[i], series.ys[i])
                         out += DrawCommand.FillRect(
                             Rect.ltrb(point.x - 4f, point.y - 4f, point.x + 4f, point.y + 4f),
                             color,
@@ -145,6 +159,7 @@ internal class PlantUmlXYChartSubPipeline(
                 -> Unit
             }
         }
+        if (ir.styleHints.extras[PlantUmlXYChartParser.STYLE_LEGEND_KEY] != "none") drawLegend(ir, out, plot, palette, text)
         return out
     }
 
@@ -164,16 +179,16 @@ internal class PlantUmlXYChartSubPipeline(
         }
     }
 
-    private fun drawAxes(plot: Rect, out: MutableList<DrawCommand>, axis: Color) {
+    private fun drawAxes(plot: Rect, out: MutableList<DrawCommand>, axis: Color, lineWidth: Float) {
         out += DrawCommand.StrokePath(
             PathCmd(listOf(PathOp.MoveTo(Point(plot.left, plot.bottom)), PathOp.LineTo(Point(plot.right, plot.bottom)))),
-            Stroke(width = 1.5f),
+            Stroke(width = lineWidth),
             axis,
             z = 1,
         )
         out += DrawCommand.StrokePath(
             PathCmd(listOf(PathOp.MoveTo(Point(plot.left, plot.top)), PathOp.LineTo(Point(plot.left, plot.bottom)))),
-            Stroke(width = 1.5f),
+            Stroke(width = lineWidth),
             axis,
             z = 1,
         )
@@ -181,4 +196,61 @@ internal class PlantUmlXYChartSubPipeline(
 
     private fun formatTick(value: Double): String =
         if (value % 1.0 == 0.0) value.toInt().toString() else (round(value * 100.0) / 100.0).toString()
+
+    private fun drawLegend(ir: XYChartIR, out: MutableList<DrawCommand>, plot: Rect, palette: List<Color>, text: Color) {
+        if (ir.series.size <= 1 && ir.series.firstOrNull()?.name?.startsWith("series") == true) return
+        val position = ir.styleHints.extras[PlantUmlXYChartParser.STYLE_LEGEND_KEY] ?: "right"
+        val origin = when (position) {
+            "left" -> Point(12f, plot.top)
+            "top" -> Point(plot.left, plot.top - 28f)
+            "bottom" -> Point(plot.left, plot.bottom + 42f)
+            else -> Point(plot.right + 10f, plot.top)
+        }
+        var y = origin.y
+        for ((idx, series) in ir.series.withIndex()) {
+            val swatch = Rect.ltrb(origin.x, y + 2f, origin.x + 14f, y + 14f)
+            out += DrawCommand.FillRect(swatch, palette[idx % palette.size], corner = 3f, z = 8)
+            out += DrawCommand.DrawText(series.name, Point(swatch.right + 8f, y), axisLabelFont, text, anchorY = TextAnchorY.Top, z = 9)
+            y += 20f
+        }
+    }
+
+    private fun defaultPalette(): List<Color> =
+        listOf(
+            Color(0xFF42A5F5.toInt()),
+            Color(0xFFEF5350.toInt()),
+            Color(0xFF66BB6A.toInt()),
+            Color(0xFFFFCA28.toInt()),
+        )
+
+    private fun parseColor(raw: String?): Color? {
+        val s = raw?.trim()?.lowercase() ?: return null
+        if (s.isEmpty()) return null
+        if (s.startsWith("#")) {
+            val hex = s.removePrefix("#")
+            return when (hex.length) {
+                3 -> Color(0xFF000000.toInt() or expand3(hex))
+                6 -> hex.toIntOrNull(16)?.let { Color(0xFF000000.toInt() or it) }
+                8 -> hex.toLongOrNull(16)?.toInt()?.let { Color(it) }
+                else -> null
+            }
+        }
+        return when (s) {
+            "white" -> Color(0xFFFFFFFF.toInt())
+            "black" -> Color(0xFF000000.toInt())
+            "red" -> Color(0xFFE53935.toInt())
+            "green", "lime" -> Color(0xFF43A047.toInt())
+            "blue" -> Color(0xFF1E88E5.toInt())
+            "yellow" -> Color(0xFFFDD835.toInt())
+            "orange" -> Color(0xFFFB8C00.toInt())
+            "purple" -> Color(0xFF8E24AA.toInt())
+            "gray", "grey" -> Color(0xFF78909C.toInt())
+            else -> null
+        }
+    }
+
+    private fun expand3(hex: String): Int =
+        ("${hex[0]}${hex[0]}".toInt(16) shl 16) or
+            ("${hex[1]}${hex[1]}".toInt(16) shl 8) or
+            "${hex[2]}${hex[2]}".toInt(16)
 }

@@ -66,7 +66,12 @@ internal class PlantUmlWbsSubPipeline(
         val styleColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_COLOR_KEY].orEmpty())
         val styleLineColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_LINE_COLOR_KEY].orEmpty())
         val styleFontColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_FONT_COLOR_KEY].orEmpty())
+        val styleFontNames = PlantUmlTreeRenderSupport.parseNodeStringMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_FONT_NAME_KEY].orEmpty())
+        val styleFontSizes = PlantUmlTreeRenderSupport.parseNodeStringMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_FONT_SIZE_KEY].orEmpty())
+        val styleFontStyles = PlantUmlTreeRenderSupport.parseNodeStringMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_FONT_STYLE_KEY].orEmpty())
+        val styleLineThickness = PlantUmlTreeRenderSupport.parseNodeFloatMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_LINE_THICKNESS_KEY].orEmpty())
         val styleRoundCorners = PlantUmlTreeRenderSupport.parseNodeFloatMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_ROUND_CORNER_KEY].orEmpty())
+        val styleShadowing = PlantUmlTreeRenderSupport.parseNodeBooleanMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_SHADOWING_KEY].orEmpty())
         val stereotypes = PlantUmlTreeRenderSupport.parseNodeStringMap(ir.styleHints.extras[PlantUmlWbsParser.STEREOTYPE_KEY].orEmpty())
         val leadingVisuals = PlantUmlTreeRenderSupport.parseNodeLeadingVisualMap(ir.styleHints.extras[PlantUmlWbsParser.LEADING_VISUAL_KEY].orEmpty())
 
@@ -79,6 +84,7 @@ internal class PlantUmlWbsSubPipeline(
                     parentRect = pr,
                     childRect = cr,
                     color = styleLineColors[c.id] ?: palette.edgeColor,
+                    strokeWidth = styleLineThickness[c.id] ?: chrome.childStrokeWidth,
                 )
                 drawEdges(c)
             }
@@ -91,7 +97,12 @@ internal class PlantUmlWbsSubPipeline(
             val styleColor = styleColors[n.id]
             val styleLineColor = styleLineColors[n.id]
             val styleFontColor = styleFontColors[n.id]
+            val styleFontName = styleFontNames[n.id]
+            val styleFontSize = styleFontSizes[n.id]
+            val styleFontStyle = styleFontStyles[n.id]
+            val styleLineWidth = styleLineThickness[n.id]
             val styleRoundCorner = styleRoundCorners[n.id]
+            val styleShadow = styleShadowing[n.id] == true
             val stereotype = stereotypes[n.id]
             val leadingVisual = leadingVisuals[n.id]
             val effectiveFill = inlineColor ?: styleColor ?: if (isRoot) palette.rootFill else palette.defaultNodeFill
@@ -112,9 +123,12 @@ internal class PlantUmlWbsSubPipeline(
                 strokeColor = effectiveStroke,
                 chrome = chrome,
                 cornerRadiusOverride = styleRoundCorner,
+                strokeWidthOverride = styleLineWidth,
+                shadow = styleShadow,
             )
             val label = (n.label as? RichLabel.Plain)?.text ?: ""
-            val bodyFont = if (isRoot) font.copy(weight = 600) else font
+            val baseFont = if (isRoot) font.copy(weight = 600) else font
+            val bodyFont = PlantUmlTreeRenderSupport.resolveFontSpec(baseFont, styleFontName, styleFontSize, styleFontStyle)
             PlantUmlTreeRenderSupport.appendCenteredNodeText(
                 out = out,
                 textMeasurer = textMeasurer,

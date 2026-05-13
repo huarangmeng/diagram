@@ -4,6 +4,7 @@ import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
 import com.hrm.diagram.core.streaming.IrPatch
@@ -21,6 +22,11 @@ class PlantUmlStructParser(
     private val format: Format,
 ) {
     enum class Format { JSON, YAML }
+
+    companion object {
+        const val COLLAPSIBLE_PATHS_KEY = "plantuml.struct.collapsiblePaths"
+        const val SCALAR_KINDS_KEY = "plantuml.struct.scalarKinds"
+    }
 
     private val bodyLines: MutableList<String> = ArrayList()
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
@@ -52,11 +58,14 @@ class PlantUmlStructParser(
         return IrPatchBatch(seq, out)
     }
 
-    fun snapshot(): StructIR =
-        StructIR(
-            root = parseBody(reportErrors = false).node,
+    fun snapshot(): StructIR {
+        val root = parseBody(reportErrors = false).node
+        return StructIR(
+            root = root,
             sourceLanguage = SourceLanguage.PLANTUML,
+            styleHints = StyleHints(extras = buildExtras(root)),
         )
+    }
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics + finalParseDiagnostics
 
@@ -78,6 +87,36 @@ class PlantUmlStructParser(
         val node: StructNode,
         val diagnostics: List<Diagnostic>,
     )
+
+    private fun buildExtras(root: StructNode): Map<String, String> {
+        val collapsible = ArrayList<String>()
+        val scalarKinds = ArrayList<String>()
+        fun visit(node: StructNode, path: String) {
+            when (node) {
+                is StructNode.ArrayNode -> {
+                    collapsible += path
+                    node.items.forEachIndexed { index, child -> visit(child, "$path.$index") }
+                }
+                is StructNode.ObjectNode -> {
+                    collapsible += path
+                    node.entries.forEachIndexed { index, child -> visit(child, "$path.$index") }
+                }
+                is StructNode.Scalar -> scalarKinds += "$path|${scalarKind(node.value)}"
+            }
+        }
+        visit(root, "root")
+        return buildMap {
+            if (collapsible.isNotEmpty()) put(COLLAPSIBLE_PATHS_KEY, collapsible.joinToString("||"))
+            if (scalarKinds.isNotEmpty()) put(SCALAR_KINDS_KEY, scalarKinds.joinToString("||"))
+        }
+    }
+
+    private fun scalarKind(value: String): String = when {
+        value == "null" || value == "~" -> "null"
+        value == "true" || value == "false" -> "boolean"
+        value.toDoubleOrNull() != null -> "number"
+        else -> "string"
+    }
 
     private class JsonReader(private val source: String) {
         private var index = 0
@@ -182,6 +221,7 @@ class PlantUmlStructParser(
                                 'n' -> '\n'
                                 'r' -> '\r'
                                 't' -> '\t'
+                                'u' -> parseUnicodeEscape()
                                 else -> escaped
                             },
                         )
@@ -192,14 +232,32 @@ class PlantUmlStructParser(
             fail("Unclosed JSON string")
         }
 
+        private fun parseUnicodeEscape(): Char {
+            if (index + 4 > source.length) fail("Incomplete JSON unicode escape")
+            val hex = source.substring(index, index + 4)
+            if (!hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+                fail("Invalid JSON unicode escape")
+            }
+            index += 4
+            return hex.toInt(16).toChar()
+        }
+
         private fun parseLiteral(): String {
             val start = index
             while (index < source.length && source[index] !in listOf(',', '}', ']', '\n', '\r', '\t', ' ')) {
                 index++
             }
             if (start == index) fail("Expected JSON value")
-            return source.substring(start, index)
+            val literal = source.substring(start, index)
+            if (!isJsonLiteral(literal)) fail("Invalid JSON literal '$literal'")
+            return literal
         }
+
+        private fun isJsonLiteral(value: String): Boolean =
+            value == "true" ||
+                value == "false" ||
+                value == "null" ||
+                JSON_NUMBER.matches(value)
 
         private fun skipWs() {
             while (index < source.length && source[index].isWhitespace()) index++
@@ -216,6 +274,10 @@ class PlantUmlStructParser(
 
         private fun diagnostic(message: String): Diagnostic =
             Diagnostic(severity = Severity.ERROR, message = message, code = "PLANTUML-E013")
+
+        companion object {
+            private val JSON_NUMBER = Regex("""-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?""")
+        }
     }
 
     private class YamlReader(private val source: String) {
@@ -223,8 +285,9 @@ class PlantUmlStructParser(
 
         private val lines = source.lines()
             .mapNotNull { raw ->
-                val withoutComment = raw.substringBefore("#").trimEnd()
-                if (withoutComment.isBlank()) null else Line(raw.takeWhile { it == ' ' }.length, withoutComment.trim())
+                val withoutComment = stripYamlComment(raw).trimEnd()
+                val trimmed = withoutComment.trim()
+                if (trimmed.isBlank() || trimmed == "---" || trimmed == "...") null else Line(raw.takeWhile { it == ' ' }.length, trimmed)
             }
         private var index = 0
         private val diagnostics = ArrayList<Diagnostic>()
@@ -254,7 +317,7 @@ class PlantUmlStructParser(
                 val line = lines[index++]
                 val split = line.text.indexOf(':')
                 if (split <= 0) {
-                    entries += StructNode.Scalar(null, unquote(line.text))
+                    entries += StructNode.Scalar(null, normalizeScalar(line.text))
                     continue
                 }
                 val childKey = line.text.substring(0, split).trim()
@@ -262,8 +325,8 @@ class PlantUmlStructParser(
                 entries += if (rawValue.isEmpty()) {
                     if (index < lines.size && lines[index].indent > indent) parseBlock(lines[index].indent, childKey)
                     else StructNode.ObjectNode(childKey, emptyList())
-                } else if (rawValue == "|" || rawValue == ">") {
-                    parseBlockScalar(childKey, indent, folded = rawValue == ">")
+                } else if (isBlockScalarHeader(rawValue)) {
+                    parseBlockScalar(childKey, indent, header = rawValue)
                 } else {
                     parseInlineValue(childKey, rawValue)
                 }
@@ -282,7 +345,8 @@ class PlantUmlStructParser(
                     value.isEmpty() ->
                         if (index < lines.size && lines[index].indent > indent) parseBlock(lines[index].indent, itemKey)
                         else StructNode.ObjectNode(itemKey, emptyList())
-                    value == "|" || value == ">" -> parseBlockScalar(itemKey, indent, folded = value == ">")
+                    isBlockScalarHeader(value) -> parseBlockScalar(itemKey, indent, header = value)
+                    value.startsWith("{") && value.endsWith("}") -> parseInlineValue(itemKey, value)
                     value.contains(":") && !value.startsWith("\"") && !value.startsWith("'") ->
                         parseInlineObject(itemKey, value, indent)
                     else -> parseInlineValue(itemKey, value)
@@ -297,7 +361,11 @@ class PlantUmlStructParser(
             val split = firstEntry.indexOf(':')
             val key = firstEntry.substring(0, split).trim()
             val value = firstEntry.substring(split + 1).trim()
-            entries += if (value.isEmpty()) StructNode.ObjectNode(key, emptyList()) else parseInlineValue(key, value)
+            if (value.isEmpty() && index < lines.size && lines[index].indent > parentIndent) {
+                entries += parseBlock(lines[index].indent, key)
+                return StructNode.ObjectNode(itemKey, entries)
+            }
+            entries += parseInlineValue(key, value)
             if (index < lines.size && lines[index].indent > parentIndent) {
                 val nested = parseObject(lines[index].indent, null)
                 entries += nested.entries
@@ -305,26 +373,178 @@ class PlantUmlStructParser(
             return StructNode.ObjectNode(itemKey, entries)
         }
 
-        private fun parseBlockScalar(key: String?, parentIndent: Int, folded: Boolean): StructNode.Scalar {
+        private fun parseBlockScalar(key: String?, parentIndent: Int, header: String): StructNode.Scalar {
             val parts = ArrayList<String>()
             while (index < lines.size && lines[index].indent > parentIndent) {
                 parts += lines[index].text
                 index++
             }
-            return StructNode.Scalar(key, if (folded) parts.joinToString(" ") else parts.joinToString("\n"))
+            val folded = header.startsWith(">")
+            val chomp = header.lastOrNull().takeIf { it == '-' || it == '+' }
+            val body = if (folded) parts.joinToString(" ") else parts.joinToString("\n")
+            val value = when (chomp) {
+                '+' -> body + "\n"
+                '-' -> body.trimEnd('\n')
+                else -> body
+            }
+            return StructNode.Scalar(key, value)
         }
 
         private fun parseInlineValue(key: String?, value: String): StructNode {
             if (value.startsWith("[") && value.endsWith("]")) {
-                val items = value.removePrefix("[").removeSuffix("]")
-                    .split(',')
-                    .mapIndexed { idx, item -> StructNode.Scalar("[$idx]", unquote(item.trim())) }
+                val items = splitTopLevel(value.removePrefix("[").removeSuffix("]"))
+                    .mapIndexed { idx, item -> withArrayKey(parseInlineValue(null, item.trim()), "[$idx]") }
                 return StructNode.ArrayNode(key, items)
             }
-            return StructNode.Scalar(key, unquote(value))
+            if (value.startsWith("{") && value.endsWith("}")) {
+                val entries = splitTopLevel(value.removePrefix("{").removeSuffix("}"))
+                    .mapNotNull { entry ->
+                        val split = findTopLevelColon(entry)
+                        if (split <= 0) null else parseInlineValue(entry.substring(0, split).trim(), entry.substring(split + 1).trim())
+                    }
+                return StructNode.ObjectNode(key, entries)
+            }
+            return StructNode.Scalar(key, normalizeScalar(value))
         }
 
-        private fun unquote(value: String): String =
-            value.removeSurrounding("\"").removeSurrounding("'")
+        private fun withArrayKey(node: StructNode, key: String): StructNode = when (node) {
+            is StructNode.ArrayNode -> node.copy(key = key)
+            is StructNode.ObjectNode -> node.copy(key = key)
+            is StructNode.Scalar -> node.copy(key = key)
+        }
+
+        private fun normalizeScalar(value: String): String {
+            val trimmed = value.trim()
+            if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length >= 2) {
+                return unescapeDoubleQuoted(trimmed.substring(1, trimmed.length - 1))
+            }
+            if (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2) {
+                return trimmed.substring(1, trimmed.length - 1).replace("''", "'")
+            }
+            return when (trimmed.lowercase()) {
+                "true", "yes", "on" -> "true"
+                "false", "no", "off" -> "false"
+                "null", "~" -> "null"
+                else -> trimmed
+            }
+        }
+
+        private fun unescapeDoubleQuoted(value: String): String {
+            val out = StringBuilder()
+            var i = 0
+            while (i < value.length) {
+                val c = value[i++]
+                if (c != '\\' || i >= value.length) {
+                    out.append(c)
+                    continue
+                }
+                out.append(
+                    when (val escaped = value[i++]) {
+                        'n' -> '\n'
+                        'r' -> '\r'
+                        't' -> '\t'
+                        '"', '\\', '/' -> escaped
+                        else -> escaped
+                    },
+                )
+            }
+            return out.toString()
+        }
+
+        private fun isBlockScalarHeader(value: String): Boolean =
+            BLOCK_SCALAR_HEADER.matches(value)
+
+        private fun stripYamlComment(raw: String): String {
+            var quote: Char? = null
+            var escaped = false
+            for (i in raw.indices) {
+                val c = raw[i]
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                if (c == '\\' && quote == '"') {
+                    escaped = true
+                    continue
+                }
+                if (quote != null) {
+                    if (c == quote) quote = null
+                    continue
+                }
+                if (c == '"' || c == '\'') {
+                    quote = c
+                    continue
+                }
+                if (c == '#' && (i == 0 || raw[i - 1].isWhitespace())) return raw.substring(0, i)
+            }
+            return raw
+        }
+
+        private fun splitTopLevel(raw: String): List<String> {
+            val out = ArrayList<String>()
+            var quote: Char? = null
+            var escaped = false
+            var depth = 0
+            var start = 0
+            for (i in raw.indices) {
+                val c = raw[i]
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                if (c == '\\' && quote == '"') {
+                    escaped = true
+                    continue
+                }
+                if (quote != null) {
+                    if (c == quote) quote = null
+                    continue
+                }
+                when (c) {
+                    '"', '\'' -> quote = c
+                    '[', '{' -> depth++
+                    ']', '}' -> depth--
+                    ',' -> if (depth == 0) {
+                        out += raw.substring(start, i).trim()
+                        start = i + 1
+                    }
+                }
+            }
+            val tail = raw.substring(start).trim()
+            if (tail.isNotEmpty()) out += tail
+            return out
+        }
+
+        private fun findTopLevelColon(raw: String): Int {
+            var quote: Char? = null
+            var escaped = false
+            var depth = 0
+            for (i in raw.indices) {
+                val c = raw[i]
+                if (escaped) {
+                    escaped = false
+                    continue
+                }
+                if (c == '\\' && quote == '"') {
+                    escaped = true
+                    continue
+                }
+                if (quote != null) {
+                    if (c == quote) quote = null
+                    continue
+                }
+                when (c) {
+                    '"', '\'' -> quote = c
+                    '[', '{' -> depth++
+                    ']', '}' -> depth--
+                    ':' -> if (depth == 0) return i
+                }
+            }
+            return -1
+        }
+
+        companion object {
+            private val BLOCK_SCALAR_HEADER = Regex("""^[|>][+-]?$""")
+        }
     }
 }

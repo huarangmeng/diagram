@@ -61,6 +61,36 @@ class PlantUmlPieIntegrationTest {
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Yes" })
     }
 
+    @Test
+    fun startpie_renders_styled_colored_slices_with_streaming_consistency() {
+        val src =
+            """
+            @startpie
+            skinparam pie {
+              BackgroundColor Ivory
+              BorderColor Gray
+              FontColor Navy
+              LineThickness 2
+            }
+            legend left
+            #3498db; "Dogs" : 42
+            Cats : 28 #2ecc71
+            Birds : 10%
+            @endpie
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 6)
+        val oneIr = assertIs<PieIR>(one.ir)
+        val chunkedIr = assertIs<PieIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertEquals(3, oneIr.slices.size)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.FillPath>().isNotEmpty())
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Dogs" })
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { session ->
         try {
             var index = 0

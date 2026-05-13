@@ -74,6 +74,71 @@ class PlantUmlC4IntegrationTest {
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("Uses") })
     }
 
+    @Test
+    fun c4_deployment_legend_and_links_render_with_streaming_consistency() {
+        val src =
+            """
+            @startuml
+            C4Deployment
+            Deployment_Node(node, "Kubernetes", "cluster", "prod") {
+              Container(api, "API", "Ktor", "Backend", ${'$'}link="https://example.com/api")
+            }
+            System_Ext(ext, "External")
+            Rel(api, ext, "calls")
+            SHOW_LEGEND()
+            @enduml
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 8)
+        val oneIr = assertIs<GraphIR>(one.ir)
+        val chunkedIr = assertIs<GraphIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertEquals(3, oneIr.nodes.size)
+        assertEquals(1, oneIr.clusters.size)
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("[Legend]") })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "L" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().isNotEmpty())
+    }
+
+    @Test
+    fun c4_full_macro_helpers_render_and_are_streaming_consistent() {
+        val src =
+            """
+            @startuml
+            C4Container
+            UpdateLayoutConfig(${ '$' }c4ShapeInRow="3", ${ '$' }layout="TB")
+            AddElementTag("octa", ${ '$' }bgColor="#f96", ${ '$' }shape="EightSidedShape()", ${ '$' }legendText="Octagon Element")
+            AddRelTag("async", ${ '$' }textColor="blue", ${ '$' }lineColor="#8E24AA", ${ '$' }lineStyle="DashedLine()", ${ '$' }legendText="Async Link")
+            System_Boundary(sys, "System", ${ '$' }link="https://example.com/boundary") {
+              Person_Ext(user, "External User", "Customer")
+              ContainerQueue(q, "Queue", "Kafka", "Events", ${ '$' }tags="octa", ${ '$' }link="https://example.com/q")
+            }
+            BiRel_R(user, q, "publishes", "HTTPS", ${ '$' }tags="async", ${ '$' }link="https://example.com/rel")
+            UpdateRelStyle(user, q, ${ '$' }textColor="#123456", ${ '$' }lineColor="#111111", ${ '$' }lineStyle="BoldLine()", ${ '$' }offsetX="12", ${ '$' }offsetY="-4")
+            Lay_D(user, q)
+            SHOW_LEGEND()
+            @enduml
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 6)
+        val oneIr = assertIs<GraphIR>(one.ir)
+        val chunkedIr = assertIs<GraphIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertEquals(3, oneIr.nodes.size)
+        assertEquals(2, oneIr.edges.size)
+        assertEquals(1, oneIr.clusters.size)
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.FillPath>().isNotEmpty())
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.Hyperlink>().size >= 2)
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("Octagon Element") })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("publishes") })
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

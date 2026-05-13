@@ -39,6 +39,36 @@ class PlantUmlPieParserTest {
         assertTrue(parser.diagnosticsSnapshot().any { it.code == "PLANTUML-E021" })
     }
 
+    @Test
+    fun parses_colors_legend_and_skinparam_style_hints() {
+        val parser = PlantUmlPieParser()
+        """
+        skinparam pie {
+          BackgroundColor Ivory
+          BorderColor Gray
+          FontColor Navy
+          LineThickness 2
+        }
+        legend left
+        #3498db; "Dogs" : 42
+        Cats : 28 #2ecc71
+        Birds : 10%
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val ir = assertIs<PieIR>(parser.snapshot())
+        assertEquals(3, ir.slices.size)
+        assertEquals(10.0, ir.slices[2].value)
+        assertEquals("Ivory", ir.styleHints.extras[PlantUmlPieParser.STYLE_BACKGROUND_KEY])
+        assertEquals("Gray", ir.styleHints.extras[PlantUmlPieParser.STYLE_BORDER_KEY])
+        assertEquals("Navy", ir.styleHints.extras[PlantUmlPieParser.STYLE_TEXT_KEY])
+        assertEquals("2", ir.styleHints.extras[PlantUmlPieParser.STYLE_LINE_THICKNESS_KEY])
+        assertEquals("left", ir.styleHints.extras[PlantUmlPieParser.STYLE_LEGEND_KEY])
+        assertEquals("#3498db", ir.styleHints.extras["${PlantUmlPieParser.STYLE_SLICE_COLOR_PREFIX}0"])
+        assertEquals("#2ecc71", ir.styleHints.extras["${PlantUmlPieParser.STYLE_SLICE_COLOR_PREFIX}1"])
+        assertTrue(parser.diagnosticsSnapshot().isEmpty())
+    }
+
     private fun labelOf(label: RichLabel): String =
         when (label) {
             is RichLabel.Plain -> label.text

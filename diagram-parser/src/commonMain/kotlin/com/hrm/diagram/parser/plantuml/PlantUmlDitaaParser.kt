@@ -5,6 +5,7 @@ import com.hrm.diagram.core.ir.ArgbColor
 import com.hrm.diagram.core.ir.ArrowEnds
 import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.Edge
+import com.hrm.diagram.core.ir.EdgeKind
 import com.hrm.diagram.core.ir.EdgeStyle
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
@@ -22,8 +23,8 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
  * Streaming parser for a minimal PlantUML ditaa subset.
  *
  * The parser recognizes rectangular ASCII boxes made from `+`, `-` and `|`, extracts their inner
- * text as node labels, and creates simple left-to-right / top-to-bottom edges when an arrow sits
- * between two boxes.
+ * text as node labels, maps ditaa shape/color markers, and creates directional edges when ASCII
+ * connectors sit between two boxes.
  *
  * Example:
  * ```text
@@ -38,7 +39,9 @@ class PlantUmlDitaaParser {
         const val GRID_KEY = "plantuml.ditaa.grid"
         const val ROUNDED_KEY = "plantuml.ditaa.rounded"
         const val HANDWRITTEN_KEY = "plantuml.ditaa.handwritten"
+        const val SHAPE_KEY = "plantuml.ditaa.shape"
         private val COLOR_MARKER = Regex("""\bc([A-Za-z]{3}|[A-Fa-f0-9]{3}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{8})\b""")
+        private val SHAPE_MARKER = Regex("""\{(io|mo|tr|d|s|c|o)\}""", RegexOption.IGNORE_CASE)
     }
 
     private data class Box(
@@ -49,10 +52,20 @@ class PlantUmlDitaaParser {
         val bottom: Int,
         val label: String,
         val fill: ArgbColor?,
+        val shape: NodeShape,
+        val shapeTag: String?,
         val rounded: Boolean,
         val handwritten: Boolean,
     )
-    private data class LabelInfo(val text: String, val fill: ArgbColor?)
+    private data class LabelInfo(val text: String, val fill: ArgbColor?, val shape: NodeShape, val shapeTag: String?)
+    private data class EdgeInfo(
+        val from: Box,
+        val to: Box,
+        val arrow: ArrowEnds,
+        val kind: EdgeKind,
+        val width: Float,
+        val dash: List<Float>?,
+    )
 
     private val lines: MutableList<String> = ArrayList()
     private val diagnostics: MutableList<Diagnostic> = ArrayList()
@@ -83,7 +96,7 @@ class PlantUmlDitaaParser {
             Node(
                 id = box.id,
                 label = RichLabel.Plain(box.label.ifBlank { box.id.value }),
-                shape = NodeShape.RoundedBox,
+                shape = box.shape,
                 style = NodeStyle(
                     fill = box.fill ?: ArgbColor(0xFFFFFDE7.toInt()),
                     stroke = ArgbColor(0xFF8D6E63.toInt()),
@@ -92,6 +105,7 @@ class PlantUmlDitaaParser {
                 ),
                 payload = buildMap {
                     put(GRID_KEY, "${box.left},${box.top},${box.right},${box.bottom}")
+                    box.shapeTag?.let { put(SHAPE_KEY, it) }
                     if (box.rounded) put(ROUNDED_KEY, "true")
                     if (box.handwritten) put(HANDWRITTEN_KEY, "true")
                 },
@@ -134,7 +148,7 @@ class PlantUmlDitaaParser {
                     val label = extractLabel(x, y, r, bottom)
                     val id = NodeId("ditaa:${out.size}:${PlantUmlTemporalSupport.slug(label.text.ifBlank { "box" })}")
                     val rounded = topLeft != '+' || charAt(r, y) != '+' || charAt(x, bottom) != '+' || charAt(r, bottom) != '+'
-                    out += Box(id, x, y, r, bottom, label.text, label.fill, rounded, handwritten)
+                    out += Box(id, x, y, r, bottom, label.text, label.fill, label.shape, label.shapeTag, rounded, handwritten)
                     break
                 }
             }
@@ -147,12 +161,14 @@ class PlantUmlDitaaParser {
         for (from in boxes) {
             for (to in boxes) {
                 if (from == to) continue
-                if (hasHorizontalArrow(from, to) || hasVerticalArrow(from, to)) {
+                val edge = detectEdge(from, to)
+                if (edge != null) {
                     out += Edge(
-                        from = from.id,
-                        to = to.id,
-                        arrow = ArrowEnds.ToOnly,
-                        style = EdgeStyle(color = ArgbColor(0xFF6D4C41.toInt()), width = 1.5f),
+                        from = edge.from.id,
+                        to = edge.to.id,
+                        kind = edge.kind,
+                        arrow = edge.arrow,
+                        style = EdgeStyle(color = ArgbColor(0xFF6D4C41.toInt()), width = edge.width, dash = edge.dash),
                     )
                 }
             }
@@ -160,24 +176,65 @@ class PlantUmlDitaaParser {
         return out.distinctBy { it.from to it.to }
     }
 
-    private fun hasHorizontalArrow(from: Box, to: Box): Boolean {
-        if (from.right >= to.left) return false
-        val yRange = maxOf(from.top + 1, to.top + 1)..minOf(from.bottom - 1, to.bottom - 1)
+    private fun detectEdge(from: Box, to: Box): EdgeInfo? =
+        detectHorizontalEdge(from, to)
+            ?: detectHorizontalEdge(to, from)?.let { reverseEdge(it) }
+            ?: detectVerticalEdge(from, to)
+            ?: detectVerticalEdge(to, from)?.let { reverseEdge(it) }
+
+    private fun detectHorizontalEdge(left: Box, right: Box): EdgeInfo? {
+        if (left.right >= right.left) return null
+        val yRange = maxOf(left.top + 1, right.top + 1)..minOf(left.bottom - 1, right.bottom - 1)
         for (y in yRange) {
-            val segment = substring(from.right + 1, to.left, y)
-            if (segment.contains("->") || segment.contains("-->") || segment.contains("=>")) return true
+            val segment = substring(left.right + 1, right.left, y)
+            val presentation = edgePresentation(segment) ?: continue
+            val arrow = when {
+                segment.contains("<->") || segment.contains("<=>") -> ArrowEnds.Both
+                segment.contains("<-") || segment.contains("<=") -> ArrowEnds.FromOnly
+                segment.contains("->") || segment.contains("=>") -> ArrowEnds.ToOnly
+                segment.any { it == '-' || it == '=' || it == ':' } -> ArrowEnds.None
+                else -> continue
+            }
+            return EdgeInfo(left, right, arrow, presentation.first, presentation.second, presentation.third)
         }
-        return false
+        return null
     }
 
-    private fun hasVerticalArrow(from: Box, to: Box): Boolean {
-        if (from.bottom >= to.top) return false
-        val xRange = maxOf(from.left + 1, to.left + 1)..minOf(from.right - 1, to.right - 1)
+    private fun detectVerticalEdge(top: Box, bottom: Box): EdgeInfo? {
+        if (top.bottom >= bottom.top) return null
+        val xRange = maxOf(top.left + 1, bottom.left + 1)..minOf(top.right - 1, bottom.right - 1)
         for (x in xRange) {
-            val chars = (from.bottom + 1 until to.top).map { charAt(x, it) }.joinToString("")
-            if (chars.contains("|") && chars.contains("v")) return true
+            val chars = (top.bottom + 1 until bottom.top).map { charAt(x, it) }.joinToString("")
+            val presentation = edgePresentation(chars) ?: continue
+            val arrow = when {
+                chars.contains('v') && chars.contains('^') -> ArrowEnds.Both
+                chars.contains('^') -> ArrowEnds.FromOnly
+                chars.contains('v') -> ArrowEnds.ToOnly
+                chars.any { it == '|' || it == ':' || it == '=' } -> ArrowEnds.None
+                else -> continue
+            }
+            return EdgeInfo(top, bottom, arrow, presentation.first, presentation.second, presentation.third)
         }
-        return false
+        return null
+    }
+
+    private fun reverseEdge(edge: EdgeInfo): EdgeInfo =
+        edge.copy(
+            from = edge.to,
+            to = edge.from,
+            arrow = when (edge.arrow) {
+                ArrowEnds.ToOnly -> ArrowEnds.FromOnly
+                ArrowEnds.FromOnly -> ArrowEnds.ToOnly
+                else -> edge.arrow
+            },
+        )
+
+    private fun edgePresentation(segment: String): Triple<EdgeKind, Float, List<Float>?>? {
+        if (segment.none { it in "-=|:<>^v" }) return null
+        val dash = if (segment.contains(':')) listOf(4f, 4f) else null
+        val width = if (segment.contains('=')) 2.4f else 1.5f
+        val kind = if (dash != null) EdgeKind.Dashed else EdgeKind.Solid
+        return Triple(kind, width, dash)
     }
 
     private fun horizontalBetween(left: Int, right: Int, y: Int): Boolean =
@@ -201,15 +258,33 @@ class PlantUmlDitaaParser {
             .filter { it.isNotBlank() }
             .joinToString("\n")
         var fill: ArgbColor? = null
+        var shapeTag: String? = null
         val cleaned = COLOR_MARKER.replace(raw) { match ->
             fill = fill ?: ditaaColor(match.groupValues[1])
             ""
+        }.let { withoutColor ->
+            SHAPE_MARKER.replace(withoutColor) { match ->
+                shapeTag = shapeTag ?: match.groupValues[1].lowercase()
+                ""
+            }
         }.lines()
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .joinToString("\n")
-        return LabelInfo(cleaned, fill)
+        return LabelInfo(cleaned, fill, shapeFor(shapeTag), shapeTag)
     }
+
+    private fun shapeFor(tag: String?): NodeShape =
+        when (tag) {
+            "d" -> NodeShape.Note
+            "s" -> NodeShape.Cylinder
+            "io" -> NodeShape.Parallelogram
+            "c" -> NodeShape.Diamond
+            "o" -> NodeShape.Ellipse
+            "mo" -> NodeShape.Hexagon
+            "tr" -> NodeShape.Trapezoid
+            else -> NodeShape.RoundedBox
+        }
 
     private fun ditaaColor(raw: String): ArgbColor? {
         val text = raw.trim()

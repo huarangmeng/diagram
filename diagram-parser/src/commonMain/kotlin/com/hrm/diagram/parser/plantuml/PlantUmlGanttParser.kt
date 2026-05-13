@@ -27,6 +27,10 @@ import kotlin.math.min
  * - `[A] -> [B]`
  * - `[Task] on {Resource}`
  * - `[Task] is colored in #Color`
+ * - `[Task] is 50% complete`, `[Task] is complete`
+ * - `[Task] is milestone`, `[Task] is critical/dashed/bold`
+ * - `note bottom of [Task] : text`
+ * - `saturday are closed`, `YYYY-MM-DD is closed`, `YYYY-MM-DD to YYYY-MM-DD are closed`
  * - `-- Section --`
  */
 @DiagramApi
@@ -34,6 +38,12 @@ class PlantUmlGanttParser {
     companion object {
         private val RESOURCE = Regex("""(?:^|\s+)on\s+\{([^}]+)}""", RegexOption.IGNORE_CASE)
         private val COLOR = Regex("""(?:^|\s+)is\s+colored(?:\s+in)?\s+(#[A-Za-z0-9_]+|[A-Za-z][A-Za-z0-9_]*)""", RegexOption.IGNORE_CASE)
+        private val DATE_CLOSED = Regex("""^(\d{4}-\d{2}-\d{2})(?:\s+to\s+(\d{4}-\d{2}-\d{2}))?\s+(?:is|are)\s+(?:closed|off|holiday)s?$""", RegexOption.IGNORE_CASE)
+        private val WEEKDAY_CLOSED = Regex("""^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\s+(?:is|are)\s+(?:closed|off|holiday)s?$""", RegexOption.IGNORE_CASE)
+        private val NOTE = Regex("""^note\s+(?:top|bottom|left|right)?\s*of\s+\[([^]]+)]\s*:?\s*(.+)$""", RegexOption.IGNORE_CASE)
+        private val PROGRESS = Regex("""^is\s+(\d{1,3})%\s+(?:complete|completed|done)$""", RegexOption.IGNORE_CASE)
+        private val STYLE = Regex("""^is\s+(?:marked\s+as\s+)?(milestone|critical|dashed|bold)$""", RegexOption.IGNORE_CASE)
+        private val LASTS_DAYS = Regex("""^lasts\s+(\d+)\s+days?$""", RegexOption.IGNORE_CASE)
     }
 
     private data class Task(
@@ -45,6 +55,11 @@ class PlantUmlGanttParser {
         var track: String = "default",
         var resource: String? = null,
         var color: String? = null,
+        var progress: Int? = null,
+        var milestone: Boolean = false,
+        var style: String? = null,
+        var note: String? = null,
+        var workingDays: Int? = null,
         val depends: MutableList<String> = ArrayList(),
     )
 
@@ -52,6 +67,8 @@ class PlantUmlGanttParser {
     private val tasks: LinkedHashMap<String, Task> = LinkedHashMap()
     private val sectionOrder: MutableList<String> = arrayListOf("default")
     private val resourceOrder: MutableList<String> = ArrayList()
+    private val closedWeekdays: MutableSet<Int> = LinkedHashSet()
+    private val closedRanges: MutableList<TimeRange> = ArrayList()
     private var currentSection = "default"
     private var projectStartMs: Long = 0L
     private var title: String? = null
@@ -70,6 +87,8 @@ class PlantUmlGanttParser {
             PlantUmlTemporalSupport.parseDate(trimmed.substringAfter("starts").trim())?.let { projectStartMs = it }
             return IrPatchBatch(seq, emptyList())
         }
+        parseClosedLine(trimmed)?.let { return it }
+        parseNote(trimmed)?.let { return it }
         if (trimmed.startsWith("--") && trimmed.endsWith("--")) {
             currentSection = trimmed.trim('-').trim().ifBlank { "section" }
             if (currentSection !in sectionOrder) sectionOrder += currentSection
@@ -106,11 +125,22 @@ class PlantUmlGanttParser {
             rest.startsWith("ends ", ignoreCase = true) ->
                 task.endMs = PlantUmlTemporalSupport.parseDate(rest.removePrefixIgnoreCase("ends ").trim())
             rest.startsWith("lasts ", ignoreCase = true) ->
-                task.durationMs = PlantUmlTemporalSupport.parseDuration(rest.removePrefixIgnoreCase("lasts ").trim())
+                parseDuration(rest, task)
             rest.startsWith("happens at ", ignoreCase = true) -> {
                 val at = PlantUmlTemporalSupport.parseDate(rest.removePrefixIgnoreCase("happens at ").trim())
                 task.startMs = at
                 task.endMs = at?.plus(PlantUmlTemporalSupport.MS_PER_DAY / 2L)
+                task.milestone = true
+            }
+            rest.equals("is complete", ignoreCase = true) || rest.equals("is completed", ignoreCase = true) ->
+                task.progress = 100
+            PROGRESS.matches(rest) -> {
+                val progress = PROGRESS.matchEntire(rest)!!.groupValues[1].toInt().coerceIn(0, 100)
+                task.progress = progress
+            }
+            STYLE.matches(rest) -> {
+                val style = STYLE.matchEntire(rest)!!.groupValues[1].lowercase()
+                if (style == "milestone") task.milestone = true else task.style = style
             }
             rest.startsWith("on ", ignoreCase = true) || rest.startsWith("is colored", ignoreCase = true) -> Unit
             rest.isBlank() -> Unit
@@ -140,7 +170,7 @@ class PlantUmlGanttParser {
         for (task in tasks.values) {
             val dependencyEnd = task.depends.mapNotNull { resolvedEnd[it] }.maxOrNull()
             val start = task.startMs ?: dependencyEnd ?: cursor
-            val end = task.endMs ?: (start + (task.durationMs ?: PlantUmlTemporalSupport.MS_PER_DAY))
+            val end = task.endMs ?: inferEnd(start, task)
             resolvedEnd[task.id] = end
             cursor = max(cursor, end)
             minMs = min(minMs, start)
@@ -154,6 +184,11 @@ class PlantUmlGanttParser {
                 payload = buildMap {
                     task.resource?.let { put("gantt.resource", it) }
                     task.color?.let { put("gantt.color", it) }
+                    task.progress?.let { put("gantt.progress", it.toString()) }
+                    if (task.milestone) put("gantt.kind", "milestone")
+                    task.style?.let { put("gantt.style", it) }
+                    task.note?.let { put("gantt.note", it) }
+                    task.workingDays?.let { put("gantt.workingDays", it.toString()) }
                 },
             )
         }
@@ -167,7 +202,14 @@ class PlantUmlGanttParser {
             range = TimeRange(minMs, max(maxMs, minMs + 1L)),
             title = title,
             sourceLanguage = SourceLanguage.PLANTUML,
-            styleHints = StyleHints(extras = mapOf("plantuml.timeseries.kind" to "gantt", "gantt.axisFormat" to "%Y-%m-%d")),
+            styleHints = StyleHints(
+                extras = buildMap {
+                    put("plantuml.timeseries.kind", "gantt")
+                    put("gantt.axisFormat", "%Y-%m-%d")
+                    if (closedWeekdays.isNotEmpty()) put("gantt.closedWeekdays", closedWeekdays.sorted().joinToString(","))
+                    if (closedRanges.isNotEmpty()) put("gantt.closedRanges", closedRanges.joinToString("|") { "${it.startMs}:${it.endMs}" })
+                },
+            ),
         )
     }
 
@@ -176,6 +218,19 @@ class PlantUmlGanttParser {
     private fun task(name: String): Task {
         val id = PlantUmlTemporalSupport.slug(name)
         return tasks.getOrPut(id) { Task(id = id, label = name, track = currentSection) }
+    }
+
+    private fun parseDuration(rest: String, task: Task) {
+        task.durationMs = PlantUmlTemporalSupport.parseDuration(rest.removePrefixIgnoreCase("lasts ").trim())
+        LASTS_DAYS.matchEntire(rest)?.let { task.workingDays = it.groupValues[1].toIntOrNull()?.coerceAtLeast(1) }
+    }
+
+    private fun parseNote(line: String): IrPatchBatch? {
+        val m = NOTE.matchEntire(line) ?: return null
+        val taskName = m.groupValues[1].trim()
+        val text = m.groupValues[2].trim()
+        if (taskName.isNotEmpty() && text.isNotEmpty()) task(taskName).note = text
+        return IrPatchBatch(seq, emptyList())
     }
 
     private fun bracketName(line: String): String? {
@@ -192,6 +247,70 @@ class PlantUmlGanttParser {
         val right = bracketName(tail.removePrefix("->").trim()) ?: return null
         return PlantUmlTemporalSupport.slug(left) to PlantUmlTemporalSupport.slug(right)
     }
+
+    private fun parseClosedLine(line: String): IrPatchBatch? {
+        WEEKDAY_CLOSED.matchEntire(line)?.let { m ->
+            weekdayIndex(m.groupValues[1])?.let { closedWeekdays += it }
+            return IrPatchBatch(seq, emptyList())
+        }
+        DATE_CLOSED.matchEntire(line)?.let { m ->
+            val start = PlantUmlTemporalSupport.parseDate(m.groupValues[1]) ?: return errorBatch("Invalid PlantUML gantt closed date: $line")
+            val endRaw = m.groupValues.getOrNull(2).orEmpty()
+            val end = if (endRaw.isNotBlank()) PlantUmlTemporalSupport.parseDate(endRaw) ?: return errorBatch("Invalid PlantUML gantt closed date: $line") else start
+            closedRanges += TimeRange(min(start, end), max(start, end) + PlantUmlTemporalSupport.MS_PER_DAY)
+            return IrPatchBatch(seq, emptyList())
+        }
+        return null
+    }
+
+    private fun inferEnd(start: Long, task: Task): Long =
+        task.workingDays
+            ?.takeIf { closedWeekdays.isNotEmpty() || closedRanges.isNotEmpty() }
+            ?.let { addWorkingDays(start, it) }
+            ?: (start + (task.durationMs ?: PlantUmlTemporalSupport.MS_PER_DAY))
+
+    private fun addWorkingDays(start: Long, days: Int): Long {
+        var cursor = start
+        var remaining = days
+        var guard = 0
+        while (remaining > 0 && guard < 4096) {
+            if (isWorkingDay(cursor)) remaining--
+            cursor += PlantUmlTemporalSupport.MS_PER_DAY
+            guard++
+        }
+        return max(cursor, start + 1L)
+    }
+
+    private fun isWorkingDay(dayStart: Long): Boolean =
+        weekdayIndex(dayStart) !in closedWeekdays && closedRanges.none { dayStart >= it.startMs && dayStart < it.endMs }
+
+    private fun weekdayIndex(dayStartMs: Long): Int {
+        val epochDay = floorDiv(dayStartMs, PlantUmlTemporalSupport.MS_PER_DAY)
+        return floorMod(epochDay + 3L, 7L).toInt() + 1
+    }
+
+    private fun floorDiv(value: Long, divisor: Long): Long {
+        val quotient = value / divisor
+        val remainder = value % divisor
+        return if (remainder != 0L && (value xor divisor) < 0L) quotient - 1L else quotient
+    }
+
+    private fun floorMod(value: Long, divisor: Long): Long {
+        val mod = value % divisor
+        return if (mod < 0L) mod + divisor else mod
+    }
+
+    private fun weekdayIndex(raw: String): Int? =
+        when (raw.lowercase().removeSuffix("s")) {
+            "monday" -> 1
+            "tuesday" -> 2
+            "wednesday" -> 3
+            "thursday" -> 4
+            "friday" -> 5
+            "saturday" -> 6
+            "sunday" -> 7
+            else -> null
+        }
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "PLANTUML-E015")

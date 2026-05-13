@@ -219,6 +219,48 @@ class PlantUmlWbsParserTest {
     }
 
     @Test
+    fun advanced_style_fields_are_resolved_and_inherited_from_style_block() {
+        val ir = parse(
+            """
+            <style>
+            wbsDiagram {
+              .node {
+                FontName "JetBrains Mono"
+                FontSize 18
+                FontStyle bold italic
+                LineThickness 3
+                Shadowing true
+                MaximumWidth 120
+              }
+              .branch * {
+                FontSize 15
+                LineThickness 4
+                Shadowing false
+                MaximumWidth 96
+              }
+            }
+            </style>
+            * Root
+            ** Node <<node>>
+            ** Branch <<branch>>
+            *** Child
+            """.trimIndent() + "\n",
+        ).snapshot()
+        val node = ir.root.children[0]
+        val child = ir.root.children[1].children.single()
+        assertEquals("JetBrains Mono", decodeMap(ir, PlantUmlWbsParser.STYLE_FONT_NAME_KEY)[node.id])
+        assertEquals("18", decodeMap(ir, PlantUmlWbsParser.STYLE_FONT_SIZE_KEY)[node.id])
+        assertEquals("bold italic", decodeMap(ir, PlantUmlWbsParser.STYLE_FONT_STYLE_KEY)[node.id])
+        assertEquals("3", decodeMap(ir, PlantUmlWbsParser.STYLE_LINE_THICKNESS_KEY)[node.id])
+        assertEquals("true", decodeMap(ir, PlantUmlWbsParser.STYLE_SHADOWING_KEY)[node.id])
+        assertEquals("120", decodeMap(ir, PlantUmlWbsParser.STYLE_MAXIMUM_WIDTH_KEY)[node.id])
+        assertEquals("15", decodeMap(ir, PlantUmlWbsParser.STYLE_FONT_SIZE_KEY)[child.id])
+        assertEquals("4", decodeMap(ir, PlantUmlWbsParser.STYLE_LINE_THICKNESS_KEY)[child.id])
+        assertEquals("false", decodeMap(ir, PlantUmlWbsParser.STYLE_SHADOWING_KEY)[child.id])
+        assertEquals("96", decodeMap(ir, PlantUmlWbsParser.STYLE_MAXIMUM_WIDTH_KEY)[child.id])
+    }
+
+    @Test
     fun missing_endwbs_is_reported() {
         val parser = parse(
             """
@@ -274,7 +316,10 @@ class PlantUmlWbsParserTest {
         }
 
     private fun decodeStyleRoundCorners(ir: TreeIR): Map<NodeId, String> =
-        Regex("""([^|]+)\|([^|]+)""").findAll(ir.styleHints.extras[PlantUmlWbsParser.STYLE_ROUND_CORNER_KEY].orEmpty()).associate {
+        decodeMap(ir, PlantUmlWbsParser.STYLE_ROUND_CORNER_KEY)
+
+    private fun decodeMap(ir: TreeIR, key: String): Map<NodeId, String> =
+        Regex("""([^|]+)\|([^|]+)""").findAll(ir.styleHints.extras[key].orEmpty()).associate {
             NodeId(it.groupValues[1]) to it.groupValues[2]
         }
 }

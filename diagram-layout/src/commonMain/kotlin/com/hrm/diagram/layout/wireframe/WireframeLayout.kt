@@ -114,24 +114,24 @@ class WireframeLayout(
         val minWidth = when (box) {
             is WireBox.Button -> 96f
             is WireBox.Input -> 180f
+            is WireBox.Image -> 180f
             is WireBox.TabbedGroup -> 220f
             is WireBox.Plain -> if (box.children.isNotEmpty()) 220f else 120f
-            else -> 120f
         }
         val horizontalPadding = when (box) {
             is WireBox.Button -> 36f
             is WireBox.Input -> 28f
+            is WireBox.Image -> 24f
             is WireBox.TabbedGroup -> 48f
             is WireBox.Plain -> if (box.children.isNotEmpty()) 36f else 16f
-            else -> 16f
         }
         val minHeight = when (box) {
             is WireBox.Button,
             is WireBox.Input,
+            is WireBox.Image,
             is WireBox.TabbedGroup,
             -> 34f
             is WireBox.Plain -> if (box.children.isNotEmpty()) 32f else 28f
-            else -> 28f
         }
         return Size(
             width = max(minWidth, metrics.width + horizontalPadding),

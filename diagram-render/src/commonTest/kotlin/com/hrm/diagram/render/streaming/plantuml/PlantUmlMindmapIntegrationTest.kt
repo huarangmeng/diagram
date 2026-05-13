@@ -185,6 +185,58 @@ class PlantUmlMindmapIntegrationTest {
         assertTrue(texts.any { it.text == "Child" && it.color.argb == 0xFFFFA500.toInt() }, "branch style font color should tint descendants")
     }
 
+    @Test
+    fun boxless_font_style_and_shadowing_render_with_streaming_consistency() {
+        val src =
+            """
+            @startmindmap
+            <style>
+            mindmapDiagram {
+              .node {
+                FontName serif
+                FontSize 18
+                FontStyle bold italic
+                LineThickness 3
+                Shadowing true
+                MaximumWidth 120
+              }
+              .branch * {
+                FontName monospace
+                FontSize 15
+                FontStyle italic
+                LineThickness 4
+                Shadowing false
+                MaximumWidth 96
+              }
+            }
+            </style>
+            *_ **Root**
+            ** Node <<node>>
+            ** Branch <<branch>>
+            ***_ //Child//
+            @endmindmap
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 5)
+        val oneIr = assertIs<TreeIR>(one.ir)
+        val chunkedIr = assertIs<TreeIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        val fills = one.drawCommands.filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.FillRect>()
+        val strokes = one.drawCommands.filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.StrokeRect>()
+        val paths = one.drawCommands.filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.StrokePath>()
+        val texts = one.drawCommands.filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.DrawText>()
+        assertTrue(fills.any { it.color.argb == 0x26000000 }, "shadowing should emit deterministic shadow fill")
+        assertTrue(strokes.none { it.rect == one.laidOut!!.nodePositions.getValue(oneIr.root.id) }, "boxless root should skip chrome")
+        assertTrue(texts.any { it.text == "Root" })
+        assertTrue(strokes.any { it.stroke.width == 3f })
+        assertTrue(paths.any { it.stroke.width == 4f })
+        assertTrue(texts.any { it.text == "Node" && it.font.family == "serif" && it.font.sizeSp == 18f && it.font.weight == 700 && it.font.italic })
+        assertTrue(texts.any { it.text == "Child" && it.font.family == "monospace" && it.font.sizeSp == 15f && it.font.italic })
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

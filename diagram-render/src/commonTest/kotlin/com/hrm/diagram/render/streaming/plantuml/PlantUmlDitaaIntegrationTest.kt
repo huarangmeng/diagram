@@ -88,6 +88,38 @@ class PlantUmlDitaaIntegrationTest {
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Next" })
     }
 
+    @Test
+    fun ditaa_shape_markers_and_rich_connectors_render_with_streaming_consistency() {
+        val src =
+            """
+            @startditaa
+            +---------+   +---------+   +---------+
+            | {d} Doc |<=>| {s} DB  |:::| {io} IO |
+            +---------+   +---------+   +---------+
+                  ^             |
+                  |             v
+            +---------+   +---------+
+            | {c} Dec |===| {o} End |
+            +---------+   +---------+
+            @endditaa
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 5)
+        val oneIr = assertIs<GraphIR>(one.ir)
+        val chunkedIr = assertIs<GraphIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertEquals(5, oneIr.nodes.size)
+        assertTrue(oneIr.edges.size >= 3)
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.FillPath>().isNotEmpty())
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().any { it.stroke.width == 2.4f })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().any { it.stroke.dash == listOf(4f, 4f) })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Doc" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "IO" })
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0

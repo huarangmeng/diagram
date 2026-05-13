@@ -132,6 +132,37 @@ class PlantUmlXYChartIntegrationTest {
         assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
     }
 
+    @Test
+    fun startchart_renders_named_colored_coordinate_series_with_streaming_consistency() {
+        val src =
+            """
+            @startchart
+            skinparam chart {
+              BackgroundColor White
+              FontColor Navy
+              BorderColor Gray
+            }
+            h-axis "t" -10 --> 10 spacing 2
+            v-axis "f(t)" -10 --> 50 spacing 10
+            line "Trajectory" [(-10,0), (2,10), (5,30)] #3498db
+            scatter "Checkpoints" [(1,12), (6,34)] #e74c3c
+            legend right
+            @endchart
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 7)
+        val oneIr = assertIs<XYChartIR>(one.ir)
+        val chunkedIr = assertIs<XYChartIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertEquals(2, oneIr.series.size)
+        assertEquals("Trajectory", oneIr.series[0].name)
+        assertEquals(SeriesKind.Scatter, oneIr.series[1].kind)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Trajectory" })
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { session ->
         try {
             var index = 0

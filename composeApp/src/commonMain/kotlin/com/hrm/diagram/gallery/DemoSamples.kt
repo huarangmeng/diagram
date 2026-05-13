@@ -271,15 +271,35 @@ internal object DemoSamples {
         """.trimIndent()))
         add(DemoSample(SourceLang.PLANTUML, "archimate", "archimate 企业架构", """
             @startuml
-            archimate #LightBlue "Service" as S <<business-service>>
+            archimate business-actor #LightYellow "Customer" as C
+            archimate application-component #LightBlue "Portal" as P
+            archimate technology-node "K8s" as K
+            archimate motivation-goal "Reduce Cost" as G
+            group "Application Layer" as AL {
+              archimate implementation-event "Launch" as E
+            }
+            Rel_Serving(P, C, "serves")
+            Rel_Assignment(K, P, "hosts")
+            Rel_Realization(P, G, "realizes")
+            Rel_Flow(C, E, "starts")
             @enduml
         """.trimIndent()))
         add(DemoSample(SourceLang.PLANTUML, "c4", "c4 C4 模型图", """
             @startuml
             !include <C4/C4_Container>
-            Person(u, "User")
-            System(s, "App")
-            Rel(u, s, "uses")
+            C4Container
+            UpdateLayoutConfig(${'$'}c4ShapeInRow="3", ${'$'}layout="TB")
+            AddElementTag("critical", ${'$'}bgColor="#f96", ${'$'}shape="EightSidedShape()", ${'$'}legendText="Critical")
+            AddRelTag("async", ${'$'}textColor="blue", ${'$'}lineColor="#8E24AA", ${'$'}lineStyle="DashedLine()", ${'$'}legendText="Async")
+            System_Boundary(sys, "Ordering", ${'$'}link="https://example.com/system") {
+              Person_Ext(u, "Customer", "Buyer")
+              Container(api, "API", "Ktor", "Backend", ${'$'}tags="critical", ${'$'}link="https://example.com/api")
+              ContainerQueue(q, "Events", "Kafka", "Async events")
+            }
+            BiRel_R(u, api, "uses", "HTTPS")
+            Rel(api, q, "publishes", "JSON", ${'$'}tags="async", ${'$'}link="https://example.com/events")
+            Lay_D(api, q)
+            SHOW_LEGEND()
             @enduml
         """.trimIndent()))
         add(DemoSample(SourceLang.PLANTUML, "erd", "erd 数据库 ER 图", """
@@ -310,11 +330,38 @@ internal object DemoSamples {
             ** Phase 2
             @endwbs
         """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "ditaa", "ditaa ASCII 图", """
+            @startditaa
+            skinparam handwritten true
+            +---------+   +---------+   +---------+
+            | {d} Doc |<=>| {s} DB  |:::| {io} IO |
+            | cGRE    |   | cBLU    |   | cF80    |
+            +---------+   +---------+   +---------+
+                  ^             |
+                  |             v
+            /---------\   +---------+
+            | {c} Dec |===| {o} End |
+            \---------/   +---------+
+            @endditaa
+        """.trimIndent()))
         add(DemoSample(SourceLang.PLANTUML, "network", "network 网络拓扑图", """
             @startuml
             nwdiag {
-              network dmz { web; }
-              network internal { db; }
+              inet internet {
+                router [shape = cloud, label = "Internet", color = "#E0F7FA"];
+              }
+              network dmz {
+                address = "210.x.x.x/24"
+                web [shape = component, address = "210.x.x.10", description = "frontend"];
+              }
+              network internal {
+                address = "172.16.x.x/24"
+                app [shape = queue, description = "events"];
+                db [shape = database, address = "172.16.x.20"];
+                web;
+                web -> app : publish;
+                app -> db : persist;
+              }
             }
             @enduml
         """.trimIndent()))

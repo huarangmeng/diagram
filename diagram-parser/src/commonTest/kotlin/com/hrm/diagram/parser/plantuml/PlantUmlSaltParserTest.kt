@@ -122,6 +122,88 @@ class PlantUmlSaltParserTest {
     }
 
     @Test
+    fun parses_checkboxes_radios_and_separators() {
+        val parser = PlantUmlSaltParser()
+        """
+        salt {
+          [X] Remember me
+          [ ] Subscribe
+          (X) Admin
+          ( ) Viewer
+          --
+        }
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val root = assertIs<WireBox.Plain>(parser.snapshot().root)
+        assertEquals(5, root.children.size)
+        assertEquals("[x] Remember me", labelOf(assertIs<WireBox.Button>(root.children[0])))
+        assertEquals("[ ] Subscribe", labelOf(assertIs<WireBox.Button>(root.children[1])))
+        assertEquals("(o) Admin", labelOf(assertIs<WireBox.Button>(root.children[2])))
+        assertEquals("( ) Viewer", labelOf(assertIs<WireBox.Button>(root.children[3])))
+        assertEquals("Separator:--", labelOf(assertIs<WireBox.Plain>(root.children[4])))
+        assertTrue(parser.diagnosticsSnapshot().isEmpty())
+    }
+
+    @Test
+    fun parses_image_and_advanced_blocks_and_tab_block() {
+        val parser = PlantUmlSaltParser()
+        """
+        salt {
+          <img:https://cdn.example.com/ui/login.png>
+          {^ Main Menu
+            [File]
+            [Edit]
+          }
+          {! Tasks
+            [X] Done
+            [ ] Todo
+          }
+          {S Log
+            line 1
+            line 2
+          }
+          {* Home | Settings
+            Home dashboard
+            Settings panel
+          }
+        }
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val root = assertIs<WireBox.Plain>(parser.snapshot().root)
+        assertIs<WireBox.Image>(root.children[0])
+        assertEquals("Image: login.png", labelOf(assertIs<WireBox.Image>(root.children[0])))
+        assertEquals("Menu: Main Menu", labelOf(assertIs<WireBox.Plain>(root.children[1])))
+        assertEquals("List: Tasks", labelOf(assertIs<WireBox.Plain>(root.children[2])))
+        assertEquals("Scroll: Log", labelOf(assertIs<WireBox.Plain>(root.children[3])))
+        val tabs = assertIs<WireBox.TabbedGroup>(root.children[4])
+        assertEquals(listOf("Home", "Settings"), tabs.tabs.map { labelOf(it) })
+        assertTrue(parser.diagnosticsSnapshot().isEmpty())
+    }
+
+    @Test
+    fun parses_table_cells_with_controls_and_empty_placeholder() {
+        val parser = PlantUmlSaltParser()
+        """
+        salt {
+          Name | Role | Enabled
+          [X] Alice | ^Admin^ | .
+          [ ] Bob | [Viewer] | "N/A"
+        }
+        """.trimIndent().lines().forEach { parser.acceptLine(it) }
+        parser.finish(blockClosed = true)
+
+        val root = assertIs<WireBox.Plain>(parser.snapshot().root)
+        val table = assertIs<WireBox.Plain>(root.children.single())
+        val row1 = assertIs<WireBox.Plain>(table.children[1])
+        val row2 = assertIs<WireBox.Plain>(table.children[2])
+        assertEquals(listOf("[x] Alice", "Admin v", ""), row1.children.map { labelOf(it) })
+        assertEquals(listOf("[ ] Bob", "[Viewer]", "N/A"), row2.children.map { labelOf(it) })
+        assertTrue(parser.diagnosticsSnapshot().isEmpty())
+    }
+
+    @Test
     fun reports_missing_closing_delimiter() {
         val parser = PlantUmlSaltParser()
         parser.acceptLine("Hello")

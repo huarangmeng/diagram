@@ -65,6 +65,72 @@ class PlantUmlTimeSeriesIntegrationTest {
     }
 
     @Test
+    fun startgantt_closed_days_render_and_are_streaming_consistent() {
+        val src =
+            """
+            @startgantt
+            Project starts 2024-01-01
+            saturday are closed
+            sunday are closed
+            2024-01-03 is closed
+            [Design] starts 2024-01-01
+            [Design] lasts 8 days
+            @endgantt
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 6)
+        val oneIr = assertIs<TimeSeriesIR>(one.ir)
+        val chunkedIr = assertIs<TimeSeriesIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        assertEquals("6,7", oneIr.styleHints.extras["gantt.closedWeekdays"])
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.FillRect>().any { it.color.argb == 0x14FFB74D })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().any { it.color.argb == 0x55EF6C00 })
+    }
+
+    @Test
+    fun startgantt_progress_milestones_notes_styles_and_working_calendar_render_consistently() {
+        val src =
+            """
+            @startgantt
+            Project starts 2024-01-05
+            saturday are closed
+            sunday are closed
+            [Design] starts 2024-01-05
+            [Design] lasts 2 days
+            [Design] is 40% complete
+            [Design] is critical
+            note bottom of [Design] : review pending
+            [Release] happens at 2024-01-12
+            [Release] is milestone
+            [Audit] lasts 1 day
+            [Audit] is dashed
+            @endgantt
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val chunked = run(src, 7)
+        val oneIr = assertIs<TimeSeriesIR>(one.ir)
+        val chunkedIr = assertIs<TimeSeriesIR>(chunked.ir)
+        assertEquals(oneIr, chunkedIr)
+        assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
+        assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
+        val design = oneIr.items.single { it.id.value == "design" }
+        assertEquals("40", design.payload["gantt.progress"])
+        assertEquals("critical", design.payload["gantt.style"])
+        assertEquals("review pending", design.payload["gantt.note"])
+        assertEquals(4 * 86_400_000L, design.range.endMs - design.range.startMs)
+        assertTrue(oneIr.items.any { it.payload["gantt.kind"] == "milestone" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "40%" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "review pending" })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.FillPath>().isNotEmpty())
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().any { it.color.argb == 0xFFD32F2F.toInt() })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().any { it.stroke.dash == listOf(5f, 3f) })
+    }
+
+    @Test
     fun timing_inside_startuml_renders_and_is_streaming_consistent() {
         val src =
             """
