@@ -61,7 +61,7 @@
 | PLANTUML-E021 | pie chart 切片语法不匹配或专用块闭合缺失 | pie parser |
 | PLANTUML-E022 | bar/line chart 语法不匹配或专用块闭合缺失 | xy chart parser |
 | PLANTUML-W001 | 未识别或当前图型不支持的 `skinparam`，已忽略 | dispatcher / lowering |
-| DOT-E001 | 词法错误：未闭合字符串 | lexer |
+| DOT-E001 | DOT 词法 / 语法错误（非法字符、反向边操作符、缺失 brace/bracket、缺失标识符等） | DOT parser |
 | DOT-W001 | 不支持的属性已忽略 | attrs lowering |
 | LAYOUT-W001 | 节点过多，启用降级布局 | layout engine |
 | RENDER-W001 | 字体回退 | renderer |

@@ -79,6 +79,7 @@ internal class SugiyamaIncrementalLayout(
         val reversed = CycleRemoval.reversedEdges(model.nodes, model.edges)
         cache.reversedEdges += reversed
         LayerAssignment.assign(model.nodes, model.edges, reversed, cache)
+        applyRankConstraints(options, model.nodes.map { it.id }.toSet(), cache)
         CrossingMinimization.minimize(model.edges, reversed, cache)
         val placement = CoordinateAssignment.assign(
             graph = cache,
@@ -107,5 +108,54 @@ internal class SugiyamaIncrementalLayout(
             bounds = Rect.ltrb(0f, 0f, maxRight, maxBottom),
             seq = 0L,
         )
+    }
+
+    private fun applyRankConstraints(
+        options: LayoutOptions,
+        validNodeIds: Set<NodeId>,
+        graph: LayeredGraph,
+    ) {
+        val constraints = rankConstraints(options.extras, validNodeIds)
+        if (constraints.isEmpty()) return
+        val maxBefore = graph.maxLayer().coerceAtLeast(0)
+        for (constraint in constraints) {
+            val ids = constraint.nodes.filter { it in graph.layer }
+            if (ids.isEmpty()) continue
+            val target = when (constraint.kind) {
+                "same" -> ids.maxOf { graph.layer[it] ?: 0 }
+                "min", "source" -> 0
+                "max", "sink" -> maxBefore
+                else -> continue
+            }
+            for (id in ids) graph.layer[id] = target
+        }
+        rebuildOrder(graph)
+    }
+
+    private data class RankConstraint(val kind: String, val nodes: List<NodeId>)
+
+    private fun rankConstraints(extras: Map<String, String>, validNodeIds: Set<NodeId>): List<RankConstraint> {
+        val out = ArrayList<RankConstraint>()
+        var index = 0
+        while (true) {
+            val kind = extras["dot.rank.$index.kind"]?.lowercase() ?: break
+            val nodes = extras["dot.rank.$index.nodes"]
+                .orEmpty()
+                .split(',')
+                .mapNotNull { raw -> raw.trim().takeIf { it.isNotEmpty() }?.let(::NodeId) }
+                .filter { it in validNodeIds }
+            if (nodes.isNotEmpty()) out += RankConstraint(kind, nodes)
+            index++
+        }
+        return out
+    }
+
+    private fun rebuildOrder(graph: LayeredGraph) {
+        val orderedNodes = graph.orderInLayer.keys.sorted().flatMap { graph.orderInLayer[it].orEmpty() }
+        graph.orderInLayer.clear()
+        for (id in orderedNodes) {
+            val layer = graph.layer[id] ?: continue
+            graph.orderInLayer.getOrPut(layer) { ArrayList() } += id
+        }
     }
 }

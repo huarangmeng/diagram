@@ -127,7 +127,7 @@ internal class MermaidJourneySubPipeline(
             for ((stepIndex, step) in stage.steps.withIndex()) {
                 val rect = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("journey:step:$stageIndex:$stepIndex")] ?: continue
                 val centerY = (rect.top + rect.bottom) / 2f
-                known.putIfAbsent(step.score, centerY)
+                if (step.score !in known) known[step.score] = centerY
                 centers += step.score to centerY
             }
         }

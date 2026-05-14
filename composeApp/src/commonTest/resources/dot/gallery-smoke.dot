@@ -1,0 +1,13 @@
+// Minimal Graphviz Gallery-style smoke corpus for DOT compatibility checks.
+// The parser/render tests own behavioral assertions; this file anchors the documented corpus path.
+digraph GallerySmoke {
+  graph [rankdir=LR, label="DOT Smoke", nodesep=0.8, ranksep=1.0];
+  node [shape=box, style="rounded,filled", fillcolor="#E3F2FD"];
+  edge [color="#2563EB", penwidth=1.5];
+
+  { rank=same; parse; layout }
+  parse [label=< <FONT FACE="serif" POINT-SIZE="16"><B>Parse</B></FONT> >];
+  layout [label="Layout"];
+  render [shape=diamond, label="Render?"];
+  parse -> layout -> render [label="pipeline"];
+}

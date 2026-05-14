@@ -36,11 +36,11 @@ import kotlin.math.min
 @DiagramApi
 class PlantUmlGanttParser {
     companion object {
-        private val RESOURCE = Regex("""(?:^|\s+)on\s+\{([^}]+)}""", RegexOption.IGNORE_CASE)
+        private val RESOURCE = Regex("""(?:^|\s+)on\s+\{([^\}]+)\}""", RegexOption.IGNORE_CASE)
         private val COLOR = Regex("""(?:^|\s+)is\s+colored(?:\s+in)?\s+(#[A-Za-z0-9_]+|[A-Za-z][A-Za-z0-9_]*)""", RegexOption.IGNORE_CASE)
         private val DATE_CLOSED = Regex("""^(\d{4}-\d{2}-\d{2})(?:\s+to\s+(\d{4}-\d{2}-\d{2}))?\s+(?:is|are)\s+(?:closed|off|holiday)s?$""", RegexOption.IGNORE_CASE)
         private val WEEKDAY_CLOSED = Regex("""^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\s+(?:is|are)\s+(?:closed|off|holiday)s?$""", RegexOption.IGNORE_CASE)
-        private val NOTE = Regex("""^note\s+(?:top|bottom|left|right)?\s*of\s+\[([^]]+)]\s*:?\s*(.+)$""", RegexOption.IGNORE_CASE)
+        private val NOTE = Regex("""^note\s+(?:top|bottom|left|right)?\s*of\s+\[([^\]]+)\]\s*:?\s*(.+)$""", RegexOption.IGNORE_CASE)
         private val PROGRESS = Regex("""^is\s+(\d{1,3})%\s+(?:complete|completed|done)$""", RegexOption.IGNORE_CASE)
         private val STYLE = Regex("""^is\s+(?:marked\s+as\s+)?(milestone|critical|dashed|bold)$""", RegexOption.IGNORE_CASE)
         private val LASTS_DAYS = Regex("""^lasts\s+(\d+)\s+days?$""", RegexOption.IGNORE_CASE)

@@ -369,7 +369,7 @@ internal class PlantUmlSessionPipeline(
         if (lower.startsWith("archimate ") || Regex("""^Rel(?:_[A-Za-z0-9_]+)?\(""").containsMatchIn(line)) {
             return DiagramKind.Archimate
         }
-        if (lower.startsWith("project starts") || Regex("""^\[[^\]]+]\s+(starts|lasts|ends|happens)\b""", RegexOption.IGNORE_CASE).containsMatchIn(line)) {
+        if (lower.startsWith("project starts") || Regex("""^\[[^\]]+\]\s+(starts|lasts|ends|happens)\b""", RegexOption.IGNORE_CASE).containsMatchIn(line)) {
             return DiagramKind.Gantt
         }
         if (isTimingCue(line)) {
@@ -587,7 +587,7 @@ internal class PlantUmlSessionPipeline(
             if (lower.startsWith("archimate ") || Regex("""^Rel(?:_[A-Za-z0-9_]+)?\(""").containsMatchIn(line)) {
                 sawArchimateCue = true
             }
-            if (lower.startsWith("project starts") || Regex("""^\[[^\]]+]\s+(starts|lasts|ends|happens)\b""", RegexOption.IGNORE_CASE).containsMatchIn(line)) {
+            if (lower.startsWith("project starts") || Regex("""^\[[^\]]+\]\s+(starts|lasts|ends|happens)\b""", RegexOption.IGNORE_CASE).containsMatchIn(line)) {
                 sawGanttCue = true
             }
             if (isTimingCue(line)) {

@@ -164,7 +164,7 @@ class PlantUmlTimingParser {
                     segment.boundaryStyle?.let { put("timing.boundary", it) }
                     put("timing.trackKind", tracks[segment.trackId]?.kind ?: "concise")
                     tracks[segment.trackId]?.clockPeriodMs?.let { put("timing.clockPeriodMs", it.toString()) }
-                    tracks[segment.trackId]?.clockDutyPercent?.let { put("timing.clockDutyPercent", it.toString()) }
+                    tracks[segment.trackId]?.clockDutyPercent?.let { put("timing.clockDutyPercent", stableDecimal(it)) }
                     tracks[segment.trackId]?.clockOffsetMs?.let { put("timing.clockOffsetMs", it.toString()) }
                 },
             )
@@ -292,6 +292,9 @@ class PlantUmlTimingParser {
         val high = ((cycle * ((dutyPercent ?: 50.0) / 100.0)).toLong()).coerceIn(1L, cycle - 1L)
         return (cycle - high) to high
     }
+
+    private fun stableDecimal(value: Double): String =
+        if (value % 1.0 == 0.0) "${value.toLong()}.0" else value.toString()
 
     private fun parseDutyPercent(rawDuty: String, rawPulse: String, periodMs: Long?): Double? {
         rawDuty.trim().takeIf { it.isNotEmpty() }?.toDoubleOrNull()?.let { return it.coerceIn(1.0, 99.0) }

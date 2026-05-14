@@ -51,7 +51,7 @@ class PlantUmlNetworkParser {
         private val GROUP_START = Regex("""^group\s+("[^"]+"|[A-Za-z0-9_.:-]+)\s*\{\s*$""", RegexOption.IGNORE_CASE)
         private val ADDRESS = Regex("""^address\s*=\s*(.+)$""", RegexOption.IGNORE_CASE)
         private val EDGE_LINE = Regex("""^("[^"]+"|[A-Za-z0-9_.:-]+)\s*(--|<-->|<->|->)\s*("[^"]+"|[A-Za-z0-9_.:-]+)(?:\s*:\s*(.+?))?\s*;?$""")
-        private val NODE_LINE = Regex("""^("[^"]+"|[A-Za-z0-9_.:-]+)(?:\s*\[(.*)])?\s*;?$""")
+        private val NODE_LINE = Regex("""^("[^"]+"|[A-Za-z0-9_.:-]+)(?:\s*\[(.*)\])?\s*;?$""")
     }
 
     private data class NetworkDef(

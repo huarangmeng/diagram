@@ -12,7 +12,7 @@ import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import kotlin.math.abs
-import kotlin.math.round
+import kotlin.math.truncate
 
 /**
  * Minimal deterministic layout for Mermaid XY charts.
@@ -92,8 +92,9 @@ class XYChartLayout(
     }
 
     private fun formatTick(v: Double): String {
-        val rounded = round(v)
-        if (abs(v - rounded) < 1e-9) return rounded.toInt().toString()
-        return (round(v * 100.0) / 100.0).toString()
+        val rounded = truncate(v + if (v >= 0.0) 0.5 else -0.5)
+        if (abs(v - rounded) < 1e-4) return rounded.toInt().toString()
+        val scaled = truncate(v * 100.0 + if (v >= 0.0) 0.5 else -0.5) / 100.0
+        return scaled.toString()
     }
 }

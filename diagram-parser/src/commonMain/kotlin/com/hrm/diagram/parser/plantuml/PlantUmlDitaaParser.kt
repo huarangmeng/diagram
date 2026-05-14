@@ -158,10 +158,9 @@ class PlantUmlDitaaParser {
 
     private fun detectEdges(boxes: List<Box>): List<Edge> {
         val out = ArrayList<Edge>()
-        for (from in boxes) {
-            for (to in boxes) {
-                if (from == to) continue
-                val edge = detectEdge(from, to)
+        for (i in boxes.indices) {
+            for (j in i + 1 until boxes.size) {
+                val edge = detectEdge(boxes[i], boxes[j])
                 if (edge != null) {
                     out += Edge(
                         from = edge.from.id,
@@ -173,7 +172,7 @@ class PlantUmlDitaaParser {
                 }
             }
         }
-        return out.distinctBy { it.from to it.to }
+        return out
     }
 
     private fun detectEdge(from: Box, to: Box): EdgeInfo? =

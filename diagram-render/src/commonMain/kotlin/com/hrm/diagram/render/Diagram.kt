@@ -8,6 +8,7 @@ import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.streaming.DiagramSession
 import com.hrm.diagram.render.streaming.SessionPipeline
 import com.hrm.diagram.render.streaming.StubSessionPipeline
+import com.hrm.diagram.render.streaming.dot.DotSessionPipeline
 import com.hrm.diagram.render.streaming.mermaid.MermaidSessionPipeline
 import com.hrm.diagram.render.streaming.plantuml.PlantUmlSessionPipeline
 
@@ -26,7 +27,7 @@ object Diagram {
      * If [pipeline] is omitted, dispatches to the best registered pipeline for [language]:
      * - [SourceLanguage.MERMAID] → [MermaidSessionPipeline] (Phase 1 flowchart subset)
      * - [SourceLanguage.PLANTUML] → [PlantUmlSessionPipeline] (Phase 4 sequence MVP)
-     * - [SourceLanguage.DOT]      → [StubSessionPipeline] (parsers land in later phases)
+     * - [SourceLanguage.DOT]      → [DotSessionPipeline] (Graphviz DOT Phase 6 subset)
      */
     fun session(
         language: SourceLanguage,
@@ -42,6 +43,6 @@ object Diagram {
     ): SessionPipeline = when (language) {
         SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = textMeasurer)
         SourceLanguage.PLANTUML -> PlantUmlSessionPipeline(textMeasurer = textMeasurer)
-        SourceLanguage.DOT -> StubSessionPipeline()
+        SourceLanguage.DOT -> DotSessionPipeline(textMeasurer = textMeasurer)
     }
 }
