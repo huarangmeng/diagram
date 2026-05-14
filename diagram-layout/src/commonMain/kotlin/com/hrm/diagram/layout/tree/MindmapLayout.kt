@@ -28,6 +28,7 @@ import kotlin.math.max
  */
 class MindmapLayout(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
+    private val layoutKind: TreeLayoutKind = TreeLayoutKind.Mindmap,
 ) {
     private companion object {
         const val MINDMAP_SIDE_KEY = "plantuml.mindmap.side"
@@ -72,12 +73,15 @@ class MindmapLayout(
         fun subtreeHeight(n: TreeNode): Float {
             val self = measure(n).height
             if (n.children.isEmpty()) return self
-            var sum = 0f
+            var children = 0f
             for ((idx, c) in n.children.withIndex()) {
-                if (idx > 0) sum += rowGap
-                sum += subtreeHeight(c)
+                if (idx > 0) children += rowGap
+                children += subtreeHeight(c)
             }
-            return max(self, sum)
+            return when (layoutKind) {
+                TreeLayoutKind.Mindmap -> max(self, children)
+                TreeLayoutKind.Wbs -> self + rowGap + children
+            }
         }
 
         fun subtreeDepth(n: TreeNode): Int {
@@ -128,7 +132,7 @@ class MindmapLayout(
                 side > 0 -> rootLeft + depth * (180f + colGap)
                 else -> rootLeft
             }
-            val y = top + (subH - size.height) / 2f
+            val y = if (layoutKind == TreeLayoutKind.Wbs) top else top + (subH - size.height) / 2f
             val fresh = Rect(Point(x, y), size)
             nodePositions[n.id] = if (options.incremental) (prevPos[n.id] ?: fresh) else fresh
 
@@ -139,8 +143,14 @@ class MindmapLayout(
                     rowGap * (leftChildren.size - 1).coerceAtLeast(0)
                 val rightHeight = rightChildren.sumOf { subtreeHeight(it).toDouble() }.toFloat() +
                     rowGap * (rightChildren.size - 1).coerceAtLeast(0)
-                var leftTop = top + (subH - leftHeight) / 2f
-                var rightTop = top + (subH - rightHeight) / 2f
+                val childBaseTop = if (layoutKind == TreeLayoutKind.Wbs) top + size.height + rowGap else top
+                val availableHeight = if (layoutKind == TreeLayoutKind.Wbs) {
+                    subH - size.height - rowGap
+                } else {
+                    subH
+                }
+                var leftTop = childBaseTop + (availableHeight - leftHeight) / 2f
+                var rightTop = childBaseTop + (availableHeight - rightHeight) / 2f
                 for (c in leftChildren) {
                     val ch = subtreeHeight(c)
                     place(c, depth + 1, leftTop)
@@ -152,7 +162,7 @@ class MindmapLayout(
                     rightTop += ch + rowGap
                 }
             } else {
-                var childTop = top
+                var childTop = if (layoutKind == TreeLayoutKind.Wbs) top + size.height + rowGap else top
                 for (c in n.children) {
                     val ch = subtreeHeight(c)
                     place(c, depth + 1, childTop)
@@ -203,4 +213,9 @@ class MindmapLayout(
             val value = entry.substring(split + 1).trim().toFloatOrNull() ?: return@mapNotNull null
             NodeId(entry.substring(0, split)) to value
         }.toMap()
+}
+
+enum class TreeLayoutKind {
+    Mindmap,
+    Wbs,
 }

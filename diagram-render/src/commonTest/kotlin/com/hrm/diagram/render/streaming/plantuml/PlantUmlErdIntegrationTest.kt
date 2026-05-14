@@ -1,6 +1,8 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.parser.plantuml.PlantUmlErdParser
 import com.hrm.diagram.render.Diagram
@@ -67,8 +69,15 @@ class PlantUmlErdIntegrationTest {
             5,
         )
         val ir = assertIs<GraphIR>(snapshot.ir)
-        assertTrue(ir.edges.any { it.label != null })
+        val relation = ir.edges.first { it.label != null }
+        assertEquals(RichLabel.Plain("places"), relation.label)
+        assertEquals("||", relation.payload[PlantUmlErdParser.ER_RELATION_LEFT_KEY])
+        assertEquals("o{", relation.payload[PlantUmlErdParser.ER_RELATION_RIGHT_KEY])
         assertTrue(snapshot.laidOut!!.edgeRoutes.isNotEmpty())
+        assertTrue(
+            snapshot.drawCommands.filterIsInstance<DrawCommand.StrokePath>().size >= 4,
+            "relationship should draw the route plus crowfoot/cardinality endpoint markers",
+        )
     }
 
     @Test
@@ -132,7 +141,10 @@ class PlantUmlErdIntegrationTest {
         assertTrue(one.drawCommands.isNotEmpty())
         assertTrue(oneIr.nodes.any { it.id.value == "CustomerAccount::display_name" })
         assertTrue(oneIr.nodes.any { it.id.value == "InvoiceHeader::total_amount" })
-        assertTrue(oneIr.edges.any { (it.label as? com.hrm.diagram.core.ir.RichLabel.Plain)?.text == "}|..|{ allocates" })
+        val relation = oneIr.edges.first { it.label != null }
+        assertEquals(RichLabel.Plain("allocates"), relation.label)
+        assertEquals("}|", relation.payload[PlantUmlErdParser.ER_RELATION_LEFT_KEY])
+        assertEquals("|{", relation.payload[PlantUmlErdParser.ER_RELATION_RIGHT_KEY])
         assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
         assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
     }

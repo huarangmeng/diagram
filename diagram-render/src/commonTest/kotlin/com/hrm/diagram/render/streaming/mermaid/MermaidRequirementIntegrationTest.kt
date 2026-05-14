@@ -2,6 +2,7 @@ package com.hrm.diagram.render.streaming.mermaid
 
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.FontSpec
+import com.hrm.diagram.core.draw.PathOp
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
@@ -69,6 +70,31 @@ class MermaidRequirementIntegrationTest {
         assertTrue(fills.contains(0xFFFF9966.toInt()) || fills.contains(0xFFFF99FF.toInt()))
         val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.color.argb }
         assertTrue(texts.contains(0xFF123456.toInt()) || texts.isNotEmpty())
+    }
+
+    @Test
+    fun requirement_diagram_uses_requirement_card_layout() {
+        val src =
+            """
+            requirementDiagram
+              requirement R1 {
+                id: 1
+                text: must work
+              }
+            """.trimIndent() + "\n"
+
+        val snapshot = run(src, chunkSize = src.length)
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+        val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        assertTrue(texts.any { it.text == "<<Requirement>>" && it.anchorX == TextAnchorX.Center })
+        assertTrue(texts.any { it.text == "ID: 1" && it.anchorX == TextAnchorX.Start })
+        assertTrue(texts.any { it.text == "Text: must work" && it.anchorX == TextAnchorX.Start })
+        assertTrue(snapshot.drawCommands.filterIsInstance<DrawCommand.StrokePath>().any { cmd ->
+            val ops = cmd.path.ops
+            val start = ops.getOrNull(0) as? PathOp.MoveTo
+            val end = ops.getOrNull(1) as? PathOp.LineTo
+            start != null && end != null && start.p.y == end.p.y && start.p.x < end.p.x
+        })
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.MERMAID).let { s ->

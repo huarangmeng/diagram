@@ -52,6 +52,11 @@ class PlantUmlMindmapParserTest {
         assertEquals("Root", (ir.root.label as RichLabel.Plain).text)
         assertEquals(listOf("A", "B"), ir.root.children.map { (it.label as RichLabel.Plain).text })
         assertEquals("A1", (ir.root.children.first().children.single().label as RichLabel.Plain).text)
+        val sides = decodeSides(ir)
+        assertEquals("root", sides[ir.root.id])
+        assertEquals("auto", sides[ir.root.children[0].id])
+        assertEquals("auto", sides[ir.root.children[0].children.single().id])
+        assertEquals("auto", sides[ir.root.children[1].id])
     }
 
     @Test

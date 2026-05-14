@@ -17,16 +17,14 @@ import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.EdgeRoute
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlNetworkParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 internal class PlantUmlNetworkSubPipeline(
@@ -34,14 +32,11 @@ internal class PlantUmlNetworkSubPipeline(
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlNetworkParser()
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(132f, 58f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(132f, 58f) },
-    )
     private val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val detailFont = FontSpec(family = "monospace", sizeSp = 10f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
+    private val defaultNodeSize = Size(132f, 58f)
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -50,17 +45,11 @@ internal class PlantUmlNetworkSubPipeline(
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val ir = parser.snapshot()
         measureNodes(ir)
-        val base = layout.layout(
+        val laid = layoutNetwork(
+            ir = ir,
             previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in ir.clusters) computeClusterRect(cluster, base.nodePositions, clusterRects)
-        val laid = base.copy(
-            clusterRects = clusterRects,
-            bounds = computeBounds(base.nodePositions.values + clusterRects.values),
             seq = seq,
+            incremental = !isFinal,
         )
         return PlantUmlRenderState(
             ir = ir,
@@ -81,21 +70,135 @@ internal class PlantUmlNetworkSubPipeline(
         }
     }
 
-    private fun computeClusterRect(cluster: Cluster, nodePositions: Map<NodeId, Rect>, out: MutableMap<NodeId, Rect>): Rect? {
-        val children = ArrayList<Rect>()
-        children += cluster.children.mapNotNull { nodePositions[it] }
-        children += cluster.nestedClusters.mapNotNull { computeClusterRect(it, nodePositions, out) }
-        if (children.isEmpty()) return null
-        val label = clusterTitle(cluster)
-        val title = textMeasurer.measure(label, clusterFont, maxWidth = 220f)
+    private fun layoutNetwork(ir: GraphIR, previous: LaidOutDiagram?, seq: Long, incremental: Boolean): LaidOutDiagram {
+        val nodeById = ir.nodes.associateBy { it.id }
+        val columnNames = orderedNodeNames(ir)
+        val columnWidths = columnNames.associateWith { name ->
+            ir.nodes
+                .filter { nodeNameOf(it) == name }
+                .maxOfOrNull { nodeSizes[it.id]?.width ?: defaultNodeSize.width }
+                ?: defaultNodeSize.width
+        }
+        val columnX = LinkedHashMap<String, Float>()
+        var x = 48f
+        for (name in columnNames) {
+            columnX[name] = x
+            x += (columnWidths[name] ?: defaultNodeSize.width) + 46f
+        }
+        val laneRight = (x - 46f + 48f).coerceAtLeast(360f)
+        val nodePositions = LinkedHashMap<NodeId, Rect>()
+        val clusterRects = LinkedHashMap<NodeId, Rect>()
+        var y = 32f
+        for (cluster in ir.clusters) {
+            val clusterNodes = clusterNodeIds(cluster).mapNotNull { nodeById[it] }
+            val contentHeight = clusterNodes.maxOfOrNull { nodeSizes[it.id]?.height ?: defaultNodeSize.height } ?: defaultNodeSize.height
+            val laneHeight = (64f + contentHeight + 28f).coerceAtLeast(128f)
+            val laneRect = Rect.ltrb(24f, y, laneRight, y + laneHeight)
+            clusterRects[cluster.id] = laneRect
+            val nodeTop = laneRect.top + 58f + ((laneHeight - 58f - 24f - contentHeight) / 2f).coerceAtLeast(0f)
+            for (node in clusterNodes) {
+                val size = nodeSizes[node.id] ?: defaultNodeSize
+                val name = nodeNameOf(node)
+                val colLeft = columnX[name] ?: 48f
+                val colWidth = columnWidths[name] ?: size.width
+                val fresh = Rect(Point(colLeft + (colWidth - size.width) / 2f, nodeTop), size)
+                nodePositions[node.id] = if (incremental) previous?.nodePositions?.get(node.id) ?: fresh else fresh
+            }
+            for (nested in cluster.nestedClusters) {
+                computeNestedClusterRect(nested, nodePositions, clusterRects, laneRect)
+            }
+            y += laneHeight + 24f
+        }
+        for (node in ir.nodes) {
+            if (node.id in nodePositions) continue
+            val size = nodeSizes[node.id] ?: defaultNodeSize
+            val fresh = Rect(Point(48f, y), size)
+            nodePositions[node.id] = if (incremental) previous?.nodePositions?.get(node.id) ?: fresh else fresh
+            y += size.height + 24f
+        }
+        val edgeRoutes = ir.edges.mapNotNull { edge ->
+            routeEdge(edge.from, edge.to, nodePositions)
+        }
+        return LaidOutDiagram(
+            source = ir,
+            nodePositions = nodePositions,
+            edgeRoutes = edgeRoutes,
+            clusterRects = clusterRects,
+            bounds = computeBounds(nodePositions.values + clusterRects.values),
+            seq = seq,
+        )
+    }
+
+    private fun orderedNodeNames(ir: GraphIR): List<String> {
+        val out = LinkedHashSet<String>()
+        for (cluster in ir.clusters) {
+            for (id in clusterNodeIds(cluster)) {
+                ir.nodes.firstOrNull { it.id == id }?.let { out += nodeNameOf(it) }
+            }
+        }
+        for (node in ir.nodes) out += nodeNameOf(node)
+        return out.toList()
+    }
+
+    private fun clusterNodeIds(cluster: Cluster): List<NodeId> =
+        buildList {
+            addAll(cluster.children)
+            for (nested in cluster.nestedClusters) addAll(clusterNodeIds(nested))
+        }
+
+    private fun computeNestedClusterRect(cluster: Cluster, nodePositions: Map<NodeId, Rect>, out: MutableMap<NodeId, Rect>, laneRect: Rect): Rect? {
+        val childRects = cluster.children.mapNotNull { nodePositions[it] }.toMutableList()
+        childRects += cluster.nestedClusters.mapNotNull { computeNestedClusterRect(it, nodePositions, out, laneRect) }
+        if (childRects.isEmpty()) return null
         val rect = Rect.ltrb(
-            children.minOf { it.left } - 22f,
-            children.minOf { it.top } - title.height - 32f,
-            children.maxOf { it.right } + 22f,
-            children.maxOf { it.bottom } + 20f,
+            childRects.minOf { it.left } - 16f,
+            (childRects.minOf { it.top } - 34f).coerceAtLeast(laneRect.top + 44f),
+            childRects.maxOf { it.right } + 16f,
+            childRects.maxOf { it.bottom } + 16f,
         )
         out[cluster.id] = rect
         return rect
+    }
+
+    private fun routeEdge(from: NodeId, to: NodeId, nodePositions: Map<NodeId, Rect>): EdgeRoute? {
+        val a = nodePositions[from] ?: return null
+        val b = nodePositions[to] ?: return null
+        val ac = centerOf(a)
+        val bc = centerOf(b)
+        val points = when {
+            abs(ac.x - bc.x) < 1f -> verticalAnchors(a, b)
+            abs(ac.y - bc.y) < 1f -> horizontalAnchors(a, b)
+            else -> {
+                val (start, end) = boundaryAnchors(a, b)
+                val midX = (start.x + end.x) / 2f
+                listOf(start, Point(midX, start.y), Point(midX, end.y), end)
+            }
+        }
+        return EdgeRoute(from = from, to = to, points = points, kind = RouteKind.Orthogonal)
+    }
+
+    private fun horizontalAnchors(a: Rect, b: Rect): List<Point> =
+        if (centerOf(a).x <= centerOf(b).x) {
+            listOf(Point(a.right, centerOf(a).y), Point(b.left, centerOf(b).y))
+        } else {
+            listOf(Point(a.left, centerOf(a).y), Point(b.right, centerOf(b).y))
+        }
+
+    private fun verticalAnchors(a: Rect, b: Rect): List<Point> =
+        if (centerOf(a).y <= centerOf(b).y) {
+            listOf(Point(centerOf(a).x, a.bottom), Point(centerOf(b).x, b.top))
+        } else {
+            listOf(Point(centerOf(a).x, a.top), Point(centerOf(b).x, b.bottom))
+        }
+
+    private fun boundaryAnchors(a: Rect, b: Rect): Pair<Point, Point> {
+        val ac = centerOf(a)
+        val bc = centerOf(b)
+        return if (abs(ac.x - bc.x) > abs(ac.y - bc.y)) {
+            if (ac.x <= bc.x) Point(a.right, ac.y) to Point(b.left, bc.y) else Point(a.left, ac.y) to Point(b.right, bc.y)
+        } else {
+            if (ac.y <= bc.y) Point(ac.x, a.bottom) to Point(bc.x, b.top) else Point(ac.x, a.top) to Point(bc.x, b.bottom)
+        }
     }
 
     private fun computeBounds(rects: Collection<Rect>): Rect {
@@ -276,10 +379,34 @@ internal class PlantUmlNetworkSubPipeline(
         }
         val label = edge?.label?.let(::labelTextOf).orEmpty()
         if (label.isNotBlank()) {
-            val mid = pts[pts.size / 2]
+            val mid = routeMidpoint(pts)
             out += DrawCommand.FillRect(Rect(Point(mid.x - 42f, mid.y - 10f), Size(84f, 20f)), Color(0xDDFFFFFF.toInt()), corner = 4f, z = 3)
             out += DrawCommand.DrawText(label, mid, edgeFont, Color(0xFF455A64.toInt()), maxWidth = 80f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 4)
         }
+    }
+
+    private fun routeMidpoint(points: List<Point>): Point {
+        if (points.size == 2) {
+            val a = points[0]
+            val b = points[1]
+            return Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+        }
+        val lengths = points.zipWithNext { a, b ->
+            sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y))
+        }
+        val half = lengths.sum() / 2f
+        var walked = 0f
+        for (i in lengths.indices) {
+            val len = lengths[i]
+            if (walked + len >= half) {
+                val t = if (len > 0f) (half - walked) / len else 0f
+                val a = points[i]
+                val b = points[i + 1]
+                return Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+            }
+            walked += len
+        }
+        return points[points.size / 2]
     }
 
     private fun openArrowHead(from: Point, to: Point, color: Color): DrawCommand {
@@ -320,6 +447,12 @@ internal class PlantUmlNetworkSubPipeline(
             is RichLabel.Markdown -> label.source
             is RichLabel.Html -> label.html
         }
+
+    private fun nodeNameOf(node: Node): String =
+        labelTextOf(node).lineSequence().firstOrNull()?.takeIf { it.isNotBlank() } ?: node.id.value
+
+    private fun centerOf(rect: Rect): Point =
+        Point(rect.left + rect.size.width / 2f, rect.top + rect.size.height / 2f)
 
     private fun clusterTitle(cluster: Cluster): String {
         val label = (cluster.label as? RichLabel.Plain)?.text ?: cluster.id.value

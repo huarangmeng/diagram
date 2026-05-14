@@ -12,6 +12,7 @@ import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.tree.MindmapLayout
+import com.hrm.diagram.layout.tree.TreeLayoutKind
 import com.hrm.diagram.parser.plantuml.PlantUmlWbsParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 
@@ -36,7 +37,7 @@ internal class PlantUmlWbsSubPipeline(
     }
 
     private val parser = PlantUmlWbsParser()
-    private val layout = MindmapLayout(textMeasurer)
+    private val layout = MindmapLayout(textMeasurer, TreeLayoutKind.Wbs)
     private val font = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val stereotypeGap = 2f
 

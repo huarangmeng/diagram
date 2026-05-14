@@ -34,12 +34,13 @@ class TimelineLayout(
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val headerFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val itemFont = FontSpec(family = "sans-serif", sizeSp = 12f)
+    private val periodFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
 
     override fun layout(previous: LaidOutDiagram?, model: TimeSeriesIR, options: LayoutOptions): LaidOutDiagram {
         val pad = 18f
         val gapY = 10f
         val slotW = 180f
-        val slotH = 72f
+        val minSlotH = 72f
         val maxWrap = 160f
 
         val prevPos = previous?.nodePositions.orEmpty()
@@ -72,6 +73,9 @@ class TimelineLayout(
             val itemsBySlot = model.items
                 .filter { it.trackId == track.id }
                 .groupBy { it.range.startMs }
+            val slotHeights = slots.associateWith { slotMs ->
+                requiredSlotHeight(itemsBySlot[slotMs].orEmpty(), maxWrap)
+            }
 
             // Establish a local origin for this track block.
             val blockTop = y
@@ -79,6 +83,7 @@ class TimelineLayout(
             var blockW = 0f
 
             fun placeSlot(slotMs: Long, x0: Float, y0: Float) {
+                val slotH = slotHeights[slotMs] ?: minSlotH
                 val slotId = NodeId("timeline:slot:${track.id.value}:$slotMs")
                 val slotRect = Rect(Point(x0, y0), Size(slotW, slotH))
                 nodePositions[slotId] = pin(prevPos, slotId, slotRect, options)
@@ -86,9 +91,7 @@ class TimelineLayout(
                 val items = itemsBySlot[slotMs].orEmpty()
                 var iy = y0 + 10f
                 for (it in items) {
-                    val label = itemLabel(it)
-                    val tm = textMeasurer.measure(label, itemFont, maxWidth = maxWrap)
-                    val h = (tm.height + 10f).coerceAtLeast(24f)
+                    val h = requiredItemHeight(it, maxWrap)
                     val itemId = NodeId("timeline:item:${it.id.value}")
                     val ir = Rect(Point(x0 + 10f, iy), Size(slotW - 20f, h))
                     nodePositions[itemId] = pin(prevPos, itemId, ir, options)
@@ -101,9 +104,9 @@ class TimelineLayout(
                 var yy = blockTop
                 for (slotMs in slots) {
                     placeSlot(slotMs, pad, yy)
-                    yy += slotH + gapY
+                    yy += (slotHeights[slotMs] ?: minSlotH) + gapY
                 }
-                blockH = slots.size * (slotH + gapY)
+                blockH = slots.sumOf { ((slotHeights[it] ?: minSlotH) + gapY).toDouble() }.toFloat()
                 blockW = slotW
             } else {
                 // Horizontal timeline: slots laid left-to-right.
@@ -113,7 +116,7 @@ class TimelineLayout(
                     xx += slotW + 12f
                 }
                 blockW = if (slots.isEmpty()) 0f else (slots.size * slotW + (slots.size - 1) * 12f)
-                blockH = slotH
+                blockH = slotHeights.values.maxOrNull() ?: minSlotH
             }
 
             y = blockTop + blockH + 12f
@@ -123,13 +126,13 @@ class TimelineLayout(
             nodePositions[trackBoxId] = pin(
                 prevPos,
                 trackBoxId,
-                Rect(Point(pad, blockTop), Size(max(blockW, slotW), max(blockH, slotH))),
+                Rect(Point(pad, blockTop), Size(max(blockW, slotW), max(blockH, minSlotH))),
                 options,
             )
         }
 
         val maxRight = nodePositions.values.maxOfOrNull { it.right } ?: (pad + slotW)
-        val maxBottom = nodePositions.values.maxOfOrNull { it.bottom } ?: (pad + slotH)
+        val maxBottom = nodePositions.values.maxOfOrNull { it.bottom } ?: (pad + minSlotH)
         val bounds = Rect.ltrb(0f, 0f, maxRight + pad, maxBottom + pad)
 
         return LaidOutDiagram(
@@ -141,13 +144,20 @@ class TimelineLayout(
         )
     }
 
-    private fun itemLabel(it: TimeItem): String {
-        val ev = it.payload["event"]
-        val period = it.payload["period"]
-        return when {
-            period != null && ev != null -> "$period: $ev"
-            else -> (it.label as? RichLabel.Plain)?.text ?: it.id.value
-        }
+    private fun requiredSlotHeight(items: List<TimeItem>, maxWrap: Float): Float {
+        if (items.isEmpty()) return 72f
+        val stackedItems = items.sumOf { (requiredItemHeight(it, maxWrap) + 6f).toDouble() }.toFloat() - 6f
+        return max(72f, stackedItems + 20f)
+    }
+
+    private fun requiredItemHeight(it: TimeItem, maxWrap: Float): Float {
+        val label = it.payload["event"] ?: (it.label as? RichLabel.Plain)?.text ?: it.id.value
+        val labelHeight = textMeasurer.measure(label, itemFont, maxWidth = maxWrap).height
+        val periodHeight = it.payload["period"]?.let { p ->
+            textMeasurer.measure(p, periodFont, maxWidth = maxWrap).height
+        } ?: 0f
+        val captionGap = if (periodHeight > 0f) 8f else 0f
+        return max(24f, labelHeight + captionGap + periodHeight + 14f)
     }
 
     private fun pin(prev: Map<NodeId, Rect>, id: NodeId, fresh: Rect, options: LayoutOptions): Rect {
@@ -155,4 +165,3 @@ class TimelineLayout(
         return prev[id] ?: fresh
     }
 }
-

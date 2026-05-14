@@ -1,5 +1,6 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
@@ -8,6 +9,7 @@ import com.hrm.diagram.parser.plantuml.PlantUmlWbsParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -36,6 +38,30 @@ class PlantUmlWbsIntegrationTest {
         assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
         assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
         assertEquals("Review\nOK", ((oneIr.root.children.last().label) as RichLabel.Plain).text)
+    }
+
+    @Test
+    fun org_mode_wbs_nodes_do_not_overlap_parent_or_siblings() {
+        val snapshot = run(
+            """
+            @startwbs
+            * Project
+            ** Phase 1
+            ** Phase 2
+            @endwbs
+            """.trimIndent() + "\n",
+            2,
+        )
+        val ir = assertIs<TreeIR>(snapshot.ir)
+        val laidOut = assertNotNull(snapshot.laidOut)
+        val project = laidOut.nodePositions.getValue(ir.root.id)
+        val phase1 = laidOut.nodePositions.getValue(ir.root.children[0].id)
+        val phase2 = laidOut.nodePositions.getValue(ir.root.children[1].id)
+
+        assertFalse(project.overlaps(phase1), "Project must not overlap Phase 1")
+        assertFalse(project.overlaps(phase2), "Project must not overlap Phase 2")
+        assertFalse(phase1.overlaps(phase2), "Sibling phases must not overlap")
+        assertTrue(phase1.top >= project.bottom && phase2.top >= project.bottom, "Child phases should be laid below the WBS root")
     }
 
     @Test
@@ -258,4 +284,7 @@ class PlantUmlWbsIntegrationTest {
     }
 
     private fun countNodes(node: com.hrm.diagram.core.ir.TreeNode): Int = 1 + node.children.sumOf(::countNodes)
+
+    private fun Rect.overlaps(other: Rect): Boolean =
+        left < other.right && right > other.left && top < other.bottom && bottom > other.top
 }

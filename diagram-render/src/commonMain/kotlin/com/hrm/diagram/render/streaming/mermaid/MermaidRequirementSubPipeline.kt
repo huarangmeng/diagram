@@ -26,6 +26,14 @@ import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_DOCREF_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_ELEMENT_TYPE_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_ID_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_KIND_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_RISK_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_TEXT_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_TYPE_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_VERIFY_KEY
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -36,6 +44,7 @@ internal class MermaidRequirementSubPipeline(
 ) : MermaidSubPipeline {
     private val parser = MermaidRequirementParser()
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
+    private val nodeCardLayouts: MutableMap<NodeId, RequirementCardLayout> = HashMap()
     private var graphStyles: MermaidGraphStyleState? = null
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
         defaultNodeSize = Size(180f, 96f),
@@ -47,6 +56,9 @@ internal class MermaidRequirementSubPipeline(
     private val boldItalicLabelFont = labelFont.copy(weight = 700, italic = true)
     private val codeLabelFont = labelFont.copy(family = "monospace")
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+    private val cardStereotypeFont = labelFont.copy(sizeSp = 12f)
+    private val cardNameFont = labelFont.copy(sizeSp = 14f, weight = 700)
+    private val cardFieldFont = labelFont.copy(sizeSp = 12f)
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
         graphStyles = styles
@@ -70,10 +82,17 @@ internal class MermaidRequirementSubPipeline(
         val ir0 = parser.snapshot()
         val ir = graphStyles?.applyTo(ir0) ?: ir0
         for (node in ir.nodes) {
-            val metrics = measureLabel(node)
-            val padX = if (node.shape is NodeShape.RoundedBox) 18f else 14f
-            val padY = 12f
-            nodeSizes[node.id] = Size((metrics.width + padX * 2f).coerceAtLeast(140f), (metrics.height + padY * 2f).coerceAtLeast(72f))
+            val cardLayout = measureRequirementCard(node)
+            if (cardLayout != null) {
+                nodeCardLayouts[node.id] = cardLayout
+                nodeSizes[node.id] = cardLayout.size
+            } else {
+                nodeCardLayouts.remove(node.id)
+                val metrics = measureLabel(node)
+                val padX = if (node.shape is NodeShape.RoundedBox) 18f else 14f
+                val padY = 12f
+                nodeSizes[node.id] = Size((metrics.width + padX * 2f).coerceAtLeast(140f), (metrics.height + padY * 2f).coerceAtLeast(72f))
+            }
         }
         val laidOut: LaidOutDiagram = layout.layout(
             previousSnapshot.laidOut,
@@ -107,6 +126,7 @@ internal class MermaidRequirementSubPipeline(
 
     override fun dispose() {
         nodeSizes.clear()
+        nodeCardLayouts.clear()
     }
 
     private fun flowchartRender(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
@@ -124,6 +144,11 @@ internal class MermaidRequirementSubPipeline(
             val nodeStroke = n.style.stroke?.let { Color(it.argb) } ?: defaultNodeStroke
             val textColor = n.style.textColor?.let { Color(it.argb) } ?: defaultTextColor
             val stroke = Stroke(width = n.style.strokeWidth ?: 1.5f)
+            val cardLayout = nodeCardLayouts[n.id]
+            if (cardLayout != null) {
+                drawRequirementCard(r, cardLayout, nodeFill, nodeStroke, textColor, stroke, out)
+                continue
+            }
             when (n.shape) {
                 is NodeShape.Diamond -> {
                     val cx = (r.left + r.right) / 2f
@@ -224,6 +249,112 @@ internal class MermaidRequirementSubPipeline(
     private fun measureLabel(node: Node): Size {
         val layout = richLabelLayout(node.label, maxWidth = 220f)
         return Size(layout.width, layout.height)
+    }
+
+    private fun measureRequirementCard(node: Node): RequirementCardLayout? {
+        val kind = node.payload[REQUIREMENT_KIND_KEY] ?: return null
+        val isElement = kind == "element"
+        val stereotype = if (isElement) "Element" else requirementStereotype(node.payload[REQUIREMENT_TYPE_KEY])
+        val body = if (isElement) {
+            listOfNotNull(
+                node.payload[REQUIREMENT_ELEMENT_TYPE_KEY]?.takeIf { it.isNotBlank() }?.let { "Type: $it" },
+                node.payload[REQUIREMENT_DOCREF_KEY]?.takeIf { it.isNotBlank() }?.let { "Doc Ref: $it" },
+            )
+        } else {
+            listOfNotNull(
+                node.payload[REQUIREMENT_ID_KEY]?.takeIf { it.isNotBlank() }?.let { "ID: $it" },
+                node.payload[REQUIREMENT_TEXT_KEY]?.takeIf { it.isNotBlank() }?.let { "Text: $it" },
+                node.payload[REQUIREMENT_RISK_KEY]?.takeIf { it.isNotBlank() }?.let { "Risk: ${titleCase(it)}" },
+                node.payload[REQUIREMENT_VERIFY_KEY]?.takeIf { it.isNotBlank() }?.let { "Verification: ${titleCase(it)}" },
+            )
+        }
+        val headerLines = listOf(
+            measurePlainLine("<<$stereotype>>", cardStereotypeFont, maxWidth = 260f),
+            measurePlainLine(node.id.value, cardNameFont, maxWidth = 260f),
+        )
+        val bodyLines = body.map { measurePlainLine(it, cardFieldFont, maxWidth = 280f) }
+        val contentWidth = (headerLines + bodyLines).maxOfOrNull { it.width } ?: 0f
+        val padX = if (isElement) 18f else 16f
+        val headerHeight = 10f + headerLines.sumOf { it.height.toDouble() }.toFloat() + 8f
+        val bodyHeight = if (bodyLines.isEmpty()) {
+            0f
+        } else {
+            8f + bodyLines.sumOf { it.height.toDouble() }.toFloat() + 12f
+        }
+        val minWidth = if (isElement) 156f else 176f
+        val minHeight = if (isElement) 76f else 92f
+        return RequirementCardLayout(
+            kind = kind,
+            headerLines = headerLines,
+            bodyLines = bodyLines,
+            headerHeight = headerHeight,
+            size = Size(
+                width = (contentWidth + padX * 2f).coerceAtLeast(minWidth),
+                height = (headerHeight + bodyHeight).coerceAtLeast(minHeight),
+            ),
+            corner = if (isElement) 10f else 4f,
+            bodyPadX = padX,
+        )
+    }
+
+    private fun drawRequirementCard(
+        rect: Rect,
+        layout: RequirementCardLayout,
+        fill: Color,
+        strokeColor: Color,
+        textColor: Color,
+        stroke: Stroke,
+        out: MutableList<DrawCommand>,
+    ) {
+        out += DrawCommand.FillRect(rect = rect, color = fill, corner = layout.corner, z = 1)
+        out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = layout.corner, z = 2)
+        var y = rect.top + 10f
+        val centerX = (rect.left + rect.right) / 2f
+        for (line in layout.headerLines) {
+            out += DrawCommand.DrawText(
+                text = line.text,
+                origin = Point(centerX, y),
+                font = line.font,
+                color = textColor,
+                maxWidth = rect.size.width - 20f,
+                anchorX = TextAnchorX.Center,
+                anchorY = TextAnchorY.Top,
+                z = 3,
+            )
+            y += line.height
+        }
+        if (layout.bodyLines.isNotEmpty()) {
+            val dividerY = rect.top + layout.headerHeight
+            out += DrawCommand.StrokePath(
+                path = PathCmd(listOf(PathOp.MoveTo(Point(rect.left, dividerY)), PathOp.LineTo(Point(rect.right, dividerY)))),
+                stroke = Stroke(width = 1f),
+                color = strokeColor,
+                z = 2,
+            )
+            y = dividerY + 8f
+            for (line in layout.bodyLines) {
+                out += DrawCommand.DrawText(
+                    text = line.text,
+                    origin = Point(rect.left + layout.bodyPadX, y),
+                    font = line.font,
+                    color = textColor,
+                    maxWidth = rect.size.width - layout.bodyPadX * 2f,
+                    anchorX = TextAnchorX.Start,
+                    anchorY = TextAnchorY.Top,
+                    z = 3,
+                )
+                y += line.height
+            }
+        }
+        if (layout.kind == "element") {
+            val accentRect = Rect.ltrb(rect.left, rect.top, rect.left + 5f, rect.bottom)
+            out += DrawCommand.FillRect(rect = accentRect, color = strokeColor, corner = layout.corner, z = 2)
+        }
+    }
+
+    private fun measurePlainLine(text: String, font: FontSpec, maxWidth: Float): MeasuredTextLine {
+        val metrics = textMeasurer.measure(text, font, maxWidth = maxWidth)
+        return MeasuredTextLine(text = text, font = font, width = metrics.width, height = metrics.height)
     }
 
     private fun drawNodeLabel(node: Node, rect: Rect, textColor: Color, out: MutableList<DrawCommand>) {
@@ -396,5 +527,37 @@ internal class MermaidRequirementSubPipeline(
         val p2 = Point(baseX - nx * size * 0.5f, baseY - ny * size * 0.5f)
         val path = PathCmd(listOf(PathOp.MoveTo(to), PathOp.LineTo(p1), PathOp.LineTo(p2), PathOp.Close))
         return DrawCommand.FillPath(path = path, color = color, z = 1)
-}
+    }
+
+    private fun requirementStereotype(kind: String?): String = when (kind) {
+        "functionalRequirement" -> "Functional Requirement"
+        "interfaceRequirement" -> "Interface Requirement"
+        "performanceRequirement" -> "Performance Requirement"
+        "physicalRequirement" -> "Physical Requirement"
+        "designConstraint" -> "Design Constraint"
+        else -> "Requirement"
+    }
+
+    private fun titleCase(raw: String): String {
+        val s = raw.trim()
+        if (s.isEmpty()) return ""
+        return s.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
+    private data class MeasuredTextLine(
+        val text: String,
+        val font: FontSpec,
+        val width: Float,
+        val height: Float,
+    )
+
+    private data class RequirementCardLayout(
+        val kind: String,
+        val headerLines: List<MeasuredTextLine>,
+        val bodyLines: List<MeasuredTextLine>,
+        val headerHeight: Float,
+        val size: Size,
+        val corner: Float,
+        val bodyPadX: Float,
+    )
 }

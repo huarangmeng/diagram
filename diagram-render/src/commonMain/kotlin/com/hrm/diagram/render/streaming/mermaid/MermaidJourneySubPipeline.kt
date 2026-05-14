@@ -76,8 +76,9 @@ internal class MermaidJourneySubPipeline(
 
         val plotLeft = 20f
         val plotRight = bounds.right - 20f
+        val axisYs = scoreAxisYs(ir, laid)
         for (score in 1..5) {
-            val y = 110f + (5 - score) * ((430f - 110f) / 4f)
+            val y = axisYs[score] ?: continue
             out += DrawCommand.StrokePath(
                 path = PathCmd(listOf(PathOp.MoveTo(Point(plotLeft, y)), PathOp.LineTo(Point(plotRight, y)))),
                 stroke = Stroke.Hairline,
@@ -103,10 +104,10 @@ internal class MermaidJourneySubPipeline(
                 centers += center
                 val label = (step.label as? RichLabel.Plain)?.text.orEmpty()
                 val actors = step.actors.mapNotNull { (it as? RichLabel.Plain)?.text }.joinToString(", ")
-                out += DrawCommand.DrawText(label, Point(center.x, rect.top + 14f), stepFont, text, maxWidth = rect.size.width - 12f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
+                out += DrawCommand.DrawText(label, Point(center.x, rect.top + 12f), stepFont, text, maxWidth = rect.size.width - 12f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
                 out += DrawCommand.DrawText("score ${step.score}", Point(center.x, center.y), actorFont, text, maxWidth = rect.size.width - 12f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 10)
                 if (actors.isNotBlank()) {
-                    out += DrawCommand.DrawText(actors, Point(center.x, rect.bottom - 10f), actorFont, text, maxWidth = rect.size.width - 12f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Bottom, z = 10)
+                    out += DrawCommand.DrawText(actors, Point(center.x, rect.bottom - 12f), actorFont, text, maxWidth = rect.size.width - 12f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Bottom, z = 10)
                 }
             }
         }
@@ -117,6 +118,54 @@ internal class MermaidJourneySubPipeline(
             out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = 2f), Color(0xFF5C6BC0.toInt()), z = 2)
         }
         return out
+    }
+
+    private fun scoreAxisYs(ir: JourneyIR, laid: LaidOutDiagram): Map<Int, Float> {
+        val known = LinkedHashMap<Int, Float>()
+        val centers = ArrayList<Pair<Int, Float>>()
+        for ((stageIndex, stage) in ir.stages.withIndex()) {
+            for ((stepIndex, step) in stage.steps.withIndex()) {
+                val rect = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("journey:step:$stageIndex:$stepIndex")] ?: continue
+                val centerY = (rect.top + rect.bottom) / 2f
+                known.putIfAbsent(step.score, centerY)
+                centers += step.score to centerY
+            }
+        }
+        val stepSize = centers.asSequence()
+            .flatMap { a ->
+                centers.asSequence().mapNotNull { b ->
+                    val scoreDelta = kotlin.math.abs(a.first - b.first)
+                    if (scoreDelta == 0) null else kotlin.math.abs(a.second - b.second) / scoreDelta
+                }
+            }
+            .firstOrNull()
+            ?: fallbackScoreStep(laid)
+        val scoreTop = centers.firstOrNull()?.let { (score, y) -> y - (5 - score) * stepSize }
+            ?: fallbackScoreTop(laid)
+        return (1..5).associateWith { score -> known[score] ?: scoreTop + (5 - score) * stepSize }
+    }
+
+    private fun fallbackScoreStep(laid: LaidOutDiagram): Float {
+        val maxCardHeight = laid.nodePositions
+            .filterKeys { it.value.startsWith("journey:step:") }
+            .values
+            .maxOfOrNull { it.size.height }
+            ?: 72f
+        return maxOf(72f, maxCardHeight + 24f)
+    }
+
+    private fun fallbackScoreTop(laid: LaidOutDiagram): Float {
+        val maxCardHeight = laid.nodePositions
+            .filterKeys { it.value.startsWith("journey:step:") }
+            .values
+            .maxOfOrNull { it.size.height }
+            ?: 72f
+        val stageBottom = laid.nodePositions
+            .filterKeys { it.value.startsWith("journey:stage:") }
+            .values
+            .maxOfOrNull { it.bottom }
+            ?: (110f - maxCardHeight / 2f)
+        return stageBottom + 20f + maxCardHeight / 2f
     }
 
     private fun scoreColor(score: Int): Color = when (score) {

@@ -55,13 +55,19 @@ internal class PlantUmlArchimateSubPipeline(
         val laid = layout.layout(
             previous = previousSnapshot.laidOut,
             model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
+            options = LayoutOptions(
+                nodeSpacing = ARCHIMATE_NODE_SPACING,
+                rankSpacing = ARCHIMATE_RANK_SPACING,
+                incremental = !isFinal,
+                allowGlobalReflow = isFinal,
+            ),
         )
         val clusterRects = LinkedHashMap<NodeId, Rect>()
         for (cluster in ir.clusters) computeClusterRect(cluster, laid.nodePositions, clusterRects)
+        val edgeLabelRects = edgeLabelRects(ir, laid.edgeRoutes, laid.nodePositions.values, clusterTitleRects(clusterRects.values))
         val finalLaid = laid.copy(
             clusterRects = clusterRects,
-            bounds = computeBounds(laid.nodePositions.values + clusterRects.values),
+            bounds = computeBounds(laid.nodePositions.values + clusterRects.values + edgeLabelRects),
             seq = seq,
         )
         return PlantUmlRenderState(
@@ -76,11 +82,16 @@ internal class PlantUmlArchimateSubPipeline(
         for (node in ir.nodes) {
             val label = labelTextOf(node)
             val stereotype = node.payload[PlantUmlArchimateParser.STEREOTYPE_KEY].orEmpty()
-            val labelMetrics = textMeasurer.measure(label, titleFont, maxWidth = 180f)
-            val stereotypeMetrics = textMeasurer.measure(stereotype, stereotypeFont, maxWidth = 180f)
+            val stereotypeText = stereotypeTextOf(stereotype)
+            val labelMetrics = textMeasurer.measure(label, titleFont, maxWidth = NODE_LABEL_MAX_WIDTH)
+            val stereotypeMetrics = textMeasurer.measure(stereotypeText, stereotypeFont, maxWidth = NODE_STEREOTYPE_MAX_WIDTH)
             nodeSizes[node.id] = Size(
-                width = maxOf(labelMetrics.width, stereotypeMetrics.width, 118f) + 36f,
-                height = labelMetrics.height + stereotypeMetrics.height + 34f,
+                width = maxOf(
+                    labelMetrics.width + NODE_TEXT_LEFT_PADDING + NODE_TEXT_RIGHT_PADDING,
+                    stereotypeMetrics.width + NODE_TEXT_LEFT_PADDING + NODE_ICON_RESERVED_WIDTH,
+                    NODE_MIN_WIDTH,
+                ),
+                height = NODE_HEADER_TOP_PADDING + stereotypeMetrics.height + NODE_STEREOTYPE_LABEL_GAP + labelMetrics.height + NODE_BOTTOM_PADDING,
             )
         }
     }
@@ -110,12 +121,34 @@ internal class PlantUmlArchimateSubPipeline(
         )
     }
 
+    private fun edgeLabelRects(
+        ir: GraphIR,
+        routes: List<EdgeRoute>,
+        nodeRects: Collection<Rect>,
+        clusterTitleRects: Collection<Rect>,
+    ): List<Rect> =
+        routes.mapIndexedNotNull { index, route ->
+            val edge = ir.edges.getOrNull(index) ?: return@mapIndexedNotNull null
+            edgeLabelRect(edge, route, nodeRects, clusterTitleRects)
+        }
+
+    private fun clusterTitleRects(clusterRects: Collection<Rect>): List<Rect> =
+        clusterRects.map { rect ->
+            Rect.ltrb(
+                rect.left + CLUSTER_TITLE_PADDING_X,
+                rect.top + CLUSTER_TITLE_PADDING_Y,
+                rect.right - CLUSTER_TITLE_PADDING_X,
+                rect.top + CLUSTER_TITLE_PADDING_Y + CLUSTER_TITLE_HEIGHT,
+            )
+        }
+
     private fun render(ir: GraphIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
+        val clusterTitleRects = clusterTitleRects(laid.clusterRects.values)
         out += DrawCommand.FillRect(laid.bounds, Color(0xFFFFFFFF.toInt()), z = -1)
         for (cluster in ir.clusters) drawCluster(cluster, laid.clusterRects, out)
         for ((idx, route) in laid.edgeRoutes.withIndex()) {
-            drawEdge(ir.edges.getOrNull(idx), idx, route, out)
+            drawEdge(ir.edges.getOrNull(idx), idx, route, laid.nodePositions.values, clusterTitleRects, out)
         }
         for (node in ir.nodes) {
             drawNode(node, laid.nodePositions[node.id] ?: continue, out)
@@ -161,29 +194,49 @@ internal class PlantUmlArchimateSubPipeline(
             z = 6,
         )
         if (stereotype.isNotBlank()) {
+            val stereotypeMetrics = textMeasurer.measure(stereotypeTextOf(stereotype), stereotypeFont, maxWidth = rect.size.width - NODE_TEXT_LEFT_PADDING - NODE_ICON_RESERVED_WIDTH)
             out += DrawCommand.DrawText(
-                text = "<<$stereotype>>",
-                origin = Point(rect.left + 14f, rect.top + 11f),
+                text = stereotypeTextOf(stereotype),
+                origin = Point(rect.left + NODE_TEXT_LEFT_PADDING, rect.top + NODE_HEADER_TOP_PADDING),
                 font = stereotypeFont,
                 color = Color(0xFF546E7A.toInt()),
-                maxWidth = rect.size.width - 36f,
-                anchorY = TextAnchorY.Middle,
+                maxWidth = rect.size.width - NODE_TEXT_LEFT_PADDING - NODE_ICON_RESERVED_WIDTH,
+                anchorY = TextAnchorY.Top,
                 z = 6,
             )
+            val labelY = rect.top + NODE_HEADER_TOP_PADDING + stereotypeMetrics.height + NODE_STEREOTYPE_LABEL_GAP
+            drawArchimateIcon(node, rect, stroke, out)
+            out += DrawCommand.DrawText(
+                text = labelTextOf(node),
+                origin = Point(rect.left + NODE_TEXT_LEFT_PADDING, labelY),
+                font = titleFont,
+                color = text,
+                maxWidth = rect.size.width - NODE_TEXT_LEFT_PADDING - NODE_TEXT_RIGHT_PADDING,
+                anchorY = TextAnchorY.Top,
+                z = 6,
+            )
+            return
         }
         drawArchimateIcon(node, rect, stroke, out)
         out += DrawCommand.DrawText(
             text = labelTextOf(node),
-            origin = Point(rect.left + 14f, rect.top + 40f),
+            origin = Point(rect.left + NODE_TEXT_LEFT_PADDING, rect.top + 30f),
             font = titleFont,
             color = text,
-            maxWidth = rect.size.width - 28f,
-            anchorY = TextAnchorY.Middle,
+            maxWidth = rect.size.width - NODE_TEXT_LEFT_PADDING - NODE_TEXT_RIGHT_PADDING,
+            anchorY = TextAnchorY.Top,
             z = 6,
         )
     }
 
-    private fun drawEdge(edge: Edge?, edgeIndex: Int, route: EdgeRoute, out: MutableList<DrawCommand>) {
+    private fun drawEdge(
+        edge: Edge?,
+        edgeIndex: Int,
+        route: EdgeRoute,
+        nodeRects: Collection<Rect>,
+        clusterTitleRects: Collection<Rect>,
+        out: MutableList<DrawCommand>,
+    ) {
         val pts = route.points
         if (pts.size < 2) return
         val ops = ArrayList<PathOp>()
@@ -210,13 +263,109 @@ internal class PlantUmlArchimateSubPipeline(
             }
         }
         drawRelationMidMarker(relationType, pts, color, out)
-        val label = edge?.label?.let(::labelTextOf).orEmpty()
+        val actualEdge = edge ?: return
+        val label = actualEdge.label?.let(::labelTextOf).orEmpty()
         if (label.isNotBlank()) {
-            val mid = pts[pts.size / 2]
-            out += DrawCommand.FillRect(Rect(Point(mid.x - 46f, mid.y - 10f), Size(92f, 20f)), Color(0xDDFFFFFF.toInt()), corner = 4f, z = 2)
-            out += DrawCommand.DrawText(label, mid, edgeFont, Color(0xFF455A64.toInt()), maxWidth = 90f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 3)
+            val rect = edgeLabelRect(actualEdge, route, nodeRects, clusterTitleRects) ?: return
+            val mid = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
+            out += DrawCommand.FillRect(rect, Color(0xEEFFFFFF.toInt()), corner = 4f, z = 7)
+            out += DrawCommand.DrawText(
+                label,
+                mid,
+                edgeFont,
+                Color(0xFF455A64.toInt()),
+                maxWidth = rect.size.width - EDGE_LABEL_PADDING_X * 2f,
+                anchorX = TextAnchorX.Center,
+                anchorY = TextAnchorY.Middle,
+                z = 8,
+            )
         }
     }
+
+    private fun edgeLabelRect(
+        edge: Edge,
+        route: EdgeRoute,
+        nodeRects: Collection<Rect>,
+        clusterTitleRects: Collection<Rect>,
+    ): Rect? {
+        val label = edge.label?.let(::labelTextOf).orEmpty()
+        if (label.isBlank()) return null
+        val metrics = textMeasurer.measure(label, edgeFont, maxWidth = EDGE_LABEL_MAX_WIDTH)
+        val width = (metrics.width + EDGE_LABEL_PADDING_X * 2f).coerceIn(EDGE_LABEL_MIN_WIDTH, EDGE_LABEL_MAX_WIDTH + EDGE_LABEL_PADDING_X * 2f)
+        val height = metrics.height + EDGE_LABEL_PADDING_Y * 2f
+        val obstacles = nodeRects.map { inflate(it, EDGE_LABEL_NODE_CLEARANCE) } +
+            clusterTitleRects.map { inflate(it, EDGE_LABEL_CLUSTER_TITLE_CLEARANCE) }
+        return edgeLabelCandidates(route, width, height)
+            .minWithOrNull(compareBy<Rect> { rect -> obstacles.count { overlaps(rect, it) } }.thenBy { rect -> distanceSquared(centerOf(rect), routeLabelPoint(route)) })
+    }
+
+    private fun routeLabelPoint(route: EdgeRoute): Point {
+        val pts = route.points
+        if (route.kind == RouteKind.Bezier && pts.size >= 4) {
+            return cubicPoint(pts[0], pts[1], pts[2], pts[3], t = 0.5f)
+        }
+        val left = pts[(pts.size / 2 - 1).coerceAtLeast(0)]
+        val right = pts[(pts.size / 2).coerceAtMost(pts.lastIndex)]
+        return Point((left.x + right.x) / 2f, (left.y + right.y) / 2f)
+    }
+
+    private fun edgeLabelCandidates(route: EdgeRoute, width: Float, height: Float): List<Rect> {
+        val pts = route.points
+        val candidates = ArrayList<Rect>()
+        if (route.kind == RouteKind.Bezier && pts.size >= 4) {
+            val samples = listOf(0.5f, 0.35f, 0.65f, 0.25f, 0.75f, 0.42f, 0.58f)
+            for (t in samples) {
+                val p = cubicPoint(pts[0], pts[1], pts[2], pts[3], t)
+                val tangent = cubicTangent(pts[0], pts[1], pts[2], pts[3], t)
+                val len = sqrt(tangent.x * tangent.x + tangent.y * tangent.y).takeIf { it > 0.001f } ?: 1f
+                val nx = -tangent.y / len
+                val ny = tangent.x / len
+                for (offset in EDGE_LABEL_OFFSETS) {
+                    candidates += centeredRect(Point(p.x + nx * offset, p.y + ny * offset), width, height)
+                }
+            }
+            return candidates
+        }
+        val p = routeLabelPoint(route)
+        candidates += centeredRect(p, width, height)
+        return candidates
+    }
+
+    private fun cubicPoint(p0: Point, p1: Point, p2: Point, p3: Point, t: Float): Point {
+        val u = 1f - t
+        val uu = u * u
+        val tt = t * t
+        val uuu = uu * u
+        val ttt = tt * t
+        val x = uuu * p0.x + 3f * uu * t * p1.x + 3f * u * tt * p2.x + ttt * p3.x
+        val y = uuu * p0.y + 3f * uu * t * p1.y + 3f * u * tt * p2.y + ttt * p3.y
+        return Point(x, y)
+    }
+
+    private fun cubicTangent(p0: Point, p1: Point, p2: Point, p3: Point, t: Float): Point {
+        val u = 1f - t
+        val x = 3f * u * u * (p1.x - p0.x) + 6f * u * t * (p2.x - p1.x) + 3f * t * t * (p3.x - p2.x)
+        val y = 3f * u * u * (p1.y - p0.y) + 6f * u * t * (p2.y - p1.y) + 3f * t * t * (p3.y - p2.y)
+        return Point(x, y)
+    }
+
+    private fun centeredRect(center: Point, width: Float, height: Float): Rect =
+        Rect.ltrb(center.x - width / 2f, center.y - height / 2f, center.x + width / 2f, center.y + height / 2f)
+
+    private fun centerOf(rect: Rect): Point =
+        Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
+
+    private fun distanceSquared(a: Point, b: Point): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        return dx * dx + dy * dy
+    }
+
+    private fun inflate(rect: Rect, amount: Float): Rect =
+        Rect.ltrb(rect.left - amount, rect.top - amount, rect.right + amount, rect.bottom + amount)
+
+    private fun overlaps(a: Rect, b: Rect): Boolean =
+        a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 
     private fun openArrowHead(from: Point, to: Point, color: Color): DrawCommand {
         val dx = to.x - from.x
@@ -411,6 +560,9 @@ internal class PlantUmlArchimateSubPipeline(
 
     private fun labelTextOf(node: Node): String = labelTextOf(node.label).ifBlank { node.id.value }
 
+    private fun stereotypeTextOf(stereotype: String): String =
+        if (stereotype.isBlank()) "" else "<<$stereotype>>"
+
     private fun labelTextOf(label: RichLabel): String =
         when (label) {
             is RichLabel.Plain -> label.text
@@ -422,5 +574,29 @@ internal class PlantUmlArchimateSubPipeline(
         val text = (cluster.label as? RichLabel.Plain)?.text ?: cluster.id.value
         val lines = text.lines()
         return if (lines.size >= 2) lines[1] else text
+    }
+
+    private companion object {
+        const val ARCHIMATE_NODE_SPACING = 56f
+        const val ARCHIMATE_RANK_SPACING = 128f
+        const val NODE_MIN_WIDTH = 150f
+        const val NODE_LABEL_MAX_WIDTH = 220f
+        const val NODE_STEREOTYPE_MAX_WIDTH = 220f
+        const val NODE_TEXT_LEFT_PADDING = 14f
+        const val NODE_TEXT_RIGHT_PADDING = 18f
+        const val NODE_ICON_RESERVED_WIDTH = 54f
+        const val NODE_HEADER_TOP_PADDING = 8f
+        const val NODE_STEREOTYPE_LABEL_GAP = 4f
+        const val NODE_BOTTOM_PADDING = 16f
+        const val CLUSTER_TITLE_PADDING_X = 12f
+        const val CLUSTER_TITLE_PADDING_Y = 10f
+        const val CLUSTER_TITLE_HEIGHT = 24f
+        const val EDGE_LABEL_MIN_WIDTH = 64f
+        const val EDGE_LABEL_MAX_WIDTH = 140f
+        const val EDGE_LABEL_PADDING_X = 8f
+        const val EDGE_LABEL_PADDING_Y = 4f
+        const val EDGE_LABEL_NODE_CLEARANCE = 8f
+        const val EDGE_LABEL_CLUSTER_TITLE_CLEARANCE = 6f
+        val EDGE_LABEL_OFFSETS = listOf(0f, -28f, 28f, -48f, 48f)
     }
 }

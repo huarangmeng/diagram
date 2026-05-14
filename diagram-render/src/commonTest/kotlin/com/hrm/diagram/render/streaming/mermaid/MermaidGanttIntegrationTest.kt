@@ -5,6 +5,7 @@ import com.hrm.diagram.core.draw.FontSpec
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.render.Diagram
@@ -72,6 +73,36 @@ class MermaidGanttIntegrationTest {
         assertTrue(snapshot.drawCommands.any { it is DrawCommand.Hyperlink })
         assertTrue(snapshot.drawCommands.any { it is DrawCommand.DrawText && it.text.contains("/") })
         assertTrue(first.top == second.top, "compact mode should place overlapping tasks on the same row: $first vs $second")
+    }
+
+    @Test
+    fun gantt_dense_axis_labels_are_measured_and_thinned_by_layout() {
+        val src =
+            """
+            gantt
+              title Sample
+              section A
+              Task 1 :a1, 2026-01-01, 7d
+              Task 2 :after a1, 5d
+            """.trimIndent() + "\n"
+
+        val snapshot = run(src, chunkSize = src.length)
+        val laidOut = snapshot.laidOut ?: error("missing layout")
+        val axis = laidOut.nodePositions[NodeId("gantt:axis")] ?: error("missing axis")
+        val firstTask = laidOut.nodePositions[NodeId("gantt:item:a1")] ?: error("missing first task")
+        val tickLabels = laidOut.nodePositions
+            .filterKeys { it.value.startsWith("gantt:axisTickLabel:") }
+            .values
+            .sortedBy { it.left }
+
+        assertTrue(tickLabels.size in 3..12, "dense daily labels should be thinned instead of fully rendered: $tickLabels")
+        assertTrue(firstTask.top > axis.top, "task rows should not collide with the axis label band: axis=$axis task=$firstTask")
+        for (label in tickLabels) {
+            assertTrue(label.bottom <= axis.top - 3f, "axis label should stay above the chart frame: label=$label axis=$axis")
+        }
+        tickLabels.zipWithNext().forEach { (left, right) ->
+            assertTrue(left.right + 7f <= right.left, "axis labels should not overlap: $left vs $right")
+        }
     }
 
     @Test

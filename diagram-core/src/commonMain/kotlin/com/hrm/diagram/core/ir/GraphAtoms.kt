@@ -18,6 +18,7 @@ data class Edge(
     val fromPort: PortId? = null,
     val toPort: PortId? = null,
     val style: EdgeStyle = EdgeStyle.Default,
+    val payload: Map<String, String> = emptyMap(),
 )
 
 data class Cluster(

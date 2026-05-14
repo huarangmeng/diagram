@@ -11,6 +11,7 @@ import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
+import kotlin.math.abs
 import kotlin.math.round
 
 /**
@@ -46,7 +47,7 @@ class XYChartLayout(
             y += m.height + 10f
         }
 
-        val plotLeft = 90f
+        val plotLeft = 104f
         val plotTop = y + 12f
         val plotRight = width - 40f
         val plotBottom = height - 80f
@@ -62,7 +63,7 @@ class XYChartLayout(
         if (!yTitle.isNullOrBlank()) {
             val m = textMeasurer.measure(yTitle, axisTitleFont, maxWidth = 120f)
             nodePositions[com.hrm.diagram.core.ir.NodeId("xychart:yTitle")] =
-                Rect(Point(16f, (plotTop + plotBottom - m.height) / 2f), Size(m.width, m.height))
+                Rect(Point(24f, (plotTop + plotBottom - m.height) / 2f), Size(m.width, m.height))
         }
 
         for ((idx, label) in model.xAxis.categories.withIndex()) {
@@ -91,7 +92,8 @@ class XYChartLayout(
     }
 
     private fun formatTick(v: Double): String {
-        if (v % 1.0 == 0.0) return v.toInt().toString()
+        val rounded = round(v)
+        if (abs(v - rounded) < 1e-9) return rounded.toInt().toString()
         return (round(v * 100.0) / 100.0).toString()
     }
 }

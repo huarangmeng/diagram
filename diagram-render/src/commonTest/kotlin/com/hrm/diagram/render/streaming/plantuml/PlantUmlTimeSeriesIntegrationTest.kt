@@ -334,6 +334,32 @@ class PlantUmlTimeSeriesIntegrationTest {
     }
 
     @Test
+    fun timing_robust_adjacent_state_labels_do_not_overlap_left_track_label_column() {
+        val src =
+            """
+            @startuml
+            robust "User" as U
+            @0
+            U is Idle
+            @5
+            U is Active
+            @enduml
+            """.trimIndent() + "\n"
+
+        val one = run(src, src.length)
+        val axisLeft = one.laidOut
+            ?.nodePositions
+            ?.get(com.hrm.diagram.core.ir.NodeId("gantt:axis"))
+            ?.left ?: error("missing timing axis")
+
+        val stateLabels = one.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .filter { it.text == "Idle" || it.text == "Active" }
+        assertEquals(2, stateLabels.size)
+        assertTrue(stateLabels.all { it.origin.x >= axisLeft }, "timing state labels must stay inside the chart area: $stateLabels")
+    }
+
+    @Test
     fun timing_concise_states_render_as_continuous_single_lane_band() {
         val src =
             """

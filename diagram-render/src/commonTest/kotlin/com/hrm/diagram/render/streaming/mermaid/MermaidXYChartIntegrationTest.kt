@@ -59,6 +59,31 @@ class MermaidXYChartIntegrationTest {
     }
 
     @Test
+    fun xychart_beta_y_axis_uses_integer_ticks_and_rotated_title() {
+        val src =
+            """
+            xychart-beta
+              title "Demo"
+              x-axis [1, 2, 3, 4]
+              y-axis "value" 0 --> 10
+              line [1, 4, 6, 9]
+            """.trimIndent() + "\n"
+
+        val snap = run(src, chunkSize = src.length)
+        val texts = drawTexts(snap.drawCommands).map { it.text }
+        assertTrue(listOf("0", "2", "4", "6", "8", "10").all { it in texts }, "expected integer y-axis ticks in $texts")
+        assertTrue(listOf("2.0", "4.0", "6.0", "8.0").none { it in texts }, "integer y-axis ticks must not contain floating suffixes: $texts")
+        assertTrue(
+            snap.drawCommands.filterIsInstance<DrawCommand.Group>().any { group ->
+                group.transform.rotateDeg == -90f &&
+                    drawTexts(group.children).any { it.text == "value" }
+            },
+            "expected y-axis title to be rendered as a rotated group",
+        )
+        assertTrue(snap.diagnostics.isEmpty(), "diagnostics: ${snap.diagnostics}")
+    }
+
+    @Test
     fun xychart_area_and_data_labels_from_frontmatter_render() {
         val src =
             """
@@ -116,6 +141,16 @@ class MermaidXYChartIntegrationTest {
     }
 
     private fun drawSignature(cmds: List<DrawCommand>): List<DrawSig> = cmds.map { it.toSig() }
+
+    private fun drawTexts(cmds: List<DrawCommand>): List<DrawCommand.DrawText> =
+        cmds.flatMap { cmd ->
+            when (cmd) {
+                is DrawCommand.DrawText -> listOf(cmd)
+                is DrawCommand.Group -> drawTexts(cmd.children)
+                is DrawCommand.Clip -> drawTexts(cmd.children)
+                else -> emptyList()
+            }
+        }
 
     private sealed interface DrawSig {
         val z: Int

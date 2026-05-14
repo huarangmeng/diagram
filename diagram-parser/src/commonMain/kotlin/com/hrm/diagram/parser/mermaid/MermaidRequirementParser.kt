@@ -40,6 +40,8 @@ class MermaidRequirementParser {
     companion object {
         const val REQUIREMENT_KIND_KEY = "mermaid.requirement.kind"
         const val REQUIREMENT_TYPE_KEY = "mermaid.requirement.type"
+        const val REQUIREMENT_ID_KEY = "mermaid.requirement.id"
+        const val REQUIREMENT_TEXT_KEY = "mermaid.requirement.text"
         const val REQUIREMENT_RISK_KEY = "mermaid.requirement.risk"
         const val REQUIREMENT_VERIFY_KEY = "mermaid.requirement.verify"
         const val REQUIREMENT_ELEMENT_TYPE_KEY = "mermaid.requirement.elementType"
@@ -233,6 +235,8 @@ class MermaidRequirementParser {
             payload = buildMap {
                 put(REQUIREMENT_KIND_KEY, "requirement")
                 put(REQUIREMENT_TYPE_KEY, block.kind)
+                if (idText.isNotBlank()) put(REQUIREMENT_ID_KEY, idText)
+                if (text.isNotBlank()) put(REQUIREMENT_TEXT_KEY, text)
                 if (block.properties["risk"]?.isNotBlank() == true) put(REQUIREMENT_RISK_KEY, block.properties["risk"].orEmpty())
                 if (block.properties["verifymethod"]?.isNotBlank() == true) put(REQUIREMENT_VERIFY_KEY, block.properties["verifymethod"].orEmpty())
             },

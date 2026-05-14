@@ -122,10 +122,17 @@ internal class PlantUmlDeploymentSubPipeline(
         if (childRects.isEmpty()) return null
         val (kind, title) = parseClusterLabel(cluster)
         val titleMetrics = textMeasurer.measure(title.ifBlank { cluster.id.value }, scopedFont(palette.scopes[kind.lowercase()], groupFont), maxWidth = 220f)
-        val left = childRects.minOf { it.left } - 20f
-        val top = childRects.minOf { it.top } - (titleMetrics.height + 26f)
-        val right = childRects.maxOf { it.right } + 20f
-        val bottom = childRects.maxOf { it.bottom } + 18f
+        val headerHeight = if (kind.equals("node", ignoreCase = true)) {
+            max(titleMetrics.height + 34f, 46f)
+        } else {
+            titleMetrics.height + 26f
+        }
+        val horizontalPadding = if (kind.equals("node", ignoreCase = true)) 24f else 20f
+        val bottomPadding = if (kind.equals("node", ignoreCase = true)) 24f else 18f
+        val left = childRects.minOf { it.left } - horizontalPadding
+        val top = childRects.minOf { it.top } - headerHeight
+        val right = max(childRects.maxOf { it.right } + horizontalPadding, left + titleMetrics.width + 62f)
+        val bottom = childRects.maxOf { it.bottom } + bottomPadding
         val rect = Rect.ltrb(left, top, right, bottom)
         out[cluster.id] = rect
         return rect
@@ -133,11 +140,12 @@ internal class PlantUmlDeploymentSubPipeline(
 
     private fun computeBounds(rects: Collection<Rect>): Rect {
         if (rects.isEmpty()) return Rect.ltrb(0f, 0f, 400f, 240f)
+        val viewportPadding = 24f
         val minLeft = rects.minOf { it.left }.coerceAtMost(0f)
         val minTop = rects.minOf { it.top }.coerceAtMost(0f)
         val maxRight = rects.maxOf { it.right }
         val maxBottom = rects.maxOf { it.bottom }
-        return Rect.ltrb(minLeft, minTop, maxRight + 20f, maxBottom + 20f)
+        return Rect.ltrb(minLeft - viewportPadding, minTop - viewportPadding, maxRight + viewportPadding, maxBottom + viewportPadding)
     }
 
     private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: DeploymentPalette): List<DrawCommand> {
@@ -157,8 +165,24 @@ internal class PlantUmlDeploymentSubPipeline(
         val rect = clusterRects[cluster.id] ?: return
         val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF1F8E9.toInt())
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF558B2F.toInt())
+        val (kind, title) = parseClusterLabel(cluster)
+        val scoped = palette.scopes[kind.lowercase()]
+        if (kind.equals("node", ignoreCase = true)) {
+            drawDeploymentNodeCluster(
+                rect = rect,
+                title = title.ifBlank { cluster.id.value },
+                fill = fill,
+                strokeColor = strokeColor,
+                stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f),
+                textColor = scoped?.text?.let { Color(it.argb) } ?: strokeColor,
+                font = scopedFont(scoped, groupFont),
+                shadowing = scoped?.shadowing == true,
+                out = out,
+            )
+            for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out, palette)
+            return
+        }
         val stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f, dash = listOf(7f, 5f))
-        val scoped = palette.scopes[parseClusterLabel(cluster).first.lowercase()]
         if (scoped?.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
@@ -169,7 +193,6 @@ internal class PlantUmlDeploymentSubPipeline(
         }
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 14f, z = 0)
         out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = 14f, z = 1)
-        val (kind, title) = parseClusterLabel(cluster)
         val textColor = palette.scopes[kind.lowercase()]?.text?.let { Color(it.argb) } ?: strokeColor
         val chipWidth = min(160f, rect.size.width - 24f)
         val chipRect = Rect.ltrb(rect.left + 12f, rect.top + 10f, rect.left + chipWidth, rect.top + 34f)
@@ -186,6 +209,63 @@ internal class PlantUmlDeploymentSubPipeline(
             z = 4,
         )
         for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out, palette)
+    }
+
+    private fun drawDeploymentNodeCluster(
+        rect: Rect,
+        title: String,
+        fill: Color,
+        strokeColor: Color,
+        stroke: Stroke,
+        textColor: Color,
+        font: FontSpec,
+        shadowing: Boolean,
+        out: MutableList<DrawCommand>,
+    ) {
+        val depth = 10f
+        val front = Rect.ltrb(rect.left, rect.top + depth, rect.right - depth, rect.bottom)
+        if (shadowing) {
+            out += DrawCommand.FillRect(
+                rect = PlantUmlTreeRenderSupport.offsetRect(front, 4f, 4f),
+                color = PlantUmlTreeRenderSupport.shadowColor(),
+                corner = 6f,
+                z = 0,
+            )
+        }
+        val topFace = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(front.left, front.top)),
+                PathOp.LineTo(Point(front.left + depth, rect.top)),
+                PathOp.LineTo(Point(rect.right, rect.top)),
+                PathOp.LineTo(Point(front.right, front.top)),
+                PathOp.Close,
+            ),
+        )
+        val rightFace = PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(front.right, front.top)),
+                PathOp.LineTo(Point(rect.right, rect.top)),
+                PathOp.LineTo(Point(rect.right, rect.bottom - depth)),
+                PathOp.LineTo(Point(front.right, front.bottom)),
+                PathOp.Close,
+            ),
+        )
+        out += DrawCommand.FillRect(rect = front, color = fill, corner = 6f, z = 0)
+        out += DrawCommand.FillPath(path = topFace, color = fill, z = 0)
+        out += DrawCommand.FillPath(path = rightFace, color = fill, z = 0)
+        out += DrawCommand.StrokeRect(rect = front, stroke = stroke, color = strokeColor, corner = 6f, z = 1)
+        out += DrawCommand.StrokePath(path = topFace, stroke = Stroke(width = stroke.width), color = strokeColor, z = 1)
+        out += DrawCommand.StrokePath(path = rightFace, stroke = Stroke(width = stroke.width), color = strokeColor, z = 1)
+        out += DrawCommand.DrawText(
+            text = title,
+            origin = Point(front.left + 14f, front.top + 12f),
+            font = font,
+            color = textColor,
+            maxWidth = front.size.width - 28f,
+            anchorX = TextAnchorX.Start,
+            anchorY = TextAnchorY.Top,
+            z = 4,
+        )
     }
 
     private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>, palette: DeploymentPalette) {

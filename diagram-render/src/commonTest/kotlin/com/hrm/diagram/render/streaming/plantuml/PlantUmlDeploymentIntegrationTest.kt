@@ -70,6 +70,18 @@ class PlantUmlDeploymentIntegrationTest {
         val ir = assertIs<GraphIR>(snapshot.ir)
         assertEquals(1, ir.clusters.size)
         assertEquals(1, ir.nodes.size)
+        val texts = snapshot.drawCommands
+            .filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.DrawText>()
+            .map { it.text }
+        val dashedRects = snapshot.drawCommands
+            .filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.StrokeRect>()
+            .filter { it.stroke.dash != null }
+        assertTrue(texts.contains("Server"), "deployment node container should render the plain node title: $texts")
+        assertTrue(texts.none { it.contains("NODE") }, "deployment node container should not render a generic cluster chip: $texts")
+        assertTrue(dashedRects.isEmpty(), "deployment node container should use a solid PlantUML node outline: $dashedRects")
+        val laidOut = assertNotNull(snapshot.laidOut)
+        val clusterRect = laidOut.clusterRects.values.single()
+        assertTrue(clusterRect.top - laidOut.bounds.top >= 12f, "deployment node container should not be clipped by the viewport: cluster=$clusterRect bounds=${laidOut.bounds}")
     }
 
     @Test

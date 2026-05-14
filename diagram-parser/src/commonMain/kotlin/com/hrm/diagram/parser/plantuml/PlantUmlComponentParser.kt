@@ -293,6 +293,7 @@ class PlantUmlComponentParser {
             trimmed.equals("right to left direction", ignoreCase = true) -> direction = Direction.RL
             trimmed.equals("top to bottom direction", ignoreCase = true) -> direction = Direction.TB
             trimmed.equals("bottom to top direction", ignoreCase = true) -> direction = Direction.BT
+            findRelationOperator(trimmed) != null -> parseEdge(trimmed, patches)
             trimmed.startsWith("[") -> parseNodeDecl("component $trimmed", "component", patches)
             trimmed.startsWith("component ", ignoreCase = true) -> parseNodeDecl(trimmed, "component", patches)
             trimmed.startsWith("()", ignoreCase = true) -> parseShorthandInterface(trimmed, patches)
@@ -308,7 +309,6 @@ class PlantUmlComponentParser {
             trimmed.startsWith("cloud ", ignoreCase = true) -> parseClusterDecl(trimmed, "cloud")
             trimmed.startsWith("node ", ignoreCase = true) -> parseClusterDecl(trimmed, "node")
             trimmed.startsWith("note ", ignoreCase = true) -> parseNote(trimmed, patches)
-            findRelationOperator(trimmed) != null -> parseEdge(trimmed, patches)
             else -> return errorBatch("Unsupported PlantUML component statement: $trimmed")
         }
         return IrPatchBatch(seq, patches)

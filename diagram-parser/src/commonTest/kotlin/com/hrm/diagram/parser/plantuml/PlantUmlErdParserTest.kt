@@ -78,7 +78,11 @@ class PlantUmlErdParserTest {
         )
         assertEquals(3, ir.edges.size)
         val relation = ir.edges.first { it.label != null }
-        assertEquals(RichLabel.Plain("||--o{ places"), relation.label)
+        assertEquals(RichLabel.Plain("places"), relation.label)
+        assertEquals("||--o{", relation.payload[PlantUmlErdParser.ER_RELATION_OP_KEY])
+        assertEquals("||", relation.payload[PlantUmlErdParser.ER_RELATION_LEFT_KEY])
+        assertEquals("o{", relation.payload[PlantUmlErdParser.ER_RELATION_RIGHT_KEY])
+        assertEquals("solid", relation.payload[PlantUmlErdParser.ER_RELATION_LINE_KEY])
     }
 
     @Test
@@ -139,7 +143,10 @@ class PlantUmlErdParserTest {
             ).snapshot(),
         )
         val relation = ir.edges.first { it.label != null }
-        assertEquals(RichLabel.Plain("}|..|{ allocates"), relation.label)
+        assertEquals(RichLabel.Plain("allocates"), relation.label)
+        assertEquals("}|", relation.payload[PlantUmlErdParser.ER_RELATION_LEFT_KEY])
+        assertEquals("|{", relation.payload[PlantUmlErdParser.ER_RELATION_RIGHT_KEY])
+        assertEquals("dashed", relation.payload[PlantUmlErdParser.ER_RELATION_LINE_KEY])
         assertTrue(relation.style.dash != null)
     }
 

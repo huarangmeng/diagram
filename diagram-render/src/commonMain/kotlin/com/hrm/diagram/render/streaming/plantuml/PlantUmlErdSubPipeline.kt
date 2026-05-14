@@ -205,6 +205,9 @@ internal class PlantUmlErdSubPipeline(
                 else -> Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
             }
             out += DrawCommand.StrokePath(path = path, stroke = edgeStroke, color = edgeColor, z = 0)
+            if (!isAttributeLink && !isNoteLink) {
+                drawRelationshipEndpointMarkers(out, edge, pts, edgeColor)
+            }
             if (edge.arrow != ArrowEnds.None) {
                 val endTail = pts[pts.size - 2]
                 val endHead = pts.last()
@@ -225,6 +228,145 @@ internal class PlantUmlErdSubPipeline(
             drawRelationshipBadge(out, relBadge[idx], pts[pts.size / 2], labelBg, relationLabelText, edgeColor)
         }
         return out
+    }
+
+    private fun drawRelationshipEndpointMarkers(
+        out: MutableList<DrawCommand>,
+        edge: Edge,
+        pts: List<Point>,
+        color: Color,
+    ) {
+        if (pts.size < 2) return
+        val left = edge.payload[PlantUmlErdParser.ER_RELATION_LEFT_KEY].orEmpty()
+        val right = edge.payload[PlantUmlErdParser.ER_RELATION_RIGHT_KEY].orEmpty()
+        if (left.isNotBlank()) {
+            drawEndpointMarker(out, endpoint = pts.first(), inside = pts[1], spec = left, reverse = false, color = color)
+        }
+        if (right.isNotBlank()) {
+            drawEndpointMarker(out, endpoint = pts.last(), inside = pts[pts.size - 2], spec = right, reverse = true, color = color)
+        }
+    }
+
+    private fun drawEndpointMarker(
+        out: MutableList<DrawCommand>,
+        endpoint: Point,
+        inside: Point,
+        spec: String,
+        reverse: Boolean,
+        color: Color,
+    ) {
+        val dx = inside.x - endpoint.x
+        val dy = inside.y - endpoint.y
+        val len = sqrt(dx * dx + dy * dy).coerceAtLeast(0.001f)
+        val ux = dx / len
+        val uy = dy / len
+        val nx = -uy
+        val ny = ux
+        var offset = 4f
+        val tokens = if (reverse) spec.reversed() else spec
+        for (token in tokens) {
+            when (token) {
+                '|' -> {
+                    drawCardinalityBar(out, endpoint, ux, uy, nx, ny, offset, color)
+                    offset += 5f
+                }
+                'o' -> {
+                    drawOptionalCircle(out, endpoint, ux, uy, offset + 4f, color)
+                    offset += 11f
+                }
+                '{', '}' -> {
+                    drawCrowfoot(out, endpoint, ux, uy, nx, ny, offset, color)
+                    offset += 12f
+                }
+            }
+        }
+    }
+
+    private fun drawCardinalityBar(
+        out: MutableList<DrawCommand>,
+        endpoint: Point,
+        ux: Float,
+        uy: Float,
+        nx: Float,
+        ny: Float,
+        offset: Float,
+        color: Color,
+    ) {
+        val half = 6f
+        val base = Point(endpoint.x + ux * offset, endpoint.y + uy * offset)
+        out += DrawCommand.StrokePath(
+            path = PathCmd(
+                listOf(
+                    PathOp.MoveTo(Point(base.x - nx * half, base.y - ny * half)),
+                    PathOp.LineTo(Point(base.x + nx * half, base.y + ny * half)),
+                ),
+            ),
+            stroke = Stroke(width = 1.5f),
+            color = color,
+            z = 2,
+        )
+    }
+
+    private fun drawOptionalCircle(
+        out: MutableList<DrawCommand>,
+        endpoint: Point,
+        ux: Float,
+        uy: Float,
+        offset: Float,
+        color: Color,
+    ) {
+        val radius = 4.5f
+        val center = Point(endpoint.x + ux * offset, endpoint.y + uy * offset)
+        out += DrawCommand.StrokePath(
+            path = circlePath(center, radius),
+            stroke = Stroke(width = 1.5f),
+            color = color,
+            z = 2,
+        )
+    }
+
+    private fun drawCrowfoot(
+        out: MutableList<DrawCommand>,
+        endpoint: Point,
+        ux: Float,
+        uy: Float,
+        nx: Float,
+        ny: Float,
+        offset: Float,
+        color: Color,
+    ) {
+        val spread = 7f
+        val length = 12f
+        val base = Point(endpoint.x + ux * offset, endpoint.y + uy * offset)
+        val upper = Point(base.x + ux * length + nx * spread, base.y + uy * length + ny * spread)
+        val lower = Point(base.x + ux * length - nx * spread, base.y + uy * length - ny * spread)
+        out += DrawCommand.StrokePath(
+            path = PathCmd(
+                listOf(
+                    PathOp.MoveTo(base),
+                    PathOp.LineTo(upper),
+                    PathOp.MoveTo(base),
+                    PathOp.LineTo(lower),
+                ),
+            ),
+            stroke = Stroke(width = 1.5f),
+            color = color,
+            z = 2,
+        )
+    }
+
+    private fun circlePath(center: Point, radius: Float): PathCmd {
+        val k = 0.55228475f * radius
+        return PathCmd(
+            listOf(
+                PathOp.MoveTo(Point(center.x + radius, center.y)),
+                PathOp.CubicTo(Point(center.x + radius, center.y + k), Point(center.x + k, center.y + radius), Point(center.x, center.y + radius)),
+                PathOp.CubicTo(Point(center.x - k, center.y + radius), Point(center.x - radius, center.y + k), Point(center.x - radius, center.y)),
+                PathOp.CubicTo(Point(center.x - radius, center.y - k), Point(center.x - k, center.y - radius), Point(center.x, center.y - radius)),
+                PathOp.CubicTo(Point(center.x + k, center.y - radius), Point(center.x + radius, center.y - k), Point(center.x + radius, center.y)),
+                PathOp.Close,
+            ),
+        )
     }
 
     private fun applyAnchoredNotes(ir: GraphIR, laidOut: LaidOutDiagram): LaidOutDiagram {
@@ -382,43 +524,28 @@ internal class PlantUmlErdSubPipeline(
         val l = layout ?: return
         val padX = 6f
         val padY = 4f
-        val width = maxOf(l.cardMetrics.width + 2 * padX, (l.relationMetrics?.width ?: 0f) + 2 * padX)
-        val height = l.cardMetrics.height + 2 * padY + (l.relationMetrics?.let { it.height + 2f } ?: 0f)
+        val width = l.metrics.width + 2 * padX
+        val height = l.metrics.height + 2 * padY
         val bgRect = Rect.ltrb(midPoint.x - width / 2f, midPoint.y - height / 2f, midPoint.x + width / 2f, midPoint.y + height / 2f)
         out += DrawCommand.FillRect(rect = bgRect, color = bgColor, corner = 6f, z = 4)
         out += DrawCommand.StrokeRect(rect = bgRect, stroke = Stroke.Hairline, color = borderColor, corner = 6f, z = 5)
         out += DrawCommand.DrawText(
-            text = l.cardinality,
-            origin = Point(midPoint.x, bgRect.top + padY),
-            font = flagFont,
+            text = l.text,
+            origin = midPoint,
+            font = relationFont,
             color = textColor,
             anchorX = TextAnchorX.Center,
-            anchorY = TextAnchorY.Top,
+            anchorY = TextAnchorY.Middle,
             z = 6,
         )
-        if (l.relationMetrics != null && !l.relation.isNullOrBlank()) {
-            out += DrawCommand.DrawText(
-                text = l.relation,
-                origin = Point(midPoint.x, bgRect.top + padY + l.cardMetrics.height + 2f),
-                font = relationFont,
-                color = textColor,
-                anchorX = TextAnchorX.Center,
-                anchorY = TextAnchorY.Top,
-                z = 6,
-            )
-        }
     }
 
     private fun relationshipBadgeLayoutOf(edge: Edge): RelationshipBadgeLayout? {
         val raw = (edge.label as? RichLabel.Plain)?.text ?: return null
         if (raw.isBlank()) return null
-        val cardinality = raw.substringBefore(' ').trim()
-        val relation = raw.substringAfter(' ', "").trim().takeIf { it.isNotEmpty() }
         return RelationshipBadgeLayout(
-            cardinality = cardinality,
-            relation = relation,
-            cardMetrics = textMeasurer.measure(cardinality, flagFont),
-            relationMetrics = relation?.let { textMeasurer.measure(it, relationFont) },
+            text = raw,
+            metrics = textMeasurer.measure(raw, relationFont),
         )
     }
 
@@ -555,7 +682,7 @@ internal class PlantUmlErdSubPipeline(
     }
 
     private data class BadgeLayout(val text: String, val metrics: TextMetrics)
-    private data class RelationshipBadgeLayout(val cardinality: String, val relation: String?, val cardMetrics: TextMetrics, val relationMetrics: TextMetrics?)
+    private data class RelationshipBadgeLayout(val text: String, val metrics: TextMetrics)
     private data class EmbeddedAttrRow(val text: String, val metrics: TextMetrics, val badge: BadgeLayout?)
     private data class EntityEmbeddedLayout(
         val size: Size,

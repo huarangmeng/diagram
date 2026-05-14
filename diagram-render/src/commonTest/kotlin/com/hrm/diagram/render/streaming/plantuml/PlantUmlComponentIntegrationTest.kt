@@ -122,6 +122,27 @@ class PlantUmlComponentIntegrationTest {
     }
 
     @Test
+    fun bracket_component_relations_render_with_visible_nodes_and_edges() {
+        val snapshot = run(
+            """
+            @startuml
+            [Web] --> [API]
+            [API] --> [DB]
+            @enduml
+            """.trimIndent() + "\n",
+            chunkSize = 4,
+        )
+        val ir = assertIs<GraphIR>(snapshot.ir)
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+        assertTrue(ir.nodes.any { it.id == NodeId("Web") })
+        assertTrue(ir.nodes.any { it.id == NodeId("API") })
+        assertTrue(ir.nodes.any { it.id == NodeId("DB") })
+        assertEquals(2, ir.edges.size)
+        assertEquals(2, snapshot.laidOut!!.edgeRoutes.size)
+        assertTrue(snapshot.drawCommands.isNotEmpty())
+    }
+
+    @Test
     fun advanced_component_shapes_and_note_render_consistently() {
         val src =
             """

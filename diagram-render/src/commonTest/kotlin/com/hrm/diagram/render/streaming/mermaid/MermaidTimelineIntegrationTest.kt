@@ -11,6 +11,7 @@ import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class MermaidTimelineIntegrationTest {
@@ -81,6 +82,41 @@ class MermaidTimelineIntegrationTest {
         val fillRects = snap.drawCommands.filterIsInstance<DrawCommand.FillRect>().drop(1) // skip background
         val colors = fillRects.map { it.color.argb }.distinct()
         assertTrue(colors.size <= 3) // marker + card colors, with cards staying single-color
+        assertTrue(snap.diagnostics.isEmpty(), "diagnostics: ${snap.diagnostics}")
+    }
+
+    @Test
+    fun timeline_period_caption_does_not_overlap_event_label() {
+        val src =
+            """
+            timeline
+              title History
+              2020 : Born
+              2024 : Grew up
+            """.trimIndent() + "\n"
+
+        val snap = run(src, chunkSize = src.length)
+        val born = snap.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .firstOrNull { it.text == "Born" }
+        val bornPeriod = snap.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .firstOrNull { it.text == "2020" }
+        val firstCard = snap.drawCommands
+            .filterIsInstance<DrawCommand.FillRect>()
+            .firstOrNull { it.z == 3 }
+
+        assertNotNull(born, "expected Born event label")
+        assertNotNull(bornPeriod, "expected 2020 period caption")
+        assertNotNull(firstCard, "expected first timeline card")
+        assertTrue(
+            bornPeriod.origin.y - born.origin.y >= 24f,
+            "period caption should be placed below the event label",
+        )
+        assertTrue(
+            firstCard.rect.size.height >= 42f,
+            "timeline card should reserve enough height for event label and period caption",
+        )
         assertTrue(snap.diagnostics.isEmpty(), "diagnostics: ${snap.diagnostics}")
     }
 

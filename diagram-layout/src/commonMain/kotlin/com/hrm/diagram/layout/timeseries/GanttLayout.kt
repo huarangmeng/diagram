@@ -36,17 +36,19 @@ class GanttLayout(
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val trackFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val itemFont = FontSpec(family = "sans-serif", sizeSp = 12f)
+    private val axisFont = FontSpec(family = "sans-serif", sizeSp = 11f)
 
     override fun layout(previous: LaidOutDiagram?, model: TimeSeriesIR, options: LayoutOptions): LaidOutDiagram {
         val prevPos = previous?.nodePositions.orEmpty()
         val nodePositions = LinkedHashMap<NodeId, Rect>()
 
         val pad = 18f
-        val leftLabelW = 160f
+        val leftLabelW = computeLeftLabelWidth(model)
         val rowH = 26f
         val rowGap = 8f
         val chartPad = 10f
-        val topAxisH = 22f
+        val topAxisH = 42f
+        val axisToRowsGap = 10f
         val compactMode = model.styleHints.extras["gantt.displayMode"]?.equals("compact", ignoreCase = true) == true
 
         var y = pad
@@ -61,6 +63,7 @@ class GanttLayout(
         val axisLeft = pad + leftLabelW + chartPad
         val axisWidth = 560f
         var axisBottom = axisTop
+        y = axisTop + axisToRowsGap
 
         val range = model.range
         val span = (range.endMs - range.startMs).coerceAtLeast(1L).toDouble()
@@ -121,6 +124,7 @@ class GanttLayout(
 
         val axisRect = Rect.ltrb(axisLeft, axisTop, axisLeft + axisWidth, axisBottom)
         nodePositions[NodeId("gantt:axis")] = pin(prevPos, NodeId("gantt:axis"), axisRect, options)
+        layoutAxisScaleLabels(model, axisRect, nodePositions, prevPos, options)
         for (item in vertItems) {
             val centerX = xOf((item.range.startMs + item.range.endMs) / 2L)
             val markerId = NodeId("gantt:vert:${item.id.value}")
@@ -152,5 +156,98 @@ class GanttLayout(
     private fun pin(prev: Map<NodeId, Rect>, id: NodeId, fresh: Rect, options: LayoutOptions): Rect {
         if (!options.incremental) return fresh
         return prev[id] ?: fresh
+    }
+
+    private fun computeLeftLabelWidth(model: TimeSeriesIR): Float {
+        val minWidth = 160f
+        val maxWidth = 320f
+        val probeWidth = maxWidth - 20f
+        val trackMax = model.tracks.maxOfOrNull { track ->
+            val text = (track.label as? RichLabel.Plain)?.text ?: track.id.value
+            textMeasurer.measure(text, trackFont, maxWidth = probeWidth).width
+        } ?: 0f
+        val itemMax = model.items
+            .asSequence()
+            .filter { it.payload["gantt.kind"] != "vert" }
+            .map { item -> (item.label as? RichLabel.Plain)?.text ?: item.id.value }
+            .maxOfOrNull { label -> textMeasurer.measure(label, itemFont, maxWidth = probeWidth).width } ?: 0f
+        val desired = max(trackMax, itemMax) + 16f
+        return desired.coerceIn(minWidth, maxWidth)
+    }
+
+    private fun layoutAxisScaleLabels(
+        model: TimeSeriesIR,
+        axisRect: Rect,
+        nodePositions: MutableMap<NodeId, Rect>,
+        prevPos: Map<NodeId, Rect>,
+        options: LayoutOptions,
+    ) {
+        val axisFormat = model.styleHints.extras["gantt.axisFormat"] ?: "%Y-%m-%d"
+        val tickInterval = GanttAxisSupport.parseTickInterval(
+            model.styleHints.extras["gantt.tickInterval"],
+            model.range.endMs - model.range.startMs,
+        )
+        val ticks = GanttAxisSupport.buildTicks(model.range.startMs, model.range.endMs, tickInterval)
+        val span = (model.range.endMs - model.range.startMs).coerceAtLeast(1L).toDouble()
+        fun xOf(ms: Long): Float {
+            val t = ((ms - model.range.startMs).toDouble() / span).coerceIn(0.0, 1.0)
+            return (axisRect.left + axisRect.size.width * t).toFloat()
+        }
+        layoutMajorScaleLabels(ticks, tickInterval, axisRect, ::xOf, nodePositions, prevPos, options)
+        for (i in 0 until ticks.lastIndex) {
+            val tick = ticks[i]
+            val next = ticks[i + 1]
+            val left = xOf(tick)
+            val right = xOf(next)
+            val cellWidth = right - left
+            if (cellWidth < 14f) continue
+            val label = GanttAxisSupport.formatMinorTick(tick, axisFormat, tickInterval)
+            val maxLabelWidth = (cellWidth - 6f).coerceAtLeast(8f)
+            val metrics = textMeasurer.measure(label, axisFont, maxWidth = maxLabelWidth)
+            if (metrics.width > cellWidth - 4f) continue
+            val rect = Rect(
+                Point(left + (cellWidth - metrics.width) / 2f, axisRect.top - metrics.height - 4f),
+                Size(metrics.width, metrics.height),
+            )
+            val id = NodeId("gantt:axisTickLabel:$tick")
+            nodePositions[id] = pin(prevPos, id, rect, options)
+        }
+    }
+
+    private fun layoutMajorScaleLabels(
+        ticks: List<Long>,
+        tickInterval: Long,
+        axisRect: Rect,
+        xOf: (Long) -> Float,
+        nodePositions: MutableMap<NodeId, Rect>,
+        prevPos: Map<NodeId, Rect>,
+        options: LayoutOptions,
+    ) {
+        if (ticks.size < 2) return
+        var groupStartIndex = 0
+        var groupKey = GanttAxisSupport.majorTickKey(ticks.first(), tickInterval)
+        for (i in 1 until ticks.size) {
+            val key = if (i < ticks.lastIndex) GanttAxisSupport.majorTickKey(ticks[i], tickInterval) else null
+            if (key == groupKey) continue
+            val start = ticks[groupStartIndex]
+            val end = ticks[i]
+            val left = xOf(start)
+            val right = xOf(end)
+            val width = right - left
+            if (width >= 32f) {
+                val label = GanttAxisSupport.formatMajorTick(start, tickInterval)
+                val metrics = textMeasurer.measure(label, axisFont, maxWidth = width - 8f)
+                if (metrics.width <= width - 6f) {
+                    val rect = Rect(
+                        Point(left + (width - metrics.width) / 2f, axisRect.top - metrics.height * 2f - 10f),
+                        Size(metrics.width, metrics.height),
+                    )
+                    val id = NodeId("gantt:axisMajorLabel:${groupKey}:$start")
+                    nodePositions[id] = pin(prevPos, id, rect, options)
+                }
+            }
+            groupStartIndex = i
+            groupKey = key ?: groupKey
+        }
     }
 }

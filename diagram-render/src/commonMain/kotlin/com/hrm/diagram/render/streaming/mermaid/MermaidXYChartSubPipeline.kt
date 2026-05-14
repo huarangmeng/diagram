@@ -11,6 +11,7 @@ import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
+import com.hrm.diagram.core.draw.Transform
 import com.hrm.diagram.core.ir.Direction
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
@@ -25,6 +26,7 @@ import com.hrm.diagram.parser.mermaid.MermaidXYChartParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
+import kotlin.math.abs
 import kotlin.math.round
 
 internal class MermaidXYChartSubPipeline(
@@ -117,7 +119,24 @@ internal class MermaidXYChartSubPipeline(
         }
         laid.nodePositions[NodeId("xychart:yTitle")]?.let { r ->
             val t = (ir.yAxis.title as? RichLabel.Plain)?.text ?: return@let
-            out += DrawCommand.DrawText(t, Point(r.left, r.top), axisTitleFont, yAxisTitleColor, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+            out += DrawCommand.Group(
+                transform = Transform(
+                    translate = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
+                    rotateDeg = -90f,
+                ),
+                children = listOf(
+                    DrawCommand.DrawText(
+                        t,
+                        Point(0f, 0f),
+                        axisTitleFont,
+                        yAxisTitleColor,
+                        anchorX = TextAnchorX.Center,
+                        anchorY = TextAnchorY.Middle,
+                        z = 10,
+                    ),
+                ),
+                z = 10,
+            )
         }
 
         // Axes.
@@ -264,7 +283,8 @@ internal class MermaidXYChartSubPipeline(
     }
 
     private fun formatTick(v: Double): String {
-        if (v % 1.0 == 0.0) return v.toInt().toString()
+        val rounded = round(v)
+        if (abs(v - rounded) < 1e-9) return rounded.toInt().toString()
         return (round(v * 100.0) / 100.0).toString()
     }
 }

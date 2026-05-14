@@ -469,7 +469,11 @@ class PlantUmlMindmapParser {
             ?: return errorBatch("PlantUML mindmap does not yet support multiple roots")
         parent.children += node
         stack += depth to node
-        sideByNode[node.id] = explicitSide ?: sideByNode[parent.id].orEmpty().ifEmpty { "auto" }
+        val inheritedSide = sideByNode[parent.id]
+        sideByNode[node.id] = explicitSide ?: when (inheritedSide) {
+            "left", "right" -> inheritedSide
+            else -> "auto"
+        }
         val inheritedBranchStyle = branchStyleColorByNode[parent.id]
         val effectiveStyleColor = nodeStyleColor ?: inheritedBranchStyle
         effectiveStyleColor?.let { styleColorByNode[node.id] = it }

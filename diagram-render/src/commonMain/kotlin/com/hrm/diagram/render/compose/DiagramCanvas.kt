@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke as ComposeStroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -27,6 +28,7 @@ import com.hrm.diagram.core.draw.Rect as DiagramRect
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import kotlin.math.min
 
 /**
  * Renders a [DiagramSnapshot]'s `drawCommands` into a Compose [Canvas]. Pure projection: the
@@ -43,11 +45,28 @@ fun DiagramCanvas(
     modifier: Modifier = Modifier,
 ) {
     val measurer = rememberTextMeasurer()
-    val sortedCommands = remember(snapshot.seq) {
+    val sortedCommands = remember(snapshot.drawCommands) {
         snapshot.drawCommands.sortedBy { it.z }
     }
     Canvas(modifier = modifier) {
-        for (cmd in sortedCommands) execute(cmd, measurer)
+        val bounds = snapshot.laidOut?.bounds
+        if (bounds == null || bounds.size.width <= 0f || bounds.size.height <= 0f) {
+            for (cmd in sortedCommands) execute(cmd, measurer)
+            return@Canvas
+        }
+
+        val fitScale = min(size.width / bounds.size.width, size.height / bounds.size.height)
+            .coerceAtMost(1f)
+        val offsetX = (size.width - bounds.size.width * fitScale) / 2f
+        val offsetY = (size.height - bounds.size.height * fitScale) / 2f
+
+        withTransform({
+            translate(left = offsetX, top = offsetY)
+            scale(scaleX = fitScale, scaleY = fitScale)
+            translate(left = -bounds.left, top = -bounds.top)
+        }) {
+            for (cmd in sortedCommands) execute(cmd, measurer)
+        }
     }
 }
 
@@ -100,7 +119,20 @@ private fun DrawScope.execute(cmd: DrawCommand, measurer: TextMeasurer) {
         }
         is DrawCommand.DrawIcon -> Unit
         is DrawCommand.Hyperlink -> Unit
-        is DrawCommand.Group -> for (c in cmd.children) execute(c, measurer)
+        is DrawCommand.Group -> {
+            val t = cmd.transform
+            if (t.isIdentity) {
+                for (c in cmd.children) execute(c, measurer)
+            } else {
+                withTransform({
+                    translate(left = t.translate.x, top = t.translate.y)
+                    rotate(degrees = t.rotateDeg)
+                    scale(scaleX = t.scale, scaleY = t.scale)
+                }) {
+                    for (c in cmd.children) execute(c, measurer)
+                }
+            }
+        }
         is DrawCommand.Clip -> {
             clipRect(
                 left = cmd.rect.left, top = cmd.rect.top,

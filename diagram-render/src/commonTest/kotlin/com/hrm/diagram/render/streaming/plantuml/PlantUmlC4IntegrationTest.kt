@@ -1,7 +1,9 @@
 package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.draw.DrawCommand
+import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
@@ -139,6 +141,45 @@ class PlantUmlC4IntegrationTest {
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text.contains("publishes") })
     }
 
+    @Test
+    fun c4_edge_labels_avoid_node_overlap() {
+        val src =
+            """
+            @startuml
+            !include <C4/C4_Container>
+            C4Container
+            UpdateLayoutConfig(${ '$' }c4ShapeInRow="3", ${ '$' }layout="TB")
+            AddElementTag("critical", ${ '$' }bgColor="#f96", ${ '$' }layout="TB")
+            AddElementTag("async", ${ '$' }textColor="blue", ${ '$' }lineColor="#8E24AA", ${ '$' }lineStyle="DashedLine()", ${ '$' }legendText="Async")
+            System_Boundary(sys, "Ordering", ${ '$' }link="https://example.com/system") {
+              Person_Ext(u, "Customer", "Buyer")
+              Container(api, "API", "Ktor", "Backend", ${ '$' }tags="critical", ${ '$' }link="https://example.com/api")
+              ContainerQueue(q, "Events", "Kafka", "Async events")
+            }
+            BiRel_R(u, api, "uses", "HTTPS")
+            Rel(api, q, "publishes", "JSON", ${ '$' }tags="async", ${ '$' }link="https://example.com/events")
+            Lay_D(api, q)
+            SHOW_LEGEND()
+            @enduml
+            """.trimIndent() + "\n"
+
+        val state = run(src, src.length)
+        val laidOut = assertNotNull(state.laidOut)
+        val api = assertNotNull(laidOut.nodePositions[NodeId("api")])
+        val queue = assertNotNull(laidOut.nodePositions[NodeId("q")])
+        val labelText = state.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .single { it.text.contains("publishes") }
+        val labelRect = state.drawCommands
+            .filterIsInstance<DrawCommand.FillRect>()
+            .filter { it.z == 3 }
+            .minBy { distanceSquared(centerOf(it.rect), labelText.origin) }
+            .rect
+
+        assertTrue(!overlaps(labelRect, inflate(api, 4f)), "publishes label must not overlap api node")
+        assertTrue(!overlaps(labelRect, inflate(queue, 4f)), "publishes label must not overlap queue node")
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0
@@ -151,5 +192,20 @@ class PlantUmlC4IntegrationTest {
         } finally {
             s.close()
         }
+    }
+
+    private fun inflate(rect: Rect, delta: Float): Rect =
+        Rect.ltrb(rect.left - delta, rect.top - delta, rect.right + delta, rect.bottom + delta)
+
+    private fun overlaps(a: Rect, b: Rect): Boolean =
+        a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+
+    private fun centerOf(rect: Rect) =
+        com.hrm.diagram.core.draw.Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
+
+    private fun distanceSquared(a: com.hrm.diagram.core.draw.Point, b: com.hrm.diagram.core.draw.Point): Float {
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        return dx * dx + dy * dy
     }
 }

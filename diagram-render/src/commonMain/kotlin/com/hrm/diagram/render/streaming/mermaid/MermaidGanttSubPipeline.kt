@@ -17,6 +17,7 @@ import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
+import com.hrm.diagram.layout.timeseries.GanttAxisSupport
 import com.hrm.diagram.layout.timeseries.GanttLayout
 import com.hrm.diagram.parser.mermaid.MermaidGanttParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
@@ -99,6 +100,8 @@ internal class MermaidGanttSubPipeline(
         val normalFill = Color(0xFFBDBDBD.toInt())
         val milestoneFill = Color(0xFFFFCA28.toInt())
         val gridColor = Color(0xFFE0E0E0.toInt())
+        val majorGridColor = Color(0xFFB0BEC5.toInt())
+        val scaleBg = Color(0xFFF7F9FA.toInt())
 
         out += DrawCommand.FillRect(
             rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)),
@@ -126,32 +129,91 @@ internal class MermaidGanttSubPipeline(
         if (axis != null) {
             out += DrawCommand.StrokeRect(rect = axis, stroke = Stroke(width = 1f), color = axisStroke, corner = 0f, z = 1)
             val axisFormat = ir.styleHints.extras["gantt.axisFormat"] ?: "%Y-%m-%d"
-            val tickInterval = parseTickInterval(ir.styleHints.extras["gantt.tickInterval"], ir.range.endMs - ir.range.startMs)
-            val ticks = buildTicks(ir.range.startMs, ir.range.endMs, tickInterval)
+            val tickInterval = GanttAxisSupport.parseTickInterval(ir.styleHints.extras["gantt.tickInterval"], ir.range.endMs - ir.range.startMs)
+            val ticks = GanttAxisSupport.buildTicks(ir.range.startMs, ir.range.endMs, tickInterval)
             val span = (ir.range.endMs - ir.range.startMs).coerceAtLeast(1L).toDouble()
             fun xOf(ms: Long): Float {
                 val t = ((ms - ir.range.startMs).toDouble() / span).coerceIn(0.0, 1.0)
                 return (axis.left + axis.size.width * t).toFloat()
             }
-            for (tick in ticks) {
+            val scaleTop = axis.top - 40f
+            val scaleSplitY = axis.top - 20f
+            out += DrawCommand.FillRect(
+                rect = Rect.ltrb(axis.left, scaleTop, axis.right, axis.top),
+                color = scaleBg,
+                z = 1,
+            )
+            out += DrawCommand.StrokePath(
+                path = com.hrm.diagram.core.draw.PathCmd(
+                    listOf(
+                        com.hrm.diagram.core.draw.PathOp.MoveTo(Point(axis.left, scaleSplitY)),
+                        com.hrm.diagram.core.draw.PathOp.LineTo(Point(axis.right, scaleSplitY)),
+                    ),
+                ),
+                stroke = Stroke.Hairline,
+                color = gridColor,
+                z = 2,
+            )
+            out += DrawCommand.StrokePath(
+                path = com.hrm.diagram.core.draw.PathCmd(
+                    listOf(
+                        com.hrm.diagram.core.draw.PathOp.MoveTo(Point(axis.left, axis.top)),
+                        com.hrm.diagram.core.draw.PathOp.LineTo(Point(axis.right, axis.top)),
+                    ),
+                ),
+                stroke = Stroke(width = 1f),
+                color = majorGridColor,
+                z = 2,
+            )
+            for ((index, tick) in ticks.withIndex()) {
                 val x = xOf(tick)
+                val labelRect = laid.nodePositions[NodeId("gantt:axisTickLabel:$tick")]
                 out += DrawCommand.StrokePath(
                     path = com.hrm.diagram.core.draw.PathCmd(
                         listOf(
-                            com.hrm.diagram.core.draw.PathOp.MoveTo(Point(x, axis.top)),
+                            com.hrm.diagram.core.draw.PathOp.MoveTo(Point(x, if (labelRect != null) scaleTop else axis.top)),
                             com.hrm.diagram.core.draw.PathOp.LineTo(Point(x, axis.bottom)),
                         ),
                     ),
-                    stroke = Stroke.Hairline,
-                    color = gridColor,
+                    stroke = if (labelRect != null) Stroke(width = 1f) else Stroke.Hairline,
+                    color = if (labelRect != null) majorGridColor else gridColor,
                     z = 1,
                 )
+                if (labelRect != null) {
+                    out += DrawCommand.DrawText(
+                        text = GanttAxisSupport.formatMinorTick(tick, axisFormat, tickInterval),
+                        origin = Point((labelRect.left + labelRect.right) / 2f, labelRect.bottom),
+                        font = axisFont,
+                        color = text,
+                        maxWidth = labelRect.size.width,
+                        anchorX = TextAnchorX.Center,
+                        anchorY = TextAnchorY.Bottom,
+                        z = 10,
+                    )
+                }
+                if (index == ticks.lastIndex) {
+                    out += DrawCommand.StrokePath(
+                        path = com.hrm.diagram.core.draw.PathCmd(
+                            listOf(
+                                com.hrm.diagram.core.draw.PathOp.MoveTo(Point(x, scaleTop)),
+                                com.hrm.diagram.core.draw.PathOp.LineTo(Point(x, axis.bottom)),
+                            ),
+                        ),
+                        stroke = Stroke(width = 1f),
+                        color = majorGridColor,
+                        z = 2,
+                    )
+                }
+            }
+            for (label in axisMajorLabels(ticks, tickInterval)) {
+                val labelRect = laid.nodePositions[label.first] ?: continue
                 out += DrawCommand.DrawText(
-                    text = formatAxisTick(tick, axisFormat),
-                    origin = Point(x + 2f, axis.top - 4f),
+                    text = label.second,
+                    origin = Point((labelRect.left + labelRect.right) / 2f, labelRect.bottom),
                     font = axisFont,
                     color = text,
-                    anchorX = TextAnchorX.Start,
+                    maxWidth = labelRect.size.width,
+                    anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Bottom,
                     z = 10,
                 )
@@ -261,6 +323,26 @@ internal class MermaidGanttSubPipeline(
             }
         }
 
+        return out
+    }
+
+    private fun axisMajorLabels(
+        ticks: List<Long>,
+        tickInterval: Long,
+    ): List<Pair<NodeId, String>> {
+        if (ticks.size < 2) return emptyList()
+        val out = ArrayList<Pair<NodeId, String>>()
+        var groupStartIndex = 0
+        var groupKey = GanttAxisSupport.majorTickKey(ticks.first(), tickInterval)
+        for (i in 1 until ticks.size) {
+            val key = if (i < ticks.lastIndex) GanttAxisSupport.majorTickKey(ticks[i], tickInterval) else null
+            if (key == groupKey) continue
+            val start = ticks[groupStartIndex]
+            val id = NodeId("gantt:axisMajorLabel:${groupKey}:$start")
+            out += id to GanttAxisSupport.formatMajorTick(start, tickInterval)
+            groupStartIndex = i
+            groupKey = key ?: groupKey
+        }
         return out
     }
 

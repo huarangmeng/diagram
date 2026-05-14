@@ -6,7 +6,10 @@ import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.JourneyIR
+import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,6 +40,41 @@ class MermaidJourneyIntegrationTest {
         assertTrue(one.diagnostics.isEmpty(), "one-shot diagnostics: ${one.diagnostics}")
         assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
         assertEquals(drawSignature(one.drawCommands), drawSignature(chunked.drawCommands))
+    }
+
+    @Test
+    fun journey_step_text_bands_do_not_overlap() {
+        val src =
+            """
+            journey
+              title My day
+              section Morning
+                Wake up: 3: Me
+                Coffee : 5: Me
+            """.trimIndent() + "\n"
+
+        val snap = run(src, chunkSize = src.length)
+        val ir = assertIs<JourneyIR>(snap.ir)
+        assertTrue(snap.diagnostics.isEmpty(), "diagnostics: ${snap.diagnostics}")
+
+        val measurer = HeuristicTextMeasurer()
+        val stepFont = FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600)
+        val actorFont = FontSpec(family = "sans-serif", sizeSp = 10f)
+        for ((stageIndex, stage) in ir.stages.withIndex()) {
+            for ((stepIndex, step) in stage.steps.withIndex()) {
+                val rect = snap.laidOut!!.nodePositions[NodeId("journey:step:$stageIndex:$stepIndex")]!!
+                val label = (step.label as RichLabel.Plain).text
+                val actors = step.actors.map { (it as RichLabel.Plain).text }.joinToString(", ")
+                val labelBottom = rect.top + 12f + measurer.measure(label, stepFont, rect.size.width - 12f).height
+                val scoreMetrics = measurer.measure("score ${step.score}", actorFont, rect.size.width - 12f)
+                val scoreTop = (rect.top + rect.bottom) / 2f - scoreMetrics.height / 2f
+                val scoreBottom = (rect.top + rect.bottom) / 2f + scoreMetrics.height / 2f
+                val actorTop = rect.bottom - 12f - measurer.measure(actors, actorFont, rect.size.width - 12f).height
+
+                assertTrue(labelBottom + 4f <= scoreTop, "label overlaps score for step $stageIndex:$stepIndex")
+                assertTrue(scoreBottom + 4f <= actorTop, "score overlaps actor for step $stageIndex:$stepIndex")
+            }
+        }
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.MERMAID).let { s ->

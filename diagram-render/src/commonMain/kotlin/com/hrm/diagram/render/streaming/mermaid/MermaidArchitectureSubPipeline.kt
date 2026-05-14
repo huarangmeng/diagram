@@ -80,8 +80,7 @@ internal class MermaidArchitectureSubPipeline(
         for (cluster in ir.clusters) {
             computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
         }
-        val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
-        val laidOut = baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
+        val laidOut = normalizeVisibleArea(baseLaid, clusterRects, seq)
         val drawCommands = render(ir, laidOut)
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
         val snapshot = DiagramSnapshot(
@@ -150,14 +149,55 @@ internal class MermaidArchitectureSubPipeline(
         return rect
     }
 
+    private fun normalizeVisibleArea(
+        baseLaid: LaidOutDiagram,
+        clusterRects: Map<NodeId, Rect>,
+        seq: Long,
+    ): LaidOutDiagram {
+        val allRects = baseLaid.nodePositions.values + clusterRects.values
+        val minLeft = allRects.minOfOrNull { it.left } ?: 0f
+        val minTop = allRects.minOfOrNull { it.top } ?: 0f
+        val dx = if (minLeft < 12f) 12f - minLeft else 0f
+        val dy = if (minTop < 12f) 12f - minTop else 0f
+        val shiftedNodes = if (dx != 0f || dy != 0f) {
+            baseLaid.nodePositions.mapValues { (_, rect) -> rect.shift(dx, dy) }
+        } else {
+            baseLaid.nodePositions
+        }
+        val shiftedClusters = if (dx != 0f || dy != 0f) {
+            clusterRects.mapValues { (_, rect) -> rect.shift(dx, dy) }
+        } else {
+            clusterRects
+        }
+        val shiftedRoutes = if (dx != 0f || dy != 0f) {
+            baseLaid.edgeRoutes.map { route ->
+                route.copy(points = route.points.map { point -> point.shift(dx, dy) })
+            }
+        } else {
+            baseLaid.edgeRoutes
+        }
+        val bounds = computeBounds(shiftedNodes.values + shiftedClusters.values)
+        return baseLaid.copy(
+            nodePositions = shiftedNodes,
+            edgeRoutes = shiftedRoutes,
+            clusterRects = shiftedClusters,
+            bounds = bounds,
+            seq = seq,
+        )
+    }
+
     private fun computeBounds(rects: Collection<Rect>): Rect {
         if (rects.isEmpty()) return Rect.ltrb(0f, 0f, 400f, 240f)
-        val minLeft = rects.minOf { it.left }.coerceAtMost(0f)
-        val minTop = rects.minOf { it.top }.coerceAtMost(0f)
         val maxRight = rects.maxOf { it.right }
         val maxBottom = rects.maxOf { it.bottom }
-        return Rect.ltrb(minLeft, minTop, maxRight + 20f, maxBottom + 20f)
+        return Rect.ltrb(0f, 0f, maxRight + 20f, maxBottom + 20f)
     }
+
+    private fun Rect.shift(dx: Float, dy: Float): Rect =
+        Rect(Point(left + dx, top + dy), size)
+
+    private fun Point.shift(dx: Float, dy: Float): Point =
+        Point(x + dx, y + dy)
 
     private fun render(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()

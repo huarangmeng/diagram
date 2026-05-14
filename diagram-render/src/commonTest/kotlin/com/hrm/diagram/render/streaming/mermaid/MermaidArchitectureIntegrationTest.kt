@@ -6,6 +6,7 @@ import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
@@ -64,6 +65,29 @@ class MermaidArchitectureIntegrationTest {
         assertTrue(strokes.contains(0xFF333333.toInt()) || strokes.contains(0xFF111111.toInt()))
         val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.color.argb }
         assertTrue(texts.contains(0xFF123456.toInt()) || texts.isNotEmpty())
+    }
+
+    @Test
+    fun architecture_single_service_group_stays_inside_visible_bounds() {
+        val src =
+            """
+            architecture-beta
+               group api(cloud)[API]
+               service db(database)[Database] in api
+            """.trimIndent() + "\n"
+
+        val snapshot = run(src, chunkSize = src.length)
+        val laidOut = snapshot.laidOut ?: error("missing layout")
+        val group = laidOut.clusterRects[NodeId("api")] ?: error("missing api group")
+        val db = laidOut.nodePositions[NodeId("db")] ?: error("missing db service")
+
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+        assertTrue(group.top >= 0f, "group must not be clipped above the canvas: $group")
+        assertTrue(db.top >= group.top, "service must remain inside the group: group=$group db=$db")
+        assertTrue(laidOut.bounds.top == 0f && laidOut.bounds.left == 0f, "bounds should be normalized to the visible canvas: ${laidOut.bounds}")
+        assertTrue(group.bottom <= laidOut.bounds.bottom && group.right <= laidOut.bounds.right, "group must fit inside bounds: group=$group bounds=${laidOut.bounds}")
+        assertTrue(snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "API" })
+        assertTrue(snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Database" })
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.MERMAID).let { s ->

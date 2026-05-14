@@ -44,6 +44,10 @@ class PlantUmlErdParser {
         const val ER_ATTRIBUTE_FLAGS_KEY = "plantuml.erd.attribute.flags"
         const val ER_NOTE_TARGET_KEY = "plantuml.erd.note.target"
         const val ER_NOTE_PLACEMENT_KEY = "plantuml.erd.note.placement"
+        const val ER_RELATION_OP_KEY = "plantuml.erd.relation.op"
+        const val ER_RELATION_LEFT_KEY = "plantuml.erd.relation.left"
+        const val ER_RELATION_RIGHT_KEY = "plantuml.erd.relation.right"
+        const val ER_RELATION_LINE_KEY = "plantuml.erd.relation.line"
         private val IDENT = Regex("[A-Za-z0-9_.:-]+")
         private val REL_OP = Regex("[|}{o.\\-]+")
         private val ANCHORED_NOTE = Regex(
@@ -214,26 +218,44 @@ class PlantUmlErdParser {
         val op = match.groupValues[2]
         val b = NodeId(match.groupValues[3])
         val label = match.groupValues.getOrNull(4)?.trim().orEmpty().takeIf { it.isNotEmpty() }
+        val relation = parseRelationshipOperator(op)
+            ?: return errorBatch("Invalid relationship operator (expected crowfoot connector with -- or ..)")
         val patches = ArrayList<IrPatch>()
         registerEntity(a, a.value, patches)
         registerEntity(b, b.value, patches)
-        val fullLabel = buildString {
-            append(op)
-            if (!label.isNullOrBlank()) {
-                append(' ')
-                append(label)
-            }
-        }
         val edge = Edge(
             from = a,
             to = b,
-            label = RichLabel.Plain(fullLabel),
+            label = label?.let(RichLabel::Plain),
             arrow = ArrowEnds.None,
             style = relationshipStyleFor(op),
+            payload = mapOf(
+                ER_RELATION_OP_KEY to op,
+                ER_RELATION_LEFT_KEY to relation.left,
+                ER_RELATION_RIGHT_KEY to relation.right,
+                ER_RELATION_LINE_KEY to relation.line,
+            ),
         )
         edges += edge
         patches += IrPatch.AddEdge(edge)
         return IrPatchBatch(seq, patches)
+    }
+
+    private fun parseRelationshipOperator(op: String): RelationshipOperator? {
+        val dashed = op.indexOf("..")
+        val solid = op.indexOf("--")
+        val connectorIndex = when {
+            dashed >= 0 && solid >= 0 -> minOf(dashed, solid)
+            dashed >= 0 -> dashed
+            solid >= 0 -> solid
+            else -> return null
+        }
+        val connector = op.substring(connectorIndex, connectorIndex + 2)
+        return RelationshipOperator(
+            left = op.substring(0, connectorIndex),
+            right = op.substring(connectorIndex + 2),
+            line = if (connector == "..") "dashed" else "solid",
+        )
     }
 
     private fun parseNoteLine(line: String): IrPatchBatch {
@@ -462,4 +484,5 @@ class PlantUmlErdParser {
     }
 
     private data class AliasSpec(val id: String, val label: String)
+    private data class RelationshipOperator(val left: String, val right: String, val line: String)
 }

@@ -58,6 +58,8 @@ class MermaidRequirementParserTest {
         val reqLabel = labelTextOf(req.label)
         assertTrue(reqLabel.contains("<<Requirement>>"))
         assertTrue(reqLabel.contains("Risk: High"))
+        assertEquals("1", req.payload[MermaidRequirementParser.REQUIREMENT_ID_KEY])
+        assertEquals("the test text.", req.payload[MermaidRequirementParser.REQUIREMENT_TEXT_KEY])
         val relLabel = (ir.edges.single().label as? RichLabel.Plain)?.text.orEmpty()
         assertEquals("<<satisfies>>", relLabel)
         assertTrue(parser.diagnosticsSnapshot().isEmpty(), "diagnostics=${parser.diagnosticsSnapshot()}")

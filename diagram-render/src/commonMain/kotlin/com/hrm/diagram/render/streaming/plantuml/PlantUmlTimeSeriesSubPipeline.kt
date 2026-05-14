@@ -104,23 +104,23 @@ internal class PlantUmlTimeSeriesSubPipeline(
                 continue
             }
             if (isTiming && timingKind == "constraint") {
-                drawTimingConstraint(item, bar, labelRect, out)
+                drawTimingConstraint(item, bar, out)
                 continue
             }
             if (isTiming && timingKind == "timeLabel") {
-                drawTimingTimeLabel(item, bar, laid, labelRect, out)
+                drawTimingTimeLabel(item, bar, laid, out)
                 continue
             }
             if (isTiming && item.payload["timing.trackKind"] in setOf("binary", "clock")) {
-                drawTimingWaveSegment(item, bar, labelRect, out)
+                drawTimingWaveSegment(item, bar, out)
                 continue
             }
             if (isTiming && item.payload["timing.trackKind"] == "robust") {
-                drawTimingRobustSegment(item, bar, labelRect, out)
+                drawTimingRobustSegment(item, bar, out)
                 continue
             }
             if (isTiming && item.payload["timing.trackKind"] == "concise") {
-                drawTimingConciseSegment(item, bar, labelRect, ir, out)
+                drawTimingConciseSegment(item, bar, ir, out)
                 continue
             }
             if (!isTiming && item.payload["gantt.kind"] == "milestone") {
@@ -354,11 +354,9 @@ internal class PlantUmlTimeSeriesSubPipeline(
     private fun drawTimingWaveSegment(
         item: com.hrm.diagram.core.ir.TimeItem,
         bar: Rect,
-        labelRect: Rect?,
         out: MutableList<DrawCommand>,
     ) {
         val state = item.payload["timing.state"] ?: labelText(item.label)
-        val display = labelText(item.label)
         val high = state.lowercase() in setOf("high", "on", "true", "1")
         val yHigh = bar.top + 6f
         val yLow = bar.bottom - 6f
@@ -378,15 +376,11 @@ internal class PlantUmlTimeSeriesSubPipeline(
             edgeColor,
             z = 8,
         )
-        labelRect?.let {
-            out += DrawCommand.DrawText(display, Point(it.left, it.top), itemFont, Color(0xFF263238.toInt()), maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
-        }
     }
 
     private fun drawTimingConciseSegment(
         item: com.hrm.diagram.core.ir.TimeItem,
         bar: Rect,
-        labelRect: Rect?,
         ir: TimeSeriesIR,
         out: MutableList<DrawCommand>,
     ) {
@@ -408,9 +402,6 @@ internal class PlantUmlTimeSeriesSubPipeline(
                     z = 5,
                 )
             }
-        }
-        labelRect?.let {
-            out += DrawCommand.DrawText(display, Point(it.left, it.top), itemFont, Color(0xFF263238.toInt()), maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
         }
         out += DrawCommand.DrawText(
             display,
@@ -448,7 +439,6 @@ internal class PlantUmlTimeSeriesSubPipeline(
     private fun drawTimingRobustSegment(
         item: com.hrm.diagram.core.ir.TimeItem,
         bar: Rect,
-        labelRect: Rect?,
         out: MutableList<DrawCommand>,
     ) {
         val state = item.payload["timing.state"] ?: labelText(item.label)
@@ -469,9 +459,6 @@ internal class PlantUmlTimeSeriesSubPipeline(
             accent,
             z = 5,
         )
-        labelRect?.let {
-            out += DrawCommand.DrawText(display, Point(it.left, it.top), itemFont, Color(0xFF263238.toInt()), maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
-        }
         out += DrawCommand.DrawText(
             display,
             Point((bar.left + bar.right) / 2f, (bar.top + bar.bottom) / 2f),
@@ -522,7 +509,6 @@ internal class PlantUmlTimeSeriesSubPipeline(
     private fun drawTimingConstraint(
         item: com.hrm.diagram.core.ir.TimeItem,
         bar: Rect,
-        labelRect: Rect?,
         out: MutableList<DrawCommand>,
     ) {
         val color = Color(0xFF6D4C41.toInt())
@@ -551,16 +537,22 @@ internal class PlantUmlTimeSeriesSubPipeline(
             color,
             z = 7,
         )
-        labelRect?.let {
-            out += DrawCommand.DrawText(labelText(item.label), Point(it.left, it.top), itemFont, color, maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
-        }
+        out += DrawCommand.DrawText(
+            labelText(item.label),
+            Point((bar.left + bar.right) / 2f, bar.top - 4f),
+            itemFont,
+            color,
+            maxWidth = (bar.size.width - 8f).coerceAtLeast(40f),
+            anchorX = TextAnchorX.Center,
+            anchorY = TextAnchorY.Bottom,
+            z = 10,
+        )
     }
 
     private fun drawTimingTimeLabel(
         item: com.hrm.diagram.core.ir.TimeItem,
         marker: Rect,
         laid: LaidOutDiagram,
-        labelRect: Rect?,
         out: MutableList<DrawCommand>,
     ) {
         val axis = laid.nodePositions[NodeId("gantt:axis")]
@@ -574,11 +566,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
             color,
             z = 7,
         )
-        labelRect?.let {
-            out += DrawCommand.DrawText(labelText(item.label), Point(it.left, it.top), itemFont, color, maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
-        } ?: run {
-            out += DrawCommand.DrawText(labelText(item.label), Point(x + 4f, marker.top), itemFont, color, maxWidth = 140f, anchorY = TextAnchorY.Top, z = 10)
-        }
+        out += DrawCommand.DrawText(labelText(item.label), Point(x + 4f, top + 4f), itemFont, color, maxWidth = 140f, anchorY = TextAnchorY.Top, z = 10)
     }
 
     private fun labelText(label: RichLabel): String =

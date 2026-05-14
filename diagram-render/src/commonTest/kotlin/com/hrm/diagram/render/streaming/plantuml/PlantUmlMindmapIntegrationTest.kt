@@ -59,6 +59,35 @@ class PlantUmlMindmapIntegrationTest {
     }
 
     @Test
+    fun org_style_sample_expands_across_mindmap_levels() {
+        val snapshot = run(
+            """
+            @startmindmap
+            * root
+            ** A
+            *** A1
+            ** B
+            @endmindmap
+            """.trimIndent() + "\n",
+            6,
+        )
+        val ir = assertIs<TreeIR>(snapshot.ir)
+        val laidOut = assertNotNull(snapshot.laidOut)
+        val rootRect = laidOut.nodePositions.getValue(ir.root.id)
+        val nodeA = ir.root.children.first { (it.label as RichLabel.Plain).text == "A" }
+        val nodeB = ir.root.children.first { (it.label as RichLabel.Plain).text == "B" }
+        val nodeA1 = nodeA.children.single()
+        val rectA = laidOut.nodePositions.getValue(nodeA.id)
+        val rectA1 = laidOut.nodePositions.getValue(nodeA1.id)
+        val rectB = laidOut.nodePositions.getValue(nodeB.id)
+
+        assertTrue(rectA.right <= rootRect.left, "first auto branch should be placed to the left of root")
+        assertTrue(rectA1.right <= rectA.left, "deeper descendant should continue away from root")
+        assertTrue(rectB.left >= rootRect.right, "second auto branch should be placed to the right of root")
+        assertTrue(laidOut.bounds.right >= rectB.right, "layout bounds should include the right branch")
+    }
+
+    @Test
     fun stereotype_is_rendered_as_separate_title_line() {
         val snapshot = run(
             """

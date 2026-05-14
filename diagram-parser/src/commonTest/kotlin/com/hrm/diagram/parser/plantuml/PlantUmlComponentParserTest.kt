@@ -129,6 +129,26 @@ class PlantUmlComponentParserTest {
     }
 
     @Test
+    fun bracket_endpoint_relations_create_implicit_component_nodes() {
+        val ir = assertIs<GraphIR>(
+            parse(
+                """
+                [Web] --> [API]
+                [API] --> [DB] : queries
+                """.trimIndent() + "\n",
+            ).snapshot(),
+        )
+        assertTrue(ir.nodes.any { it.id == NodeId("Web") && it.shape == NodeShape.Component })
+        assertTrue(ir.nodes.any { it.id == NodeId("API") && it.shape == NodeShape.Component })
+        assertTrue(ir.nodes.any { it.id == NodeId("DB") && it.shape == NodeShape.Component })
+        assertEquals(2, ir.edges.size)
+        assertEquals(ArrowEnds.ToOnly, ir.edges[0].arrow)
+        assertEquals(NodeId("Web"), ir.edges[0].from)
+        assertEquals(NodeId("API"), ir.edges[0].to)
+        assertEquals(RichLabel.Plain("queries"), ir.edges[1].label)
+    }
+
+    @Test
     fun relations_parse_arrow_and_dash_variants() {
         val ir = assertIs<GraphIR>(
             parse(
