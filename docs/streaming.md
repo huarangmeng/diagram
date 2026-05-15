@@ -143,6 +143,7 @@ sealed interface IrPatch {
 ### 3.5 Render（DrawCommand 增量 + Compose 复用）
 
 - `SessionPatch.addedDrawCommands` 仅含新增；UI 层在 Canvas 内做 `key()` 化，已绘节点用 `Modifier.drawWithCache` 复用 path。
+- `:diagram-render` 使用 `DrawCommandStore` 维护 session-local 完整帧与增量帧：现有 renderer 可通过 full-frame seam 迁移，新增/重构 renderer 应优先使用 stable entity key（node/edge/cluster）提交 delta，避免把已存在图元的坐标/样式更新误报为新增。
 - 文本测量缓存：`TextMeasurer` 结果以 `(text, style, maxWidth)` 三元组为键缓存，避免重复测量。
 - 视口剔除（viewport culling）：基于四叉树空间索引，仅绘制可见区域 DrawCommand；在万节点场景仍可保持 60fps。
 

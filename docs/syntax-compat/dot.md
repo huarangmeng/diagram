@@ -12,10 +12,11 @@
 | 端口 | ✅ | `node:port:compass` (n/ne/e/se/s/sw/w/nw) | 6 | port/compass 已保留到 edge payload，渲染端按 compass 改写路径首尾锚点 |
 | 节点属性 | ✅ | shape、style(`filled`/`dashed`/`rounded`/`bold`/`italic`)、color、fillcolor、fontname/fontsize、fontcolor、label、tooltip、URL/href | 6 | 视觉属性已生效；tooltip 保留 payload；URL/href 渲染为 `DrawCommand.Hyperlink` |
 | 边属性 | ✅ | label/headlabel/taillabel、arrowhead/arrowtail、style、color、penwidth、constraint、weight | 6 | label/headlabel/taillabel 与箭头/线型已渲染；`constraint=false` 不参与分层；weight 保留 payload |
-| 图属性 | ✅ | rankdir(LR/TB/RL/BT)、ranksep、nodesep、splines、bgcolor | 6 | rankdir/ranksep/nodesep/bgcolor 已生效；splines 作为提示保留，统一走内部 Bezier/Sugiyama routing |
+| 图属性 | ✅ | rankdir(LR/TB/RL/BT)、ranksep、nodesep、splines、bgcolor | 6 | rankdir/ranksep/nodesep/bgcolor 已生效；splines 作为提示保留，统一走内部 Bezier/Sugiyama routing；final reflow 会按邻居重心居中较窄 rank |
 | Rank 约束 | ✅ | `{rank=same; a; b}`, `rank=min/max/source/sink` | 6 | full reflow 阶段会强制调整 Sugiyama layer；streaming 增量阶段仍保持 pinned layout |
 | HTML-like label | ✅ | TABLE/TR/TD、PORT、IMG、字体修饰 | 6 | TABLE/TR/TD/BR 会清洗为多行纯文本并解码基础 entity；FONT/B/I 会映射到文本字体/字号/颜色/粗斜体；PORT/IMG 作为文本兼容，不做嵌入图片/table cell layout |
 | 注释 | ✅ | `//`, `/* */`, `#` 行首 | 6 | |
+| Streaming 增量 | ✅ | statement-level parser、`SessionPatch.addedDrawCommands` delta | 6 | DOT session 按 `;` / `}` / 换行 safe point 推进完整 statement，不再在 append 时对累计源码做 `source.toString()` 全量解析；渲染 patch 通过 `DrawCommandStore` 避免空闲 append 重放整帧 |
 | 不支持 | — | `neato/fdp/twopi/circo` 专属布局指令视为提示，统一走 Sugiyama；记录 RenderWarning | 6 | |
 
 ## 文档参考

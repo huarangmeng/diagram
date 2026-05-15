@@ -50,6 +50,15 @@ class GanttLayout(
         val topAxisH = 42f
         val axisToRowsGap = 10f
         val compactMode = model.styleHints.extras["gantt.displayMode"]?.equals("compact", ignoreCase = true) == true
+        val vertItems = model.items.filter { it.payload["gantt.kind"] == "vert" }
+        val topMarkerLaneH = if (vertItems.isEmpty()) {
+            0f
+        } else {
+            vertItems.maxOf { item ->
+                val labelText = (item.label as? RichLabel.Plain)?.text ?: item.id.value
+                textMeasurer.measure(labelText, itemFont, maxWidth = 120f).height
+            } + 14f
+        }
 
         var y = pad
         model.title?.takeIf { it.isNotBlank() }?.let { t ->
@@ -59,7 +68,8 @@ class GanttLayout(
             y += m.height + 10f
         }
 
-        val axisTop = y + topAxisH
+        val topMarkerLaneTop = y
+        val axisTop = y + topMarkerLaneH + topAxisH
         val axisLeft = pad + leftLabelW + chartPad
         val axisWidth = 560f
         var axisBottom = axisTop
@@ -71,8 +81,6 @@ class GanttLayout(
             val t = ((ms - range.startMs).toDouble() / span).coerceIn(0.0, 1.0)
             return (axisLeft + (axisWidth * t)).toFloat()
         }
-
-        val vertItems = model.items.filter { it.payload["gantt.kind"] == "vert" }
 
         for (track in model.tracks) {
             val trackId = NodeId("gantt:track:${track.id.value}")
@@ -133,8 +141,14 @@ class GanttLayout(
             nodePositions[markerId] = pin(prevPos, markerId, markerRect, options)
             val labelText = (item.label as? RichLabel.Plain)?.text ?: item.id.value
             val metrics = textMeasurer.measure(labelText, itemFont, maxWidth = 120f)
+            val preferredLeft = if (centerX + metrics.width + 8f <= axisRect.right) {
+                centerX + 8f
+            } else {
+                centerX - metrics.width - 8f
+            }
+            val labelLeft = preferredLeft.coerceIn(axisRect.left + 4f, axisRect.right - metrics.width - 4f)
             val labelRect = Rect(
-                Point((centerX - metrics.width / 2f).coerceAtLeast(axisLeft), axisTop - metrics.height - 8f),
+                Point(labelLeft, topMarkerLaneTop + (topMarkerLaneH - metrics.height) / 2f),
                 Size(metrics.width, metrics.height),
             )
             nodePositions[labelId] = pin(prevPos, labelId, labelRect, options)
@@ -202,8 +216,7 @@ class GanttLayout(
             val cellWidth = right - left
             if (cellWidth < 14f) continue
             val label = GanttAxisSupport.formatMinorTick(tick, axisFormat, tickInterval)
-            val maxLabelWidth = (cellWidth - 6f).coerceAtLeast(8f)
-            val metrics = textMeasurer.measure(label, axisFont, maxWidth = maxLabelWidth)
+            val metrics = textMeasurer.measure(label, axisFont)
             if (metrics.width > cellWidth - 4f) continue
             val rect = Rect(
                 Point(left + (cellWidth - metrics.width) / 2f, axisRect.top - metrics.height - 4f),
@@ -236,7 +249,7 @@ class GanttLayout(
             val width = right - left
             if (width >= 32f) {
                 val label = GanttAxisSupport.formatMajorTick(start, tickInterval)
-                val metrics = textMeasurer.measure(label, axisFont, maxWidth = width - 8f)
+                val metrics = textMeasurer.measure(label, axisFont)
                 if (metrics.width <= width - 6f) {
                     val rect = Rect(
                         Point(left + (width - metrics.width) / 2f, axisRect.top - metrics.height * 2f - 10f),

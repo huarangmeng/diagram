@@ -7,28 +7,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke as ComposeStroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
+import com.hrm.diagram.core.draw.ArrowHead
+import com.hrm.diagram.core.draw.ArrowStyle
 import com.hrm.diagram.core.draw.Color as DiagramColor
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.PathCmd
 import com.hrm.diagram.core.draw.PathOp
+import com.hrm.diagram.core.draw.Point as DiagramPoint
 import com.hrm.diagram.core.draw.Rect as DiagramRect
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
  * Renders a [DiagramSnapshot]'s `drawCommands` into a Compose [Canvas]. Pure projection: the
@@ -111,11 +118,7 @@ private fun DrawScope.execute(cmd: DrawCommand, measurer: TextMeasurer) {
             )
         }
         is DrawCommand.DrawArrow -> {
-            val path = Path().apply {
-                moveTo(cmd.from.x, cmd.from.y)
-                lineTo(cmd.to.x, cmd.to.y)
-            }
-            drawPath(path = path, color = ComposeColor.Black, style = ComposeStroke(width = 1.5f))
+            drawArrow(cmd.from, cmd.to, cmd.style)
         }
         is DrawCommand.DrawIcon -> Unit
         is DrawCommand.Hyperlink -> Unit
@@ -144,6 +147,87 @@ private fun DrawScope.execute(cmd: DrawCommand, measurer: TextMeasurer) {
     }
 }
 
+private fun DrawScope.drawArrow(from: DiagramPoint, to: DiagramPoint, style: ArrowStyle) {
+    val color = style.color.toCompose()
+    val pathEffect = style.stroke.dash?.takeIf { it.isNotEmpty() }?.let {
+        PathEffect.dashPathEffect(it.toFloatArray(), 0f)
+    }
+    drawLine(
+        color = color,
+        start = Offset(from.x, from.y),
+        end = Offset(to.x, to.y),
+        strokeWidth = style.stroke.width,
+        pathEffect = pathEffect,
+    )
+    drawArrowHead(from, to, style.head, style)
+    drawArrowHead(to, from, style.tail, style)
+}
+
+private fun DrawScope.drawArrowHead(baseAnchor: DiagramPoint, tip: DiagramPoint, head: ArrowHead, style: ArrowStyle) {
+    if (head == ArrowHead.None) return
+    val angle = atan2((tip.y - baseAnchor.y).toDouble(), (tip.x - baseAnchor.x).toDouble())
+    val size = 8f * style.stroke.width.coerceAtLeast(1f)
+    val color = style.color.toCompose()
+    val stroke = ComposeStroke(width = style.stroke.width.coerceAtLeast(1f))
+
+    fun offset(x: Float, y: Float): Offset {
+        val ca = cos(angle)
+        val sa = sin(angle)
+        return Offset(
+            x = tip.x + (x * ca - y * sa).toFloat(),
+            y = tip.y + (x * sa + y * ca).toFloat(),
+        )
+    }
+
+    when (head) {
+        ArrowHead.Triangle, ArrowHead.OpenTriangle -> {
+            val p1 = offset(-size, -size / 2f)
+            val p2 = offset(-size, size / 2f)
+            val path = Path().apply {
+                moveTo(tip.x, tip.y)
+                lineTo(p1.x, p1.y)
+                lineTo(p2.x, p2.y)
+                close()
+            }
+            if (head == ArrowHead.Triangle) drawPath(path, color, style = Fill)
+            drawPath(path, color, style = stroke)
+        }
+        ArrowHead.Diamond, ArrowHead.OpenDiamond -> {
+            val p1 = offset(-size / 2f, -size / 3f)
+            val p2 = offset(-size, 0f)
+            val p3 = offset(-size / 2f, size / 3f)
+            val path = Path().apply {
+                moveTo(tip.x, tip.y)
+                lineTo(p1.x, p1.y)
+                lineTo(p2.x, p2.y)
+                lineTo(p3.x, p3.y)
+                close()
+            }
+            if (head == ArrowHead.Diamond) drawPath(path, color, style = Fill)
+            drawPath(path, color, style = stroke)
+        }
+        ArrowHead.Circle, ArrowHead.OpenCircle -> {
+            val center = offset(-size / 2f, 0f)
+            if (head == ArrowHead.Circle) drawCircle(color, radius = size / 2f, center = center, style = Fill)
+            drawCircle(color, radius = size / 2f, center = center, style = stroke)
+        }
+        ArrowHead.Bar -> {
+            val p1 = offset(0f, -size / 2f)
+            val p2 = offset(0f, size / 2f)
+            drawLine(color, p1, p2, strokeWidth = style.stroke.width.coerceAtLeast(1f))
+        }
+        ArrowHead.Cross -> {
+            val a1 = offset(-size / 2f, -size / 2f)
+            val a2 = offset(size / 2f, size / 2f)
+            val b1 = offset(-size / 2f, size / 2f)
+            val b2 = offset(size / 2f, -size / 2f)
+            drawLine(color, a1, a2, strokeWidth = style.stroke.width.coerceAtLeast(1f))
+            drawLine(color, b1, b2, strokeWidth = style.stroke.width.coerceAtLeast(1f))
+        }
+        ArrowHead.None -> Unit
+    }
+}
+
 private fun DrawScope.drawDiagramRect(
     rect: DiagramRect,
     color: DiagramColor,
@@ -164,7 +248,7 @@ private fun DrawScope.drawDiagramRect(
     }
 }
 
-private fun DiagramColor.toCompose(): ComposeColor = ComposeColor(argb)
+private fun DiagramColor.toCompose(): Color = Color(argb)
 
 private fun PathCmd.toComposePath(): Path {
     val path = Path()

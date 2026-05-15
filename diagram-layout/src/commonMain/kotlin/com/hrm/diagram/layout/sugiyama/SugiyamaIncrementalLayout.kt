@@ -1,19 +1,26 @@
 package com.hrm.diagram.layout.sugiyama
 
+import com.hrm.diagram.core.draw.Point
 import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Size
+import com.hrm.diagram.core.ir.Direction
+import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
+import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.internal.CoordinateAssignment
 import com.hrm.diagram.layout.sugiyama.internal.CrossingMinimization
 import com.hrm.diagram.layout.sugiyama.internal.CycleRemoval
 import com.hrm.diagram.layout.sugiyama.internal.LayerAssignment
 import com.hrm.diagram.layout.sugiyama.internal.LayeredGraph
 import com.hrm.diagram.layout.sugiyama.routing.BezierEdgeRouter
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Sugiyama-style layered layout for [GraphIR], with streaming-friendly pinning.
@@ -83,6 +90,8 @@ internal class SugiyamaIncrementalLayout(
         CrossingMinimization.minimize(model.edges, reversed, cache)
         val placement = CoordinateAssignment.assign(
             graph = cache,
+            edges = model.edges,
+            reversed = reversed,
             nodeSizeOf = nodeSizeOf,
             nodeSpacing = options.nodeSpacing,
             rankSpacing = options.rankSpacing,
@@ -96,17 +105,121 @@ internal class SugiyamaIncrementalLayout(
         val routes: List<EdgeRoute> = model.edges.mapNotNull { e ->
             val a = rectCache[e.from] ?: return@mapNotNull null
             val b = rectCache[e.to] ?: return@mapNotNull null
-            BezierEdgeRouter.route(e.from, a, e.to, b, options.direction)
+            routeEdge(e, a, b, options)
         }
         val pad = options.padding
-        val maxRight = (rectCache.values.maxOfOrNull { it.right } ?: 0f) + pad.right
-        val maxBottom = (rectCache.values.maxOfOrNull { it.bottom } ?: 0f) + pad.bottom
+        val routePoints = routes.flatMap { it.points }
+        val maxRight = max(
+            rectCache.values.maxOfOrNull { it.right } ?: 0f,
+            routePoints.maxOfOrNull { it.x } ?: 0f,
+        ) + pad.right
+        val maxBottom = max(
+            rectCache.values.maxOfOrNull { it.bottom } ?: 0f,
+            routePoints.maxOfOrNull { it.y } ?: 0f,
+        ) + pad.bottom
         return LaidOutDiagram(
             source = model,
             nodePositions = LinkedHashMap(rectCache),
             edgeRoutes = routes,
             bounds = Rect.ltrb(0f, 0f, maxRight, maxBottom),
             seq = 0L,
+        )
+    }
+
+    private fun routeEdge(
+        edge: Edge,
+        fromRect: Rect,
+        toRect: Rect,
+        options: LayoutOptions,
+    ): EdgeRoute {
+        val base = BezierEdgeRouter.route(edge.from, fromRect, edge.to, toRect, options.direction)
+        val fromLayer = cache.layer[edge.from] ?: return base
+        val toLayer = cache.layer[edge.to] ?: return base
+        if (abs(toLayer - fromLayer) <= 1) return base
+        val horizontal = options.direction == Direction.LR || options.direction == Direction.RL
+        val blockers = intermediateBlockers(
+            from = edge.from,
+            to = edge.to,
+            fromLayer = fromLayer,
+            toLayer = toLayer,
+            start = base.points.first(),
+            end = base.points.last(),
+            horizontal = horizontal,
+            clearance = max(6f, options.nodeSpacing / 4f),
+        )
+        if (blockers.isEmpty()) return base
+        return if (horizontal) routeAroundHorizontal(edge, base.points.first(), base.points.last(), blockers, options)
+        else routeAroundVertical(edge, base.points.first(), base.points.last(), blockers, options)
+    }
+
+    private fun intermediateBlockers(
+        from: NodeId,
+        to: NodeId,
+        fromLayer: Int,
+        toLayer: Int,
+        start: Point,
+        end: Point,
+        horizontal: Boolean,
+        clearance: Float,
+    ): List<Rect> {
+        val lowLayer = min(fromLayer, toLayer)
+        val highLayer = max(fromLayer, toLayer)
+        val lowAxis = if (horizontal) min(start.x, end.x) else min(start.y, end.y)
+        val highAxis = if (horizontal) max(start.x, end.x) else max(start.y, end.y)
+        val cross = if (horizontal) start.y else start.x
+        return rectCache.mapNotNull { (id, rect) ->
+            if (id == from || id == to) return@mapNotNull null
+            val layer = cache.layer[id] ?: return@mapNotNull null
+            if (layer <= lowLayer || layer >= highLayer) return@mapNotNull null
+            if (horizontal) {
+                val crossesY = cross >= rect.top - clearance && cross <= rect.bottom + clearance
+                val spansX = rect.right >= lowAxis && rect.left <= highAxis
+                rect.takeIf { crossesY && spansX }
+            } else {
+                val crossesX = cross >= rect.left - clearance && cross <= rect.right + clearance
+                val spansY = rect.bottom >= lowAxis && rect.top <= highAxis
+                rect.takeIf { crossesX && spansY }
+            }
+        }
+    }
+
+    private fun routeAroundVertical(
+        edge: Edge,
+        start: Point,
+        end: Point,
+        blockers: List<Rect>,
+        options: LayoutOptions,
+    ): EdgeRoute {
+        val laneX = blockers.maxOf { it.right } + max(18f, options.nodeSpacing / 2f)
+        val sign = if (end.y >= start.y) 1f else -1f
+        val elbow = min(abs(end.y - start.y) / 3f, options.rankSpacing / 2f).coerceAtLeast(12f)
+        val y1 = start.y + sign * elbow
+        val y2 = end.y - sign * elbow
+        return EdgeRoute(
+            from = edge.from,
+            to = edge.to,
+            points = listOf(start, Point(start.x, y1), Point(laneX, y1), Point(laneX, y2), Point(end.x, y2), end),
+            kind = RouteKind.Orthogonal,
+        )
+    }
+
+    private fun routeAroundHorizontal(
+        edge: Edge,
+        start: Point,
+        end: Point,
+        blockers: List<Rect>,
+        options: LayoutOptions,
+    ): EdgeRoute {
+        val laneY = blockers.maxOf { it.bottom } + max(18f, options.nodeSpacing / 2f)
+        val sign = if (end.x >= start.x) 1f else -1f
+        val elbow = min(abs(end.x - start.x) / 3f, options.rankSpacing / 2f).coerceAtLeast(12f)
+        val x1 = start.x + sign * elbow
+        val x2 = end.x - sign * elbow
+        return EdgeRoute(
+            from = edge.from,
+            to = edge.to,
+            points = listOf(start, Point(x1, start.y), Point(x1, laneY), Point(x2, laneY), Point(x2, end.y), end),
+            kind = RouteKind.Orthogonal,
         )
     }
 

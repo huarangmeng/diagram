@@ -94,6 +94,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 ```
 
 > 仍处于演进期：模块骨架已建，但 Phase 1 之后的能力尚未全部补齐，仍以 `docs/plan.md` 为交付路线。
+> 当前 streaming 渲染已通过 `DrawCommandStore` 收敛 patch 语义：`DiagramSnapshot.drawCommands` 保持完整帧，`SessionPatch.addedDrawCommands` 只表达本轮新增命令；DOT session 使用 statement-level 增量 parser，禁止回退到 append 时全文 `source.toString()` 重解析。
 
 ---
 
@@ -110,6 +111,8 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 # 测试（commonTest 跨平台跑）
 ./gradlew allTests
 ./gradlew :composeApp:jvmTest
+# 定向测试用具体平台任务；聚合 allTests 不支持 --tests
+./gradlew :diagram-parser:jvmTest :diagram-render:jvmTest --tests '*Dot*'
 
 # iOS：用 Xcode 打开 iosApp/
 ```
@@ -127,6 +130,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 7. **测试**：每个语法子模块必须有 `commonTest` 黄金语料快照；每个布局算法必须有确定性种子的坐标快照。
 8. **公开 API 注释**：所有 `public` 类/函数加 KDoc，给出最小用法示例。
 9. **命名**：`*Parser`、`*Lexer`、`*Layout`、`*Renderer`、`*IR`；避免 `Util/Helper/Manager` 这类空泛后缀。
+10. **图表排版分层**：Graph 类图型应先布局 primary graph，再处理 port、anchored note、edge label 等 decoration；decoration 不应直接参与 Sugiyama 主图排层，避免 package/component/note/edge label 互相挤占业务节点空间。
 
 ---
 
@@ -143,61 +147,3 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 7. 不要修改"关键决策"表里的内容；要改先和用户确认。
 
 ---
-
-## 8. 当前进度
-
-- ✅ Phase -1：用户需求澄清、计划评审通过。
-- ✅ Phase 0（已完成）：
-  - ✅ **4 个** KMP 子模块骨架已建（`:diagram-core` / `:diagram-layout` / `:diagram-parser` / `:diagram-render`），JVM target 全部编译通过；`:diagram-core:jvmTest` 烟雾测试通过。
-  - ✅ `:diagram-core` 落地：IR 14 个家族 + DrawCommand 指令集 + DiagramTheme(Default/Dark) + RandomSource + LayoutOptions + SVG 导出骨架（`SvgWriter` + `Snapshot` 工具，8 用例字符串快照通过）。
-  - ✅ `composeApp` Demo gallery 框架（左侧三语种 42 个内置样例分类列表 + 中间源码编辑区 + 右侧 DiagramView 占位 + 底部 Diagnostics 面板，jvmMain 编译通过）。
-- ✅ Phase 1（已完成）：
-  - ✅ Mermaid 流式主链路已打通：`Diagram.session(...)`、`rememberDiagramSession(...)`、`MermaidSessionPipeline` 已落地，支持 append-only session 与 Compose `TextMeasurer` 接入。
-  - ✅ Mermaid **flowchart / sequenceDiagram / classDiagram / stateDiagram / erDiagram** 已有自研 lexer/parser + layout + render 子流水线，并配套 `commonTest`。
-  - ✅ `:diagram-layout` 已落地 Sugiyama、sequence、class、state 几类布局入口；`:diagram-render` 已有 `DiagramCanvas`、测量缓存、quadtree 等基础渲染设施。
-  - ✅ Mermaid 样式链路已收口到渲染消费：`classDef` / `style` / `linkStyle` / `:::` 等可在 streaming 会话中被解析并真实影响 DrawCommand（`sequenceDiagram` 仍以 Mermaid 官方“CSS class”样式体系为主）。
-  - ✅ 对会影响文本测量与几何的样式属性（如字体、字号、padding），当前策略已固定为：增量阶段不做局部重排，统一延迟到 `finish()` 收敛，避免破坏 pinned layout 契约。
-  - ✅ 已补齐 Mermaid 官方样例验收集：覆盖 Phase 1 五图型的多组官方样例，并包含 one-shot vs chunked + Graph/DrawCommand 精简签名一致性校验。
-  - ✅ 已修复：`erDiagram` 最终态（`finish()`）渲染为“实体框内嵌属性列表”（增量态内部仍保留属性节点以满足 append-only IR 与 pinned layout，最终渲染阶段折叠隐藏）。
-  - ✅ 已修复：Mermaid 颜色值支持 CSS 颜色关键字与 `rgb/rgba`、`hsl/hsla`；无法识别的颜色会被忽略并记录 `MERMAID-W011`。
-  - ⚠️ 已知限制：PlantUML / DOT 仍是 stub pipeline，不属于 Phase 1 已交付范围。
-- ✅ Phase 2（已完成）：
-  - ✅ 已完成 Mermaid **pie / gauge / timeline / gantt / journey / mindmap / kanban / xyChart / sankey / gitGraph** 全链路实现，并额外落地 `quadrantChart`；上述图型均已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ 已补齐 Mermaid 官方剩余数据类图型 `packet-beta` 的最小可用链路：支持 `packet-beta` header、`title`、bit range 字段与单 bit 字段，当前降到 `StructIR + StructLayout` 渲染为字段结构列表，并已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验；更接近官方 packet 表格/bit-grid 的二维视觉仍待后续增强。
-  - ✅ 已补齐本轮优先收口的兼容能力：`timeline.disableMulticolor`、`kanban priority/ticketBaseUrl`、`xyChart area/showDataLabel`、`mindmap bang/cloud/双侧布局/icon`、`gantt axisFormat/tickInterval/click/compact/vert/dateFormat/M/y 精确时长语义`。
-  - ✅ `journey` 已支持阶段 / 评分 / actors；`sankey` 已支持 `source,target,value` 主链路；`gitGraph` 已支持 `commit/branch/checkout/merge/cherry-pick/id/type/tag` 基础命令集。
-- ✅ Phase 3（已完成）：
-  - ✅ `requirementDiagram` 已完成：支持 requirement / element / relation / direction、`style` / `classDef` / `class` / `:::` 样式链路，并补齐 requirement / text / docRef 中的基础 markdown 保真渲染；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `architectureDiagram` 已完成：支持 `architecture-beta` 的 group / nested group / service / junction / port-side edge / `{group}` boundary edge / icon；GraphIR 的 `style` / `classDef` / `class` / `:::` 样式链路同样可用，并兼容无 icon 简写与 iconify 名称透传；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `c4` 已完成：支持 `C4Context/C4Container/C4Component/C4Dynamic/C4Deployment`、常用元素（`Person/System/Container/Component` 家族）、边界嵌套、`Rel/BiRel/RelIndex/Rel_*`、`AddElementTag/AddRelTag`、`UpdateElementStyle/UpdateRelStyle`、`UpdateLayoutConfig`、元素/关系/边界 `$tags` / `$link` / legend，以及 `RoundedBoxShape` / `EightSidedShape` / `DashedLine` / `DottedLine` / `BoldLine` helper；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `block` 已完成：支持 `block` / `block-beta`、显式 `columns` 网格、`space[:n]`、列跨度、nested `block ... end`、常用形状、block arrow、`-->` / `---` 与带标签连线，以及 `style` / `classDef` / `class` / `:::` GraphIR 样式链路；已接入 streaming session、`commonTest` 与 one-shot vs chunked 一致性校验。
-- ✅ Phase 4（已完成）：
-  - ✅ `PlantUML sequence`、`PlantUML class`、`PlantUML state`、`PlantUML component`、`PlantUML usecase`、`PlantUML activity`、`PlantUML object`、`PlantUML deployment` 与 `PlantUML erd` 流式子链路均已收口：`Diagram.session(SourceLanguage.PLANTUML)` 已切到真实 `PlantUmlSessionPipeline`，不再走 `StubSessionPipeline`。
-  - ✅ `sequence` 当前已支持 `@startuml/@enduml`、participant/actor/control/boundary/database/collections/queue、`->`/`<-`/`->>`/`<<-`/`-->`/`<--`/`-->>`/`<<--`、常见复杂箭头装饰（`o->` / `->o` / `x->` / `->x` 及其与核心箭头组合）、note、activate/deactivate、`return`、`autonumber` / `autonumber stop` / `autonumber resume`、`create` / `destroy`、`ref over`、`box ... end box`、`group/alt/opt/loop/par/critical/break`，以及 `skinparam sequence/participant/actor/boundary/control/entity/database/collections/queue/note/box` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 映射，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `class` 当前已支持 class/interface/abstract class/enum、别名 `class "Label" as X`、`package`、成员块、dotted member、泛型 `<T>`、单行/多行 note，以及 `<|--`/`--|>`/`<|..`/`..|>`/`*--`/`o--`/`-->`/`<--`/`..>`/`<..`/`--`/`..` 关系；renderer 已区分 abstract/interface/enum 的头部样式，常用 `skinparam class/note/package` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 也已生效，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `state` 当前已支持 state/state alias/state description、composite/nested composite、`[*]`/`[H]`/`[H*]`、`<<choice>>`/`<<fork>>`/`<<join>>`/`<<history>>`/`<<deep_history>>`、单行/多行 note、`-->`、方向声明、并行分区分隔线 `--` 的 region 建模，以及常用 `skinparam state/note` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 映射，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `component` 当前已支持 component / `[Component] as X` / interface / `()` interface / port / portin / portout / database / queue、`-->` / `<--` / `..>` / `<..` / `--` / `..` 关系、package / cloud / node / frame / rectangle 嵌套，以及单行/多行 `note`；`portin/portout` 已按方向贴靠宿主组件边界并重写连接几何，常用 `skinparam component/interface/port/database/queue/note/package/rectangle/frame/cloud/node` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 也已生效，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `usecase` 当前已支持 actor / `actor/` / `:Actor:` / `:Actor:/`、`(usecase)` / `usecase X` / `usecase "Label" as X`、`-->` / `<--` / `..>` / `<..` / `.>` / `<.` / `--` / `..` / `<|--` 关系、package / rectangle 嵌套、单行/多行 `note`、`include/extend` 标签归一化，以及常用 `skinparam actor/usecase/note/package/rectangle` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 映射；business actor 变体会渲染 actor body slash，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `activity` 当前已支持 `start` / `stop`、`:action;`、`if/else/elseif/endif`、`while/endwhile`、`repeat` / `repeat while (...)`、`fork` / `fork again` / `end fork`、swimlane `|name|`、单行/多行 `note`，以及 legacy `(*)` / `(*top)` / quoted action / `-->` / `-right->` / `[label]` / `if "cond" then` / `"Action" as A1` / `A1 --> ...` / `=== sync ===` / `===B1=== --> ...`、`partition Name #Color { ... }`、行内 `#Color:Action;` 与常用 `skinparam activity` / `skinparam Activity*Color` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 映射；swimlane / partition 当前统一以内部 lane cluster 呈现，`repeat` 走 do-while 风格 lowering，`=== ... ===` 当前映射为 `ForkBar` 样式节点，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `object` 当前已支持 object / `object "Label" as X`、属性块 `{ ... }`、`Obj : key = value`、单行/多行 note、package / namespace、`map` / `json` 风格对象，以及 `-->` / `<--` / `..>` / `<..` / `--` / `..` / `<|--` / `*--` / `o--` 关系；常用 `skinparam object/map/json/note/package/namespace` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 也已生效，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `deployment` 当前已支持 node / artifact / database / cloud / frame / package / actor / queue / storage、`-->` / `<--` / `..>` / `<..` / `--` / `..` 关系、cluster 嵌套，以及单行/多行 anchored note；常用 `skinparam artifact/node/database/storage/queue/note/package/frame/cloud/actor` 的 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing` 也已生效，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `erd` 当前已支持 `entity`、属性块 `{ ... }`、`*`/`+`/`#` 属性标记、`<<PK/FK/UK>>`、更宽 crowfoot 关系装饰（如 `||--o{` / `}|..|{`）、anchored `note left/right/top/bottom of ...`、复杂别名（quoted label / alias）与非标准 attribute 语法（`name type` / `type name`），并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ⚠️ 当前 `skinparam` 常用基础样式项已覆盖 `sequence`、`activity`、`usecase`、`state`、`class`、`component`、`deployment` 与 `object`；其中上述图型均已支持 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing`。其余图型或未覆盖属性的 `skinparam` 仍记录 `PLANTUML-W001` 后忽略。`object` 尚未覆盖方法调用样式与更完整实例关系语义；更细粒度的 PlantUML 样式体系仍可继续增强；Phase 5 图型仍待继续实现。
-- 🟡 Phase 5（已启动）：
-  - ✅ `PlantUML mindmap` 模块已完成：当前已支持 `*` / `+` / `-` 层级、`*_` / `+_` / `-_` boxless、`+/-` 侧向继承、`: ... ;` 多行节点、轻量 Creole/Markdown 标记清洗、stereotype、inline color、前导 `icon/emoji`（如 `<&flag>`、`<:smile:>`、`<#green:sunny:>`），以及 `<style>` 中 `.class/.class *` 的 `BackgroundColor` / `LineColor` / `FontColor` / `FontName` / `FontSize` / `FontStyle` / `LineThickness` / `RoundCorner` / `Shadowing` / `MaximumWidth` 样式映射；mindmap 复用 `TreeIR + MindmapLayout` 与共享 tree render 基础设施，boxless 节点跳过 chrome，字体/线宽/阴影/最大宽度在布局与渲染阶段生效，并通过 one-shot/chunked 一致性校验。
-  - 🟡 `PlantUML wbs` 最小可用链路已落地：当前已支持 org-mode `*` 层级、算术前缀 `+/-`、`<` / `>` 方向改写、`_` boxless、`: ... ;` 多行节点、inline color、stereotype、前导 `icon/emoji`（如 `<&flag>`、`<:smile:>`、`<#green:sunny:>`），以及 `<style>` 中基于 `BackgroundColor` / `LineColor` / `FontColor` / `RoundCorner` 的 tree style（`.class { ... }` / `.class * { ... }` + `<<class>>`），并完成 `@startwbs` session 分发、`TreeIR + MindmapLayout` 渲染与 one-shot vs chunked 校验；当前 inline color 已可作用到节点填充/描边/文字，stereotype 会以独立标题行参与布局与渲染，前导 icon 会输出 `DrawIcon`、emoji 当前以 fallback 文本前缀呈现，tree style 已可作用到节点填充、border、edge、标题/正文文字与圆角，且 multiline 结束行上的 `; <<class>>` 也可识别，更多样式语法与更完整 WBS 视觉语义仍待继续实现。
-  - 🟡 `PlantUML json/yaml` 链路已增强：当前已支持 `@startjson/@endjson`、`@startyaml/@endyaml` 专用块，JSON object / array / string / literal，YAML key-value / nested object / list / inline list、literal block scalar `|` 与 folded block scalar `>`，并复用 `StructIR + StructLayout` 渲染为路径稳定的嵌套结构行；YAML 子流水线会保留缩进传入 parser，`|` 保留换行降为 scalar，`>` 折叠为空格串 scalar，已接入 `commonTest` 与 one-shot vs chunked 一致性校验，折叠/展开交互仍待继续实现。
-  - ✅ `PlantUML network (nwdiag)` 模块已完成本轮增强：当前已支持 `@startuml` 内 `nwdiag { ... }` 和 `@startnwdiag/@endnwdiag` 专用块、`network name { ... }`、`inet { ... }` / `inet name { ... }`、`group name { ... }`、`address = ...`、节点属性（`address` / `description` / `label` / `shape` / `color` / `fill` / `bgcolor` / `bordercolor` / `textcolor`）、显式连接（`A -- B` / `A -> B` / `A <-> B : label`）以及跨 network 同名节点虚线连接；复用 `GraphIR + Sugiyama` 渲染 network/inet cluster 与 nested group cluster，并将 cloud/inet/database/queue/actor/component/box 等 shape 映射为对应视觉，已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `PlantUML timing` 模块已完成：当前已支持 `clock` / `binary` / `concise` / `robust` track 声明、`clock ... with period duration`、`duty N%` / `pulse duration` / `offset duration`、`"Label" as ID`、`hide time-axis`、`scale duration` / `scale duration as label`、`@time` / `@+duration` / `@time : label` marker、`ID is state` / `ID is state : text <<boundary>>` 状态区间、`A -> B : message` track 间消息与 `@10 <-> @50 : constraint` 区间约束；普通 `@startuml/@enduml` 中的 timing cue 会自动分发到 `TimeSeriesIR + GanttLayout` 时间轴渲染，`concise` track 渲染为同一 lane 上的连续状态带与转场分隔线，并支持状态显示文本和 `<<dashed>>` / `<<thick>>` / `<<none>>` / `<<solid>>` 边界样式，`binary/clock` track 渲染为高低电平 waveform，无显式 state 的 clock 会按 period 自动生成 low/high 翻转段，占空比与 offset 会生成非对称/延迟 waveform，robust 渲染为带浅底、粗边框、端点刻线和居中状态标签的专属状态胶囊，scale 渲染为时间轴虚线网格与刻度标签，事件标注/message/constraint 分别渲染为 marker、track 间箭头与虚线区间标注，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `PlantUML gantt` 模块已完成：当前已支持 `@startgantt/@endgantt`、`Project starts`、section `-- Name --`、`[Task] starts/starts at/ends/ends at/lasts/happens at`、`[A] -> [B]` 依赖、`[Task] on {Resource}` 资源轨道、`[Task] is colored in #Color/Name` 任务颜色、`[Task] is N% complete` / `is complete` progress overlay、`[Task] is milestone` milestone diamond、`[Task] is critical/dashed/bold` 任务边框样式、`note bottom of [Task] : text` 任务 note、`saturday/sunday are closed` 与日期/日期范围 closed band；任务会降到 `TimeSeriesIR + GanttLayout` 时间轴渲染，并会在 `lasts N days` 遇到关闭日/holiday 时推导工作日结束时间，已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `PlantUML wireframe (Salt)` 模块已完成：当前已支持 `@startsalt/@endsalt`、可选 `salt { ... }` wrapper、基础文本行、button/input/dropdown/checkbox/radio/image/separator、基础 tab row 与 tab block、tree、frame/grid/menu/list/scroll/group 容器、pipe table grid、cell 内控件与 `.` 空占位；统一降到 `WireframeIR + WireframeLayout`，在布局阶段递归测量并由渲染层输出容器边框、tree/list/menu 连接线、scrollbar、table grid 与 separator，已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `PlantUML chart (pie/bar/line/scatter)` 模块已完成：当前已支持 `@startpie/@endpie`、`@startbar/@endbar`、`@startline/@endline`、`@startscatter/@endscatter` 与 `@startchart/@endchart` 专用块、普通 `@startuml` 中的 `pie` / `bar` / `line` / `scatter` / `chart` cue、`title`、`legend left/right/top/bottom` / `hide legend`、pie slice 行内颜色与百分比值、bar/line/scatter 的 `x-axis` / `y-axis` 与 `h-axis` / `v-axis`、数值轴范围、`spacing`、命名/着色 series、line/scatter 坐标对 `[(x,y), ...]` 与 `Category : value` 单系列行；pie 降到共享 `PieIR`，bar/line/scatter 降到共享 `XYChartIR`，`skinparam pie/chart` 的背景、边框/轴线、文字、线宽、阴影等基础样式通过 `StyleHints.extras` 传递，渲染层复用 `PieLayout` / `XYChartLayout` 完成标题、图例、坐标轴与标签测量，并输出饼图扇区、柱状图矩形、折线图路径/点、散点图点标记、坐标网格、图例与基础样式，已接入 `jvmTest` 定向 parser 与 one-shot vs chunked 集成校验。
-  - ✅ `PlantUML archimate` 模块已完成本轮增强：当前已支持 `archimate [type] #Color "Label" as ID <<stereotype>>`、`group "Layer" as L { ... }`、`A --> B : label`、`Rel(A, B, "label")` / `Rel_Composition` / `Rel_Aggregation` / `Rel_Assignment` / `Rel_Realization` / `Rel_Specialization` / `Rel_Access` / `Rel_Flow` / `Rel_Triggering` / `Rel_Influence` / `Rel_Serving`；元素降到 `GraphIR` 并保留 element type/stereotype，渲染为业务、应用、技术、物理、动机、战略、实现迁移等分类图标节点，group 降为 `GraphIR.Cluster` 并支持嵌套分层视图，关系类型会映射为 composition/aggregation 菱形端点、assignment/access 中点标记、realization/specialization 空心三角端点以及 flow/triggering/serving 等线型/箭头语义，并已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `PlantUML c4 (C4-PlantUML)` 模块已完成本轮增强：当前已支持 `!include/!includeurl` C4 import、`C4Context/C4Container/C4Component/C4Dynamic/C4Deployment` header、`Person/System/Container/Component` 家族、`Deployment_Node`、`Boundary/*_Boundary` / `Node/Node_L/Node_R`、`Rel/BiRel/RelIndex/Rel_U/D/L/R/Back`、`BiRel_U/D/L/R`、`Lay_U/D/L/R`、`AddElementTag/AddRelTag`、`UpdateElementStyle/UpdateRelStyle`、`UpdateLayoutConfig`、`RoundedBoxShape` / `EightSidedShape`、`DashedLine` / `DottedLine` / `BoldLine`、`$tags`、`$link` 与 legend；元素降到 `GraphIR` 并渲染为 person/system/container/component/database/queue/deployment node 等 C4 样式，boundary 与 deployment/node block 渲染为 cluster，关系支持方向端口、双向、不可见布局边、link、label 颜色与偏移，tag/style 可影响节点形状与关系线型，legend 会生成稳定节点并包含 tag legendText，已接入 `commonTest` 与 one-shot vs chunked 一致性校验。
-  - ✅ `PlantUML ditaa` 模块已完成本轮增强：当前已支持 `@startditaa/@endditaa`、`+---+` / `|...|` 与 `/---\` / `\---/` ASCII box 识别、ditaa 形状标记（`{d}` / `{s}` / `{io}` / `{c}` / `{o}` / `{mo}` / `{tr}`）、水平/垂直连接、无向/单向/反向/双向箭头、`=` 粗线、`:` 虚线、box 内颜色标记与 `skinparam handwritten true`；ASCII box 降到 `GraphIR` 节点并按原始网格坐标稳定布局，颜色标记映射为 `NodeStyle.fill`，形状标记映射为 note/database/parallelogram/diamond/ellipse/hexagon/trapezoid 等节点视觉，连接线按节点相对位置选择左右/上下端点正交路由，手绘风格使用确定性 jitter 的边框与连线，已接入 `commonTest` 与 one-shot vs chunked 一致性校验。计划中曾将 ditaa 归入 `StructIR`，本轮未扩公共 IR 契约，继续以 `GraphIR` 表达 box/edge。
-- ⬜ Phase 6 ~ 7：规划仍有效，但尚未进入实现主线；`composeApp` 中这些图型目前主要用于样例占位与后续验收清单。
-- ⚠️ 工程基线：
-  - ✅ 仓库级 `./gradlew allTests` 当前可通过，可作为后续开发的统一回归入口。
-  - ✅ `diagram-core` / `diagram-parser` / `diagram-layout` / `diagram-render` 已具备成体系的 `commonTest` 覆盖，说明核心图表链路已进入“可迭代开发”阶段，而非仅有骨架。
-
-> 进度同步：每完成一个 Phase 更新本节，并在 `docs/plan.md` 对应 todo 状态打钩。

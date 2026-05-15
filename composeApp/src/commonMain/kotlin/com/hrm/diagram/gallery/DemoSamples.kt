@@ -106,7 +106,7 @@ internal object DemoSamples {
         add(DemoSample(SourceLang.MERMAID, "erDiagram", "erDiagram 实体关系图", """
             erDiagram
               CUSTOMER ||--o{ ORDER : places
-              ORDER ||--|{ LINE-ITEM : contains
+              ORDER ||--|{ LINE_ITEM : contains
         """.trimIndent()))
         add(DemoSample(SourceLang.MERMAID, "journey", "journey 用户旅程图", """
             journey
@@ -192,6 +192,175 @@ internal object DemoSamples {
               Doing
                 t2[Task 2]
         """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "sequenceDiagram-advanced", "sequenceDiagram 分支/并行/激活", """
+            sequenceDiagram
+              autonumber
+              actor User
+              participant Web
+              participant API
+              participant DB
+              User->>Web: Submit order
+              activate Web
+              Web->>API: POST /orders
+              activate API
+              par validate payment
+                API->>API: check risk
+              and reserve stock
+                API->>DB: reserve items
+                DB-->>API: reserved
+              end
+              alt accepted
+                API-->>Web: 201 Created
+                Web-->>User: receipt
+              else rejected
+                API-->>Web: 409 Conflict
+                Web-->>User: show retry
+              end
+              deactivate API
+              deactivate Web
+              note over User,DB: loop/alt/par/activation/autonumber preview
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "flowchart-shapes", "flowchart 多形状/边标签", """
+            flowchart TB
+              A((Mobile)) --> B{Cache hit?}
+              B -->|no| C[API Gateway]
+              C --> D[(Queue)]
+              C --> E[(Database)]
+              B -->|yes| F(Render local)
+              D --> G[Worker]
+              G --> E
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "gantt-rich", "gantt 多级时间轴/进度/里程碑", """
+            gantt
+              title Release Plan
+              dateFormat  YYYY-MM-DD
+              axisFormat  %b %d
+              tickInterval 1week
+              excludes weekends
+              section Design
+              UX research       :done, ux, 2026-01-05, 5d
+              Prototype         :active, proto, after ux, 6d
+              section Build
+              API implementation :crit, api, 2026-01-12, 10d
+              Web integration    :web, after proto, 8d
+              Release candidate  :milestone, rc, after api, 0d
+              vert "Code freeze" : 2026-01-23
+              click api href "https://example.com/api"
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "timeline-rich", "timeline 分段/主题", """
+            ---
+            config:
+              timeline:
+                disableMulticolor: true
+              themeVariables:
+                cScale0: "#E0F2FE"
+                cScale1: "#DCFCE7"
+            ---
+            timeline LR
+              title Platform Milestones
+              section Parser
+                2026 Q1 : Mermaid matrix
+                        : PlantUML matrix
+              section Renderer
+                2026 Q2 : Streaming canvas
+                        : Export pipeline
+              section Quality
+                2026 Q3 : Golden corpus
+                        : Perf trace
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "requirementDiagram-rich", "requirementDiagram 关系/样式", """
+            requirementDiagram
+              requirement req_parser {
+                id: REQ-1
+                text: "parse official samples"
+                risk: medium
+                verifymethod: test
+              }
+              functionalRequirement req_stream {
+                id: REQ-2
+                text: "append-only streaming updates"
+                risk: high
+                verifymethod: inspection
+              }
+              element renderer {
+                type: component
+                docRef: render module
+              }
+              req_parser - derives -> req_stream
+              renderer - satisfies -> req_stream
+              classDef important fill:#fff3e0,stroke:#e65100,stroke-width:3px
+              class req_stream important
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "architectureDiagram-rich", "architectureDiagram 嵌套/端口/样式", """
+            architecture-beta
+              group cloud(cloud)[Cloud]
+              group edge(server)[Edge] in cloud
+              service gateway(internet)[Gateway] in edge
+              service api(server)[API] in cloud
+              service queue(queue)[Events] in cloud
+              service db(database)[Database] in cloud
+              junction fanout in cloud
+              gateway:R --> L:api
+              api:R --> L:fanout
+              fanout:R --> L:queue
+              api:B --> T:db
+              classDef hot fill:#fff7ed,stroke:#ea580c,stroke-width:3px
+              class api hot
+              style db fill:#eff6ff,stroke:#2563eb,color:#1e3a8a
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "xyChart-rich", "xyChart area/scatter/frontmatter", """
+            ---
+            config:
+              xyChart:
+                showDataLabel: true
+              themeVariables:
+                xyChartPlotColor: "#ECFDF5"
+                xyChartTitleColor: "#065F46"
+            ---
+            xychart
+              title "Adoption"
+              x-axis [Jan, Feb, Mar, Apr, May]
+              y-axis "Users" 0 --> 100
+              bar [12, 25, 45, 65, 80]
+              line [8, 22, 41, 70, 90]
+              area [5, 18, 35, 55, 72]
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "quadrantChart", "quadrantChart 四象限", """
+            quadrantChart
+              title Reach and engagement
+              x-axis Low Reach --> High Reach
+              y-axis Low Engagement --> High Engagement
+              quadrant-1 Scale
+              quadrant-2 Nurture
+              quadrant-3 Drop
+              quadrant-4 Rework
+              Campaign A: [0.8, 0.75] radius: 10, color: #16a34a
+              Campaign B: [0.35, 0.65] radius: 8, color: #f97316
+              Campaign C: [0.2, 0.25] radius: 6, color: #64748b
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "gauge", "gauge 仪表盘", """
+            gauge
+              title CPU Usage
+              min 0
+              max 200
+              value 135
+        """.trimIndent()))
+        add(DemoSample(SourceLang.MERMAID, "packet", "packet-beta 协议字段", """
+            packet-beta
+            title TCP Header
+            0-15: "Source Port"
+            16-31: "Destination Port"
+            32-63: "Sequence Number"
+            64-95: "Acknowledgment Number"
+            96-99: "Data Offset"
+            100-105: "Reserved"
+            106: "URG"
+            107: "ACK"
+            108: "PSH"
+            109: "RST"
+            110: "SYN"
+            111: "FIN"
+        """.trimIndent()))
 
         // ---- PlantUML ----
         add(DemoSample(SourceLang.PLANTUML, "sequence", "sequence 时序图", """
@@ -208,7 +377,9 @@ internal object DemoSamples {
         """.trimIndent()))
         add(DemoSample(SourceLang.PLANTUML, "class", "class 类图", """
             @startuml
-            class Animal { +name: String }
+            class Animal {
+              +name: String
+            }
             class Dog
             Animal <|-- Dog
             @enduml
@@ -374,6 +545,266 @@ internal object DemoSamples {
             @startyaml
             name: Alice
             age: 30
+            @endyaml
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "sequence-advanced", "sequence 分组/box/skinparam", """
+            @startuml
+            skinparam sequence {
+              ArrowColor #2563EB
+              ParticipantBackgroundColor #EFF6FF
+              ParticipantBorderColor #1D4ED8
+              LifeLineBorderColor #94A3B8
+            }
+            box "Checkout" #FFF7ED
+              actor Customer
+              boundary Web
+              control API
+            end box
+            database DB
+            Customer -> Web: place order
+            activate Web
+            Web -> API: POST /orders
+            activate API
+            alt in stock
+              API -> DB: reserve()
+              DB --> API: ok
+              API --> Web: 201 Created
+            else out of stock
+              API --> Web: 409 Conflict
+            end
+            deactivate API
+            Web --> Customer: confirmation
+            deactivate Web
+            @enduml
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "activity-advanced", "activity swimlane/fork/repeat", """
+            @startuml
+            skinparam ActivityBackgroundColor #ECFDF5
+            start
+            |User|
+            :Submit request;
+            |Service|
+            if (valid?) then (yes)
+              fork
+                :Reserve inventory;
+              fork again
+                :Charge payment;
+              end fork
+              repeat
+                :Notify downstream;
+              repeat while (retry?) is (yes)
+              :Complete order;
+            else (no)
+              :Return validation error;
+            endif
+            stop
+            @enduml
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "component-ports", "component port/package/skinparam", """
+            @startuml
+            skinparam component {
+              BackgroundColor #EFF6FF
+              BorderColor #2563EB
+              FontColor #1E3A8A
+            }
+            package Backend {
+              component "Order API" as Api {
+                portin HttpIn
+                portout EventsOut
+              }
+              queue Jobs
+              database Orders
+            }
+            interface "HTTP" as Http
+            Http --> HttpIn : REST
+            EventsOut --> Jobs : publish
+            Api --> Orders : persist
+            note right of Api
+              port + package + queue/database preview
+            end note
+            @enduml
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "deployment-rich", "deployment 多形状/嵌套/样式", """
+            @startuml
+            skinparam node {
+              BackgroundColor #F8FAFC
+              BorderColor #475569
+            }
+            node Server {
+              artifact "web.jar" as Web
+              queue Jobs
+              database OrdersDb
+            }
+            cloud Internet
+            actor Customer
+            Customer --> Internet
+            Internet --> Web : HTTPS
+            Web --> Jobs : async
+            Web --> OrdersDb : JDBC
+            note bottom of OrdersDb : queue/artifact/cloud preview
+            @enduml
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "timing-advanced", "timing clock/binary/robust/constraint", """
+            @startuml
+            scale 50 as 25 pixels
+            clock "Clock" as CLK with period 100 duty 30%
+            binary "Enable" as EN
+            robust "Response" as RES
+            concise "Mode" as M
+            @0 : boot
+            EN is low
+            RES is idle
+            M is Idle
+            @50
+            EN is high
+            M is Run : Executing <<thick>>
+            @100
+            RES is busy
+            EN -> RES : request
+            @150 <-> @250 : latency budget
+            @250
+            RES is done
+            @enduml
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "wireframe-rich", "wireframe Salt 控件集合", """
+            @startsalt
+            {
+              {^ "File" | "Edit" | "View" }
+              {# Login form
+                User | "alice@example.com"
+                Pass | "••••"
+                [X] Remember me | ( ) Guest | (X) Admin
+                -- | --
+                [Login] | [Cancel]
+              }
+              {T
+                + Project
+                ++ Parser
+                ++ Renderer
+              }
+              {S
+                Row 1
+                Row 2
+                Row 3
+              }
+            }
+            @endsalt
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "chart-pie", "chart pie 样式/图例", """
+            @startpie
+            title Runtime Share
+            legend right
+            #4F46E5; "Parser" : 35
+            #16A34A; "Layout" : 25
+            #F97316; "Render" : 40
+            @endpie
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "chart-xy", "chart bar/line/scatter", """
+            @startchart
+            title Build Metrics
+            legend bottom
+            x-axis [Mon, Tue, Wed, Thu, Fri]
+            y-axis 0 --> 100
+            bar "Tests" [72, 80, 86, 91, 95] #2563EB
+            line "Coverage" [60, 64, 70, 74, 78] #16A34A
+            scatter "Failures" [(1, 8), (2, 5), (3, 3), (4, 2), (5, 1)] #DC2626
+            @endchart
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "gantt-rich", "gantt 日历/进度/里程碑", """
+            @startgantt
+            Project starts 2026-01-05
+            saturday are closed
+            sunday are closed
+            2026-01-16 is closed
+            -- Design --
+            [Research] lasts 5 days and is colored in #93C5FD
+            [Prototype] starts at [Research]'s end and lasts 6 days
+            -- Build --
+            [API] starts 2026-01-12 and lasts 10 days and is 60% complete
+            [Web] starts at [Prototype]'s end and lasts 8 days and is dashed
+            [Release] happens at [API]'s end and is milestone
+            [API] -> [Release]
+            note bottom of [API] : critical backend path
+            @endgantt
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "mindmap-styled", "mindmap style/icon/boxless", """
+            @startmindmap
+            <style>
+            mindmapDiagram {
+              .focus {
+                BackgroundColor #DCFCE7
+                LineColor #16A34A
+                FontColor #14532D
+                RoundCorner 18
+              }
+              .risk * {
+                BackgroundColor #FFEDD5
+                LineColor #EA580C
+              }
+            }
+            </style>
+            * <&flag> Roadmap <<focus>>
+            ** Parser
+            *** Official samples
+            **_ Render constraints
+            ** Risk <<risk>>
+            *** Perf trace
+            *** Streaming pinning
+            @endmindmap
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "wbs-styled", "wbs style/方向/多行", """
+            @startwbs
+            <style>
+            wbsDiagram {
+              .done {
+                BackgroundColor #DBEAFE
+                LineColor #2563EB
+                FontColor #1E3A8A
+              }
+              .todo * {
+                BackgroundColor #FEF3C7
+                LineColor #D97706
+                RoundCorner 16
+              }
+            }
+            </style>
+            * Project <<done>>
+            **> Phase 6 DOT
+            *** Parser
+            *** Layout
+            **< Phase 7 Export <<todo>>
+            *** SVG
+            *** PNG/JPEG
+            **_:Multi-line
+            preview ;
+            @endwbs
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "json-rich", "json 嵌套结构/类型", """
+            @startjson
+            {
+              "project": "diagram",
+              "targets": ["jvm", "js", "ios"],
+              "features": {
+                "streaming": true,
+                "coverage": 0.92,
+                "warnings": null
+              }
+            }
+            @endjson
+        """.trimIndent()))
+        add(DemoSample(SourceLang.PLANTUML, "yaml-rich", "yaml 列表/块标量", """
+            @startyaml
+            project: diagram
+            targets:
+              - jvm
+              - js
+              - ios
+            release:
+              version: 1.0
+              notes: |
+                Streaming previews
+                Golden corpus ready
+            flags: { streaming: true, export: false }
             @endyaml
         """.trimIndent()))
 

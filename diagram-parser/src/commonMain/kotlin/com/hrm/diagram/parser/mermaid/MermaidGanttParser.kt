@@ -138,6 +138,15 @@ class MermaidGanttParser {
                 parseClick(normalized.removePrefix("click ").trim())
                 return IrPatchBatch(seq, emptyList())
             }
+            normalized.startsWith("vert ") -> {
+                val parsed = parseVertLine(normalized)
+                if (parsed != null) {
+                    sections[currentSectionIdx].tasks += parsed
+                    startById[parsed.id] = parsed.startMs
+                    endById[parsed.id] = parsed.endMs
+                    return IrPatchBatch(seq, emptyList())
+                }
+            }
             else -> {
                 val parsed = parseTaskLine(normalized)
                 if (parsed != null) {
@@ -300,6 +309,28 @@ class MermaidGanttParser {
         )
     }
 
+    private fun parseVertLine(line: String): Task? {
+        val idx = line.indexOf(':')
+        if (idx <= 0) return null
+        val label = line.substring(0, idx)
+            .removePrefix("vert")
+            .trim()
+            .trim('"', '\'')
+            .ifBlank { "vert" }
+        val dateSpec = line.substring(idx + 1).trim()
+        val startMs = MermaidGanttTime.parseDateTime(dateSpec, dateFormat)?.epochMs ?: return null
+        val id = deriveId("vert_$label")
+        return Task(
+            label = label,
+            id = id,
+            startMs = startMs,
+            endMs = startMs,
+            tags = setOf("vert"),
+            depends = emptyList(),
+            href = null,
+        )
+    }
+
     private data class ParsedTaskMetadata(
         val id: String?,
         val startSpec: String?,
@@ -373,7 +404,7 @@ class MermaidGanttParser {
         }
         when {
             tail.startsWith("href ") -> {
-                val href = tail.removePrefix("href ").trim().trim('"', '\'')
+                val href = sanitizeClickHref(tail.removePrefix("href "))
                 if (href.isNotEmpty()) clickHrefById[id] = href
             }
             tail.startsWith("call ") -> {
@@ -383,6 +414,13 @@ class MermaidGanttParser {
             else -> diagnostics += Diagnostic(Severity.WARNING, "Unsupported gantt click directive '$tail' ignored", "MERMAID-W012")
         }
     }
+
+    private fun sanitizeClickHref(raw: String): String =
+        raw.trim()
+            .trim('"', '\'')
+            .trim()
+            .trim('`')
+            .trim()
 
     private fun resolveStart(spec: String?, defaultStart: Long): Pair<Long, List<String>> {
         if (spec == null) return defaultStart to emptyList()

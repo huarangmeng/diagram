@@ -71,21 +71,23 @@ internal class PlantUmlComponentSubPipeline(
         val palette = paletteOf(rawIr)
         val ir = applyPalette(rawIr, palette)
         measureNodes(ir, palette)
+        val primaryIr = primaryLayoutIr(ir)
         val baseLaid = layout.layout(
             previousSnapshot.laidOut,
-            ir,
-            LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in ir.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects, palette)
-        val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
-        val laidOut = applyAnchoredNotes(
-            ir,
-            applyPortAnchors(
-                ir,
-                baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq),
+            primaryIr,
+            LayoutOptions(
+                direction = ir.styleHints.direction,
+                incremental = !isFinal,
+                allowGlobalReflow = isFinal,
+                nodeSpacing = 64f,
+                rankSpacing = 112f,
             ),
         )
+        val spacedLaid = applyPrimaryClearance(ir, baseLaid.copy(source = ir, seq = seq))
+        val portsLaid = applyPortAnchors(ir, spacedLaid)
+        val notesLaid = applyAnchoredNotes(ir, portsLaid)
+        val routedLaid = routeDecoratedEdges(ir, notesLaid)
+        val laidOut = withClusterRects(ir, routedLaid, palette, seq)
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
@@ -94,7 +96,47 @@ internal class PlantUmlComponentSubPipeline(
         )
     }
 
+
+    private fun primaryLayoutIr(ir: GraphIR): GraphIR {
+        val hostByPort = ir.nodes
+            .filter { it.payload[PlantUmlComponentParser.KIND_KEY] == "port" }
+            .mapNotNull { port -> port.payload[PlantUmlComponentParser.PORT_HOST_KEY]?.let { port.id to NodeId(it) } }
+            .toMap()
+        val primaryNodeIds = ir.nodes
+            .filterNot { isDecorationNode(it) }
+            .map { it.id }
+            .toSet()
+        val primaryEdges = ArrayList<com.hrm.diagram.core.ir.Edge>()
+        val seen = HashSet<Pair<NodeId, NodeId>>()
+        for (edge in ir.edges) {
+            if (edge.from !in primaryNodeIds && edge.from !in hostByPort) continue
+            if (edge.to !in primaryNodeIds && edge.to !in hostByPort) continue
+            val from = hostByPort[edge.from] ?: edge.from
+            val to = hostByPort[edge.to] ?: edge.to
+            if (from == to) continue
+            val key = from to to
+            if (!seen.add(key)) continue
+            primaryEdges += edge.copy(from = from, to = to, label = null)
+        }
+        return ir.copy(
+            nodes = ir.nodes.filter { it.id in primaryNodeIds },
+            edges = primaryEdges,
+        )
+    }
+
+    private fun isDecorationNode(node: Node): Boolean =
+        node.payload[PlantUmlComponentParser.KIND_KEY] == "port" || isAnchoredNote(node)
+
+    private fun isAnchoredNote(node: Node): Boolean =
+        node.payload[PlantUmlComponentParser.KIND_KEY] == "note" &&
+            node.payload[PlantUmlComponentParser.NOTE_TARGET_KEY] != null
+
     private fun measureNodes(ir: GraphIR, palette: ComponentPalette) {
+        val portCountByHost = ir.nodes
+            .filter { it.payload[PlantUmlComponentParser.KIND_KEY] == "port" }
+            .mapNotNull { it.payload[PlantUmlComponentParser.PORT_HOST_KEY]?.let(::NodeId) }
+            .groupingBy { it }
+            .eachCount()
         for (node in ir.nodes) {
             val label = labelTextOf(node)
             val kind = node.payload[PlantUmlComponentParser.KIND_KEY]
@@ -119,13 +161,21 @@ internal class PlantUmlComponentSubPipeline(
                 }
                 else -> {
                     val metrics = textMeasurer.measure(label, nodeFont, maxWidth = 180f)
+                    val hasPorts = (portCountByHost[node.id] ?: 0) > 0
                     nodeSizes[node.id] = Size(
-                        width = (metrics.width + 36f).coerceAtLeast(132f),
-                        height = (metrics.height + 28f).coerceAtLeast(56f),
+                        width = (metrics.width + if (hasPorts) 64f else 36f).coerceAtLeast(if (hasPorts) 172f else 132f),
+                        height = (metrics.height + if (hasPorts) 58f else 28f).coerceAtLeast(if (hasPorts) 88f else 56f),
                     )
                 }
             }
         }
+    }
+
+    private fun withClusterRects(ir: GraphIR, laidOut: LaidOutDiagram, palette: ComponentPalette, seq: Long): LaidOutDiagram {
+        val clusterRects = LinkedHashMap<NodeId, Rect>()
+        for (cluster in ir.clusters) computeClusterRect(cluster, laidOut.nodePositions, clusterRects, palette)
+        val bounds = computeBounds(laidOut.nodePositions.values + clusterRects.values)
+        return laidOut.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
     }
 
     private fun computeClusterRect(
@@ -135,6 +185,7 @@ internal class PlantUmlComponentSubPipeline(
         palette: ComponentPalette,
     ): Rect? {
         val childRects = cluster.children.mapNotNull { nodePositions[it] }.toMutableList()
+        inlineClusterHost(cluster.id)?.let { hostId -> nodePositions[hostId]?.let { childRects += it } }
         val nestedRects = cluster.nestedClusters.mapNotNull { computeClusterRect(it, nodePositions, out, palette) }
         childRects += nestedRects
         if (childRects.isEmpty()) return null
@@ -147,6 +198,39 @@ internal class PlantUmlComponentSubPipeline(
         val rect = Rect.ltrb(left, top, right, bottom)
         out[cluster.id] = rect
         return rect
+    }
+
+    private fun inlineClusterHost(clusterId: NodeId): NodeId? =
+        clusterId.value.takeIf { it.endsWith("__cluster") }?.removeSuffix("__cluster")?.let(::NodeId)
+
+    private fun applyPrimaryClearance(ir: GraphIR, laidOut: LaidOutDiagram): LaidOutDiagram {
+        val minHorizontalGap = 76f
+        val nodePositions = LinkedHashMap(laidOut.nodePositions)
+        val primaryNodes = ir.nodes.filterNot { isDecorationNode(it) }
+        val primaryIds = primaryNodes.map { it.id }.toSet()
+        val parentByNode = primaryNodes.associate { it.id to it.payload[PlantUmlComponentParser.PARENT_KEY].orEmpty() }
+        var changed: Boolean
+        var pass = 0
+        do {
+            changed = false
+            pass++
+            val ordered = primaryIds.mapNotNull { id -> nodePositions[id]?.let { id to it } }
+                .sortedWith(compareBy<Pair<NodeId, Rect>> { it.second.left }.thenBy { it.second.top })
+            for (i in ordered.indices) {
+                val (leftId, leftRect) = ordered[i]
+                for (j in i + 1 until ordered.size) {
+                    val (rightId, rightRect) = ordered[j]
+                    if (parentByNode[leftId] != parentByNode[rightId]) continue
+                    if (!leftRect.overlapsVertically(rightRect)) continue
+                    val desiredLeft = leftRect.right + minHorizontalGap
+                    if (rightRect.left >= desiredLeft) continue
+                    nodePositions[rightId] = rightRect.shift(dx = desiredLeft - rightRect.left, dy = 0f)
+                    changed = true
+                }
+            }
+        } while (changed && pass < 8)
+        val bounds = computeBounds(nodePositions.values + laidOut.clusterRects.values)
+        return laidOut.copy(nodePositions = nodePositions, bounds = bounds)
     }
 
     private fun computeBounds(rects: Collection<Rect>): Rect {
@@ -163,10 +247,10 @@ internal class PlantUmlComponentSubPipeline(
         val bounds = laidOut.bounds
         out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)
-        for (node in ir.nodes) drawNode(node, laidOut, out, palette)
+        for (node in ir.nodes) drawNode(node, ir, laidOut, out, palette)
         for ((index, route) in laidOut.edgeRoutes.withIndex()) {
             val edge = ir.edges.getOrNull(index) ?: continue
-            drawEdge(edge, route, out)
+            drawEdge(edge, route, laidOut, out)
         }
         return out
     }
@@ -206,7 +290,7 @@ internal class PlantUmlComponentSubPipeline(
         for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out, palette)
     }
 
-    private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>, palette: ComponentPalette) {
+    private fun drawNode(node: Node, ir: GraphIR, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>, palette: ComponentPalette) {
         val rect = laidOut.nodePositions[node.id] ?: return
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE8EAF6.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF3949AB.toInt())
@@ -300,9 +384,14 @@ internal class PlantUmlComponentSubPipeline(
                         z = 6,
                     )
                 }
+                val hasPorts = kind == "component" && ir.nodes.any {
+                    it.payload[PlantUmlComponentParser.KIND_KEY] == "port" &&
+                        it.payload[PlantUmlComponentParser.PORT_HOST_KEY] == node.id.value
+                }
+                val labelY = if (hasPorts) rect.top + 28f else (rect.top + rect.bottom) / 2f
                 out += DrawCommand.DrawText(
                     text = label,
-                    origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
+                    origin = Point((rect.left + rect.right) / 2f, labelY),
                     font = mainFont,
                     color = textColor,
                     maxWidth = rect.size.width - 20f,
@@ -364,8 +453,9 @@ internal class PlantUmlComponentSubPipeline(
             val target = note.payload[PlantUmlComponentParser.NOTE_TARGET_KEY]?.let(::NodeId) ?: continue
             val placement = note.payload[PlantUmlComponentParser.NOTE_PLACEMENT_KEY].orEmpty()
             val targetRect = nodePositions[target] ?: continue
-            val noteRect = nodePositions[note.id] ?: continue
-            val anchored = anchoredNoteRect(noteRect.size, targetRect, placement)
+            val noteRect = nodePositions[note.id] ?: Rect(Point.Zero, nodeSizes[note.id] ?: Size(120f, 54f))
+            val obstacles = noteObstacles(ir, note.id, target, nodePositions)
+            val anchored = anchoredNoteRect(noteRect.size, targetRect, placement, obstacles)
             nodePositions[note.id] = anchored
             val edgeIndex = ir.edges.indexOfFirst { it.from == note.id && it.to == target }
             if (edgeIndex >= 0) {
@@ -382,13 +472,89 @@ internal class PlantUmlComponentSubPipeline(
         return laidOut.copy(nodePositions = nodePositions, edgeRoutes = edgeRoutes, bounds = bounds)
     }
 
-    private fun anchoredNoteRect(size: Size, targetRect: Rect, placement: String): Rect {
+    private fun routeDecoratedEdges(ir: GraphIR, laidOut: LaidOutDiagram): LaidOutDiagram {
+        val routes = ir.edges.mapNotNull { edge -> routedEdge(edge, ir, laidOut.nodePositions) }
+        val bounds = computeBounds(laidOut.nodePositions.values + laidOut.clusterRects.values)
+        return laidOut.copy(edgeRoutes = routes, bounds = bounds)
+    }
+
+    private fun routedEdge(
+        edge: com.hrm.diagram.core.ir.Edge,
+        ir: GraphIR,
+        nodePositions: Map<NodeId, Rect>,
+    ): EdgeRoute? {
+        val fromNode = ir.nodes.firstOrNull { it.id == edge.from } ?: return null
+        val toNode = ir.nodes.firstOrNull { it.id == edge.to } ?: return null
+        val fromRect = nodePositions[edge.from] ?: return null
+        val toRect = nodePositions[edge.to] ?: return null
+        if (fromNode.payload[PlantUmlComponentParser.KIND_KEY] == "note" && toNode.id == edge.to) {
+            val placement = fromNode.payload[PlantUmlComponentParser.NOTE_PLACEMENT_KEY].orEmpty()
+            return EdgeRoute(edge.from, edge.to, anchoredNoteRoute(fromRect, toRect, placement), RouteKind.Polyline)
+        }
+        val routedForPort = routedEdgeForPorts(edge, ir, nodePositions)
+        if (routedForPort != null) return routedForPort
+        val from = boundaryPoint(fromRect, centerOf(toRect))
+        val to = boundaryPoint(toRect, centerOf(fromRect))
+        return EdgeRoute(
+            from = edge.from,
+            to = edge.to,
+            points = orthogonalRoute(from, to),
+            kind = RouteKind.Polyline,
+        )
+    }
+
+    private fun noteObstacles(ir: GraphIR, noteId: NodeId, targetId: NodeId, nodePositions: Map<NodeId, Rect>): List<Rect> {
+        val noteNode = ir.nodes.firstOrNull { it.id == noteId }
+        val noteParent = noteNode?.payload?.get(PlantUmlComponentParser.PARENT_KEY)
+        val targetNode = ir.nodes.firstOrNull { it.id == targetId }
+        val targetParent = targetNode?.payload?.get(PlantUmlComponentParser.PARENT_KEY)
+        return ir.nodes
+            .filter { node ->
+                node.id != noteId &&
+                    node.id != targetId &&
+                    node.payload[PlantUmlComponentParser.KIND_KEY] != "port" &&
+                    (
+                        node.payload[PlantUmlComponentParser.PARENT_KEY] == noteParent ||
+                            node.payload[PlantUmlComponentParser.PARENT_KEY] == targetParent
+                        )
+            }
+            .mapNotNull { nodePositions[it.id] }
+    }
+
+    private fun anchoredNoteRect(size: Size, targetRect: Rect, placement: String, obstacles: List<Rect>): Rect {
         val gap = 18f
-        return when (placement.lowercase()) {
+        val base = when (placement.lowercase()) {
             "left" -> Rect(Point(targetRect.left - size.width - gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
             "top" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.top - size.height - gap), size)
             "bottom" -> Rect(Point(targetRect.left + (targetRect.size.width - size.width) / 2f, targetRect.bottom + gap), size)
             else -> Rect(Point(targetRect.right + gap, targetRect.top + (targetRect.size.height - size.height) / 2f), size)
+        }
+        return avoidNoteObstacles(base, placement, obstacles, gap)
+    }
+
+    private fun avoidNoteObstacles(base: Rect, placement: String, obstacles: List<Rect>, gap: Float): Rect {
+        if (obstacles.none { base.overlaps(it) }) return base
+        return when (placement.lowercase()) {
+            "left" -> {
+                val blockers = obstacles.filter { base.overlapsVertically(it) && it.left < base.right }
+                val left = blockers.minOfOrNull { it.left }?.let { it - base.size.width - gap } ?: base.left
+                Rect(Point(left, base.top), base.size)
+            }
+            "top" -> {
+                val blockers = obstacles.filter { base.overlapsHorizontally(it) && it.top < base.bottom }
+                val top = blockers.minOfOrNull { it.top }?.let { it - base.size.height - gap } ?: base.top
+                Rect(Point(base.left, top), base.size)
+            }
+            "bottom" -> {
+                val blockers = obstacles.filter { base.overlapsHorizontally(it) && it.bottom > base.top }
+                val top = blockers.maxOfOrNull { it.bottom }?.let { it + gap } ?: base.top
+                Rect(Point(base.left, top), base.size)
+            }
+            else -> {
+                val blockers = obstacles.filter { base.overlapsVertically(it) && it.right > base.left }
+                val left = blockers.maxOfOrNull { it.right }?.let { it + gap } ?: base.left
+                Rect(Point(left, base.top), base.size)
+            }
         }
     }
 
@@ -497,6 +663,18 @@ internal class PlantUmlComponentSubPipeline(
 
     private fun centerOf(rect: Rect): Point = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
 
+    private fun Rect.overlaps(other: Rect): Boolean =
+        left < other.right && right > other.left && top < other.bottom && bottom > other.top
+
+    private fun Rect.overlapsHorizontally(other: Rect): Boolean =
+        left < other.right && right > other.left
+
+    private fun Rect.overlapsVertically(other: Rect): Boolean =
+        top < other.bottom && bottom > other.top
+
+    private fun Rect.shift(dx: Float, dy: Float): Rect =
+        Rect.ltrb(left + dx, top + dy, right + dx, bottom + dy)
+
     private fun boundaryPoint(rect: Rect, toward: Point): Point {
         val center = centerOf(rect)
         val dx = toward.x - center.x
@@ -552,7 +730,7 @@ internal class PlantUmlComponentSubPipeline(
         }
     }
 
-    private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge, route: com.hrm.diagram.layout.EdgeRoute, out: MutableList<DrawCommand>) {
+    private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge, route: com.hrm.diagram.layout.EdgeRoute, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>) {
         val pts = route.points
         if (pts.size < 2) return
         val ops = ArrayList<PathOp>(pts.size)
@@ -586,16 +764,32 @@ internal class PlantUmlComponentSubPipeline(
         }
         val text = (edge.label as? RichLabel.Plain)?.text ?: return
         if (text.isEmpty()) return
-        val mid = pts[pts.size / 2]
+        val mid = edgeLabelOrigin(route, laidOut)
         out += DrawCommand.DrawText(
             text = text,
-            origin = Point(mid.x, mid.y - 4f),
+            origin = mid,
             font = edgeLabelFont,
             color = Color(0xFF263238.toInt()),
             anchorX = TextAnchorX.Center,
             anchorY = TextAnchorY.Bottom,
             z = 5,
         )
+    }
+
+    private fun edgeLabelOrigin(route: EdgeRoute, laidOut: LaidOutDiagram): Point {
+        val pts = route.points
+        val a = pts.first()
+        val b = pts.last()
+        val base = Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+        val from = laidOut.nodePositions[route.from]
+        val to = laidOut.nodePositions[route.to]
+        val horizontal = kotlin.math.abs(b.x - a.x) >= kotlin.math.abs(b.y - a.y)
+        var candidate = if (horizontal) Point(base.x, base.y - 16f) else Point(base.x + 16f, base.y)
+        val labelBox = Rect(Point(candidate.x - 42f, candidate.y - 14f), Size(84f, 18f))
+        if ((from != null && labelBox.overlaps(from)) || (to != null && labelBox.overlaps(to))) {
+            candidate = if (horizontal) Point(base.x, base.y + 26f) else Point(base.x - 26f, base.y)
+        }
+        return candidate
     }
 
     private fun arrowHead(from: Point, to: Point, color: Color): DrawCommand {

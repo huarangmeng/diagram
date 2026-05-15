@@ -28,20 +28,27 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
+import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.dot.DotParser
+import com.hrm.diagram.render.cache.DrawCommandStore
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
 import com.hrm.diagram.render.streaming.SessionPipeline
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 internal class DotSessionPipeline(
     private val textMeasurer: TextMeasurer,
 ) : SessionPipeline {
     private val parser = DotParser()
-    private val source = StringBuilder()
+    private val parserSession = parser.incrementalSession()
+    private val drawStore = DrawCommandStore()
     private val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
@@ -61,8 +68,7 @@ internal class DotSessionPipeline(
         seq: Long,
         isFinal: Boolean,
     ): PipelineAdvance {
-        source.append(chunk)
-        val result = parser.parse(source.toString())
+        val result = parserSession.feed(chunk, eos = isFinal)
         val ir = result.ir
         measureNodes(ir, remeasure = isFinal)
         val layoutIr = ir.copy(edges = ir.edges.filterNot { it.payload["dot.edge.constraint"].equals("false", ignoreCase = true) })
@@ -76,7 +82,7 @@ internal class DotSessionPipeline(
         )
         val base = layout.layout(previousSnapshot.laidOut, layoutIr, layoutOptions).copy(source = ir, seq = seq)
         val laid = withClusterRects(ir, base)
-        val draw = render(ir, laid)
+        val drawDelta = drawStore.updateFullFrame(render(ir, laid))
 
         val nodeIds = ir.nodes.map { it.id }.toSet()
         val edgeKeys = ir.edges.mapIndexed { index, edge -> "${edge.from.value}->${edge.to.value}:$index:${labelOf(edge.label)}" }.toSet()
@@ -97,7 +103,7 @@ internal class DotSessionPipeline(
         val snapshot = DiagramSnapshot(
             ir = ir,
             laidOut = laid,
-            drawCommands = draw,
+            drawCommands = drawDelta.fullFrame,
             diagnostics = result.diagnostics,
             seq = seq,
             isFinal = isFinal,
@@ -109,7 +115,7 @@ internal class DotSessionPipeline(
                 seq = seq,
                 addedNodes = addedNodes,
                 addedEdges = addedEdges,
-                addedDrawCommands = draw,
+                addedDrawCommands = drawDelta.addedCommands,
                 newDiagnostics = newDiagnostics,
                 isFinal = isFinal,
             ),
@@ -118,7 +124,8 @@ internal class DotSessionPipeline(
     }
 
     override fun dispose() {
-        source.clear()
+        parserSession.reset()
+        drawStore.clear()
         nodeSizes.clear()
         lastNodeIds = emptySet()
         lastEdgeKeys = emptySet()
@@ -176,29 +183,21 @@ internal class DotSessionPipeline(
 
     private fun render(ir: GraphIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
+        val routeByEndpoints = laid.edgeRoutes.associateBy { it.from to it.to }
         ir.styleHints.extras["dot.graph.bgcolor"]?.let(::colorOf)?.let { bg ->
             out += DrawCommand.FillRect(rect = laid.bounds, color = bg, z = -10)
         }
         renderClusters(ir.clusters, laid, out)
         for (edge in ir.edges) {
             if (edge.kind == EdgeKind.Invisible) continue
-            val route = laid.edgeRoutes.firstOrNull { it.from == edge.from && it.to == edge.to }
+            val route = routeByEndpoints[edge.from to edge.to]
             val rawPoints = route?.points ?: fallbackRoute(edge.from, edge.to, laid.nodePositions) ?: continue
             val points = applyPortAnchors(edge, rawPoints, laid.nodePositions)
             val color = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF4B5563.toInt())
             val stroke = Stroke(width = edge.style.width ?: if (edge.kind == EdgeKind.Thick) 2.2f else 1.2f, dash = edge.style.dash)
-            out += DrawCommand.StrokePath(path = pathOf(points), stroke = stroke, color = color, z = 3)
-            out += DrawCommand.DrawArrow(
-                from = points[points.lastIndex - 1],
-                to = points.last(),
-                style = ArrowStyle(
-                    head = arrowHeadOf(edge.payload["dot.edge.arrowhead"], edge.arrow == ArrowEnds.ToOnly || edge.arrow == ArrowEnds.Both),
-                    tail = arrowHeadOf(edge.payload["dot.edge.arrowtail"], edge.arrow == ArrowEnds.FromOnly || edge.arrow == ArrowEnds.Both),
-                    color = color,
-                    stroke = stroke,
-                ),
-                z = 4,
-            )
+            val kind = route?.kind ?: RouteKind.Polyline
+            out += DrawCommand.StrokePath(path = pathOf(points, kind), stroke = stroke, color = color, z = 3)
+            renderArrowHeads(edge, points, kind, color, stroke, out)
             labelOf(edge.label).takeIf { it.isNotBlank() }?.let { label ->
                 val mid = points[points.size / 2]
                 out += DrawCommand.FillRect(
@@ -410,6 +409,108 @@ internal class DotSessionPipeline(
         }
     }
 
+    private fun renderArrowHeads(
+        edge: Edge,
+        points: List<Point>,
+        routeKind: RouteKind,
+        color: Color,
+        stroke: Stroke,
+        out: MutableList<DrawCommand>,
+    ) {
+        if (points.size < 2) return
+        val head = arrowHeadOf(edge.payload["dot.edge.arrowhead"], edge.arrow == ArrowEnds.ToOnly || edge.arrow == ArrowEnds.Both)
+        val tail = arrowHeadOf(edge.payload["dot.edge.arrowtail"], edge.arrow == ArrowEnds.FromOnly || edge.arrow == ArrowEnds.Both)
+        arrowCommand(head, tangentBeforeEnd(points, routeKind), points.last(), color, stroke)?.let { out += it }
+        arrowCommand(tail, tangentAfterStart(points, routeKind), points.first(), color, stroke)?.let { out += it }
+    }
+
+    private fun arrowCommand(
+        head: ArrowHead,
+        direction: Point,
+        tip: Point,
+        color: Color,
+        stroke: Stroke,
+    ): DrawCommand? {
+        if (head == ArrowHead.None) return null
+        val len = sqrt(direction.x * direction.x + direction.y * direction.y)
+        if (len <= 0.0001f) return null
+        val ux = direction.x / len
+        val uy = direction.y / len
+        val size = 8f * stroke.width.coerceAtLeast(1f)
+        val nx = -uy
+        val ny = ux
+        fun p(back: Float, side: Float) = Point(tip.x - ux * back + nx * side, tip.y - uy * back + ny * side)
+        return when (head) {
+            ArrowHead.Triangle -> DrawCommand.FillPath(
+                PathCmd(listOf(PathOp.MoveTo(tip), PathOp.LineTo(p(size, -size / 2f)), PathOp.LineTo(p(size, size / 2f)), PathOp.Close)),
+                color = color,
+                z = 10,
+            )
+            ArrowHead.OpenTriangle -> DrawCommand.StrokePath(
+                PathCmd(listOf(PathOp.MoveTo(p(size, -size / 2f)), PathOp.LineTo(tip), PathOp.LineTo(p(size, size / 2f)))),
+                stroke = stroke,
+                color = color,
+                z = 10,
+            )
+            ArrowHead.Bar -> DrawCommand.StrokePath(
+                PathCmd(listOf(PathOp.MoveTo(p(0f, -size / 2f)), PathOp.LineTo(p(0f, size / 2f)))),
+                stroke = stroke,
+                color = color,
+                z = 10,
+            )
+            ArrowHead.Cross -> DrawCommand.StrokePath(
+                PathCmd(listOf(PathOp.MoveTo(p(size / 2f, -size / 2f)), PathOp.LineTo(p(-size / 2f, size / 2f)), PathOp.MoveTo(p(size / 2f, size / 2f)), PathOp.LineTo(p(-size / 2f, -size / 2f)))),
+                stroke = stroke,
+                color = color,
+                z = 10,
+            )
+            ArrowHead.Diamond, ArrowHead.OpenDiamond -> {
+                val path = PathCmd(listOf(PathOp.MoveTo(tip), PathOp.LineTo(p(size / 2f, -size / 3f)), PathOp.LineTo(p(size, 0f)), PathOp.LineTo(p(size / 2f, size / 3f)), PathOp.Close))
+                if (head == ArrowHead.Diamond) DrawCommand.FillPath(path, color = color, z = 10) else DrawCommand.StrokePath(path, stroke = stroke, color = color, z = 10)
+            }
+            ArrowHead.Circle, ArrowHead.OpenCircle -> {
+                val center = p(size / 2f, 0f)
+                val path = circlePath(center, radius = size / 2f)
+                if (head == ArrowHead.Circle) DrawCommand.FillPath(path, color = color, z = 10) else DrawCommand.StrokePath(path, stroke = stroke, color = color, z = 10)
+            }
+            ArrowHead.None -> null
+        }
+    }
+
+    private fun tangentBeforeEnd(points: List<Point>, routeKind: RouteKind): Point =
+        if (routeKind == RouteKind.Bezier && points.size >= 4) {
+            val c2 = points[points.lastIndex - 1]
+            val end = points.last()
+            Point(end.x - c2.x, end.y - c2.y)
+        } else {
+            val prev = points[points.lastIndex - 1]
+            val end = points.last()
+            Point(end.x - prev.x, end.y - prev.y)
+        }
+
+    private fun tangentAfterStart(points: List<Point>, routeKind: RouteKind): Point =
+        if (routeKind == RouteKind.Bezier && points.size >= 4) {
+            val start = points.first()
+            val c1 = points[1]
+            Point(start.x - c1.x, start.y - c1.y)
+        } else {
+            val start = points.first()
+            val next = points[1]
+            Point(start.x - next.x, start.y - next.y)
+        }
+
+    private fun circlePath(center: Point, radius: Float): PathCmd {
+        val k = radius * 0.5522848f
+        return PathCmd(listOf(
+            PathOp.MoveTo(Point(center.x + radius, center.y)),
+            PathOp.CubicTo(Point(center.x + radius, center.y + k), Point(center.x + k, center.y + radius), Point(center.x, center.y + radius)),
+            PathOp.CubicTo(Point(center.x - k, center.y + radius), Point(center.x - radius, center.y + k), Point(center.x - radius, center.y)),
+            PathOp.CubicTo(Point(center.x - radius, center.y - k), Point(center.x - k, center.y - radius), Point(center.x, center.y - radius)),
+            PathOp.CubicTo(Point(center.x + k, center.y - radius), Point(center.x + radius, center.y - k), Point(center.x + radius, center.y)),
+            PathOp.Close,
+        ))
+    }
+
     private fun dotSpacing(ir: GraphIR, key: String, defaultPx: Float): Float {
         val inches = ir.styleHints.extras[key]?.toFloatOrNull() ?: return defaultPx
         return (inches * 72f).coerceIn(8f, 240f)
@@ -435,8 +536,24 @@ internal class DotSessionPipeline(
         }
     }
 
-    private fun pathOf(points: List<Point>): PathCmd =
-        PathCmd(listOf(PathOp.MoveTo(points.first())) + points.drop(1).map { PathOp.LineTo(it) })
+    private fun pathOf(points: List<Point>, kind: RouteKind): PathCmd {
+        val ops = ArrayList<PathOp>(points.size)
+        ops += PathOp.MoveTo(points.first())
+        if (kind == RouteKind.Bezier) {
+            var i = 1
+            while (i + 2 < points.size) {
+                ops += PathOp.CubicTo(points[i], points[i + 1], points[i + 2])
+                i += 3
+            }
+            while (i < points.size) {
+                ops += PathOp.LineTo(points[i])
+                i++
+            }
+        } else {
+            points.drop(1).forEach { ops += PathOp.LineTo(it) }
+        }
+        return PathCmd(ops)
+    }
 
     private fun ellipsePath(rect: Rect): PathCmd {
         val cx = (rect.left + rect.right) / 2f

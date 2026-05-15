@@ -58,7 +58,7 @@ class DotParser {
     )
 
     private class ParserState(
-        val tokens: List<Token>,
+        var tokens: List<Token>,
         val diagnostics: MutableList<Diagnostic>,
     ) {
         var index: Int = 0
@@ -85,8 +85,114 @@ class DotParser {
         val diagnostics = ArrayList<Diagnostic>()
         val state = ParserState(tokenize(source, diagnostics), diagnostics)
         val clusters = parseGraph(state)
+        val warnings = unsupportedLayoutWarnings(state.rootGraphAttrs)
+        return buildResult(state, clusters, state.diagnostics + warnings)
+    }
+
+    fun incrementalSession(): IncrementalSession = IncrementalSession()
+
+    inner class IncrementalSession {
+        private val diagnostics = ArrayList<Diagnostic>()
+        private val state = ParserState(emptyList(), diagnostics)
+        private val root = ParseContext(
+            clusterId = null,
+            graphAttrs = state.rootGraphAttrs,
+            nodeAttrs = state.rootNodeAttrs,
+            edgeAttrs = state.rootEdgeAttrs,
+        )
+        private val splitter = DotStatementSplitter()
+        private var headerParsed: Boolean = false
+        private var closed: Boolean = false
+
+        fun feed(chunk: CharSequence, eos: Boolean = false): Result {
+            if (!closed) {
+                for (unit in splitter.feed(chunk, eos)) {
+                    if (!headerParsed) {
+                        parseHeader(unit)
+                    } else {
+                        parseIncrementalStatement(unit)
+                    }
+                }
+                if (eos && splitter.pendingIsNotBlank()) {
+                    parseIncrementalStatement(splitter.drainPending())
+                }
+            }
+            val warnings = unsupportedLayoutWarnings(state.rootGraphAttrs)
+            return buildResult(state, root.clusters.toList(), diagnostics + warnings)
+        }
+
+        fun reset() {
+            diagnostics.clear()
+            state.tokens = emptyList()
+            state.index = 0
+            state.nodes.clear()
+            state.edges.clear()
+            state.rankGroups.clear()
+            state.rootGraphAttrs.clear()
+            state.rootNodeAttrs.clear()
+            state.rootEdgeAttrs.clear()
+            state.directed = true
+            state.title = null
+            state.seq = 0
+            root.children.clear()
+            root.clusters.clear()
+            root.graphAttrs.clear()
+            root.nodeAttrs.clear()
+            root.edgeAttrs.clear()
+            splitter.reset()
+            headerParsed = false
+            closed = false
+        }
+
+        private fun parseHeader(unit: String) {
+            setTokens(unit)
+            if (state.peek()?.text.equals("strict", ignoreCase = true)) state.take()
+            val graphKeyword = state.peek()?.text?.lowercase()
+            if (graphKeyword == "digraph" || graphKeyword == "graph") {
+                state.directed = graphKeyword == "digraph"
+                state.take()
+            } else {
+                state.error("DOT source must start with graph or digraph")
+                return
+            }
+            if (state.peek()?.kind == Kind.Id && state.tokens.getOrNull(state.index + 1)?.kind == Kind.LBrace) {
+                state.title = decodeLabel(state.take()?.text.orEmpty())
+            }
+            if (!state.match(Kind.LBrace)) {
+                state.error("DOT graph is missing opening brace")
+                return
+            }
+            headerParsed = true
+        }
+
+        private fun parseIncrementalStatement(unit: String) {
+            val trimmed = unit.trim()
+            if (trimmed.isEmpty()) return
+            if (trimmed == "}") {
+                closed = true
+                return
+            }
+            setTokens(trimmed)
+            while (state.peek() != null) {
+                if (state.peek()?.kind == Kind.RBrace) {
+                    state.take()
+                    closed = true
+                    continue
+                }
+                parseStatement(state, root)
+                state.match(Kind.Semi)
+                state.match(Kind.Comma)
+            }
+        }
+
+        private fun setTokens(source: String) {
+            state.tokens = tokenize(source, diagnostics)
+            state.index = 0
+        }
+    }
+
+    private fun buildResult(state: ParserState, clusters: List<Cluster>, diagnostics: List<Diagnostic>): Result {
         val graphAttrs = state.rootGraphAttrs
-        recordUnsupportedLayoutWarnings(state, graphAttrs)
         val title = graphAttrs["label"] ?: state.title
         val direction = when (graphAttrs["rankdir"]?.uppercase()) {
             "LR" -> Direction.LR
@@ -356,6 +462,155 @@ class DotParser {
         return null
     }
 
+    private class DotStatementSplitter {
+        private val pending = StringBuilder()
+        private var headerDone: Boolean = false
+
+        fun feed(chunk: CharSequence, eos: Boolean): List<String> {
+            pending.append(chunk)
+            val out = ArrayList<String>()
+            drain(out)
+            if (eos && pending.isNotBlank()) {
+                out += pending.toString()
+                pending.clear()
+            }
+            return out
+        }
+
+        fun pendingIsNotBlank(): Boolean = pending.isNotBlank()
+
+        fun drainPending(): String {
+            val s = pending.toString()
+            pending.clear()
+            return s
+        }
+
+        fun reset() {
+            pending.clear()
+            headerDone = false
+        }
+
+        private fun drain(out: MutableList<String>) {
+            while (pending.isNotEmpty()) {
+                val end = if (!headerDone) findHeaderEnd() else findStatementEnd()
+                if (end == null) return
+                val unit = pending.substring(0, end + 1)
+                pending.deleteRange(0, end + 1)
+                if (!headerDone) headerDone = true
+                if (unit.isNotBlank()) out += unit
+            }
+        }
+
+        private fun findHeaderEnd(): Int? {
+            var i = 0
+            var inString = false
+            var escaped = false
+            var htmlDepth = 0
+            while (i < pending.length) {
+                val c = pending[i]
+                if (inString) {
+                    escaped = c == '\\' && !escaped
+                    if (c == '"' && !escaped) inString = false
+                    if (c != '\\') escaped = false
+                    i++
+                    continue
+                }
+                if (htmlDepth > 0) {
+                    if (c == '<') htmlDepth++
+                    if (c == '>') htmlDepth--
+                    i++
+                    continue
+                }
+                when {
+                    c == '"' -> inString = true
+                    c == '<' && pending.getOrNull(i + 1) != '-' -> htmlDepth = 1
+                    c == '{' -> return i
+                }
+                i++
+            }
+            return null
+        }
+
+        private fun findStatementEnd(): Int? {
+            var i = 0
+            var braceDepth = 0
+            var bracketDepth = 0
+            var htmlDepth = 0
+            var inString = false
+            var escaped = false
+            var inLineComment = false
+            var inBlockComment = false
+            while (i < pending.length) {
+                val c = pending[i]
+                val next = pending.getOrNull(i + 1)
+                if (inLineComment) {
+                    if (c == '\n') {
+                        inLineComment = false
+                        if (unitBefore(i).isBlank()) return i
+                    }
+                    i++
+                    continue
+                }
+                if (inBlockComment) {
+                    if (c == '*' && next == '/') {
+                        inBlockComment = false
+                        i += 2
+                    } else {
+                        i++
+                    }
+                    continue
+                }
+                if (inString) {
+                    escaped = c == '\\' && !escaped
+                    if (c == '"' && !escaped) inString = false
+                    if (c != '\\') escaped = false
+                    i++
+                    continue
+                }
+                if (htmlDepth > 0) {
+                    if (c == '<') htmlDepth++
+                    if (c == '>') htmlDepth--
+                    i++
+                    continue
+                }
+                when {
+                    c == '/' && next == '/' -> {
+                        inLineComment = true
+                        i += 2
+                        continue
+                    }
+                    c == '/' && next == '*' -> {
+                        inBlockComment = true
+                        i += 2
+                        continue
+                    }
+                    c == '"' -> inString = true
+                    c == '<' && next != '-' -> htmlDepth = 1
+                    c == '[' -> bracketDepth++
+                    c == ']' && bracketDepth > 0 -> bracketDepth--
+                    c == '{' -> braceDepth++
+                    c == '}' -> {
+                        if (braceDepth > 0) {
+                            braceDepth--
+                        } else {
+                            return i
+                        }
+                    }
+                    c == ';' && braceDepth == 0 && bracketDepth == 0 -> return i
+                    c == '\n' && braceDepth == 0 && bracketDepth == 0 -> {
+                        if (unitBefore(i).isNotBlank()) return i
+                        return i
+                    }
+                }
+                i++
+            }
+            return null
+        }
+
+        private fun unitBefore(endExclusive: Int): String =
+            pending.substring(0, endExclusive)
+    }
+
     private fun buildNode(rawId: String, attrs: Map<String, String>): Node {
         val label = attrs["label"]?.let(::decodeLabel)?.takeIf { it != "\\N" } ?: rawId
         val shape = shapeOf(attrs["shape"], attrs["style"])
@@ -586,10 +841,11 @@ class DotParser {
         diagnostics += diagnostic("DOT-E001", message)
     }
 
-    private fun recordUnsupportedLayoutWarnings(state: ParserState, graphAttrs: Map<String, String>) {
+    private fun unsupportedLayoutWarnings(graphAttrs: Map<String, String>): List<Diagnostic> {
+        val out = ArrayList<Diagnostic>()
         val layout = graphAttrs["layout"]?.lowercase()
         if (layout in setOf("neato", "fdp", "twopi", "circo")) {
-            state.diagnostics += Diagnostic(
+            out += Diagnostic(
                 severity = Severity.WARNING,
                 message = "DOT layout=$layout is treated as a Sugiyama layout hint; native Graphviz engines are not invoked.",
                 code = "DOT-W001",
@@ -598,13 +854,19 @@ class DotParser {
         val engineOnlyAttrs = listOf("overlap", "sep", "esep", "mode", "model", "pack", "packmode", "root")
         for (attr in engineOnlyAttrs) {
             if (attr in graphAttrs) {
-                state.diagnostics += Diagnostic(
+                out += Diagnostic(
                     severity = Severity.WARNING,
                     message = "DOT graph attribute '$attr' is preserved as metadata but ignored by the internal Sugiyama renderer.",
                     code = "DOT-W001",
                 )
             }
         }
+        return out
+    }
+
+    @Suppress("unused")
+    private fun recordUnsupportedLayoutWarnings(state: ParserState, graphAttrs: Map<String, String>) {
+        state.diagnostics += unsupportedLayoutWarnings(graphAttrs)
     }
 
     private fun diagnostic(code: String, message: String): Diagnostic =

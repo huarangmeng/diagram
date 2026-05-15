@@ -107,6 +107,26 @@ class MermaidGanttParserTest {
     }
 
     @Test
+    fun parses_mermaid_prefix_vert_marker_without_task_row() {
+        val p = feedAll(
+            """
+            gantt
+                dateFormat YYYY-MM-DD
+                section Build
+                    API implementation :crit, api, 2026-01-12, 10d
+                    vert "Code freeze" : 2026-01-23
+            """.trimIndent() + "\n",
+        )
+        val ir = p.snapshot()
+        val vert = ir.items.single { it.payload["gantt.kind"] == "vert" }
+        val task = ir.items.single { it.id.value == "api" }
+
+        assertEquals("Code freeze", (vert.label as com.hrm.diagram.core.ir.RichLabel.Plain).text)
+        assertEquals(vert.range.startMs, vert.range.endMs)
+        assertTrue(vert.range.startMs >= task.range.endMs, "marker should be represented on the timeline without becoming a task row")
+    }
+
+    @Test
     fun parses_mermaid_dateformat_token_variants_in_tasks() {
         val p = feedAll(
             """

@@ -16,6 +16,7 @@ import com.hrm.diagram.parser.mermaid.MermaidStyleDecl
 import com.hrm.diagram.parser.mermaid.MermaidStyleExtrasCodec
 import com.hrm.diagram.parser.mermaid.MermaidStyleParsers
 import com.hrm.diagram.parser.mermaid.MermaidTokenKind
+import com.hrm.diagram.render.cache.DrawCommandStore
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -35,6 +36,7 @@ internal class MermaidSessionPipeline(
 ) : SessionPipeline {
 
     private val lexer = MermaidLexer()
+    private val drawStore = DrawCommandStore()
     private var lexState: MermaidLexerState = lexer.initialState()
     private val tokenBuffer: MutableList<Token> = ArrayList()
     private val pendingLines: MutableList<List<Token>> = ArrayList()
@@ -585,13 +587,20 @@ internal class MermaidSessionPipeline(
 
     private fun wrapWithStyleDiagnosticsAndHints(advance: PipelineAdvance, newStyleDiags: List<Diagnostic>): PipelineAdvance {
         val styledSnapshot = injectStyleHints(advance.snapshot)
-        val mergedSnapshot = if (styleDiagnosticsAll.isEmpty()) styledSnapshot else {
-            styledSnapshot.copy(diagnostics = styledSnapshot.diagnostics + styleDiagnosticsAll)
+        val drawDelta = drawStore.updateFullFrame(styledSnapshot.drawCommands)
+        val drawSnapshot = styledSnapshot.copy(drawCommands = drawDelta.fullFrame)
+        val mergedSnapshot = if (styleDiagnosticsAll.isEmpty()) {
+            drawSnapshot
+        } else {
+            drawSnapshot.copy(diagnostics = drawSnapshot.diagnostics + styleDiagnosticsAll)
         }
         val mergedPatch = if (newStyleDiags.isEmpty()) {
-            advance.patch
+            advance.patch.copy(addedDrawCommands = drawDelta.addedCommands)
         } else {
-            advance.patch.copy(newDiagnostics = advance.patch.newDiagnostics + newStyleDiags)
+            advance.patch.copy(
+                addedDrawCommands = drawDelta.addedCommands,
+                newDiagnostics = advance.patch.newDiagnostics + newStyleDiags,
+            )
         }
         return advance.copy(snapshot = mergedSnapshot, patch = mergedPatch)
     }
@@ -645,6 +654,7 @@ internal class MermaidSessionPipeline(
     }
 
     override fun dispose() {
+        drawStore.clear()
         tokenBuffer.clear()
         pendingLines.clear()
         sub?.dispose()

@@ -8,6 +8,7 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
+import com.hrm.diagram.render.cache.DrawCommandStore
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -40,6 +41,7 @@ internal class PlantUmlSessionPipeline(
     }
 
     private val diagnosticsAll: MutableList<Diagnostic> = ArrayList()
+    private val drawStore = DrawCommandStore()
 
     private var rawPending: String = ""
     private var blockStarted: Boolean = false
@@ -89,11 +91,12 @@ internal class PlantUmlSessionPipeline(
 
         val rendered = subPipeline?.render(previousSnapshot, seq, isFinal)
         return if (rendered != null) {
+            val drawDelta = drawStore.updateFullFrame(rendered.drawCommands)
             PipelineAdvance(
                 snapshot = DiagramSnapshot(
                     ir = rendered.ir,
                     laidOut = rendered.laidOut,
-                    drawCommands = rendered.drawCommands,
+                    drawCommands = drawDelta.fullFrame,
                     diagnostics = diagnosticsAll + rendered.diagnostics,
                     seq = seq,
                     isFinal = isFinal,
@@ -103,7 +106,7 @@ internal class PlantUmlSessionPipeline(
                     seq = seq,
                     addedNodes = emptyList(),
                     addedEdges = emptyList(),
-                    addedDrawCommands = rendered.drawCommands,
+                    addedDrawCommands = drawDelta.addedCommands,
                     newDiagnostics = newDiagnostics,
                     isFinal = isFinal,
                 ),
@@ -831,6 +834,16 @@ internal class PlantUmlSessionPipeline(
                 code = "PLANTUML-W001",
             ),
         )
+
+    override fun dispose() {
+        drawStore.clear()
+        diagnosticsAll.clear()
+        rawPending = ""
+        bufferedBodyLines.clear()
+        bufferedSkinparamLines.clear()
+        subPipeline?.dispose()
+        subPipeline = null
+    }
 
     @Suppress("unused")
     private fun unusedOffset(offset: Int) = offset

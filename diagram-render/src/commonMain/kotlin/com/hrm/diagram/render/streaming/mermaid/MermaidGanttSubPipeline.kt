@@ -102,6 +102,8 @@ internal class MermaidGanttSubPipeline(
         val gridColor = Color(0xFFE0E0E0.toInt())
         val majorGridColor = Color(0xFFB0BEC5.toInt())
         val scaleBg = Color(0xFFF7F9FA.toInt())
+        val sectionBg = Color(0xFFF3F6F8.toInt())
+        val rowAltBg = Color(0xFFFAFBFC.toInt())
 
         out += DrawCommand.FillRect(
             rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)),
@@ -185,7 +187,6 @@ internal class MermaidGanttSubPipeline(
                         origin = Point((labelRect.left + labelRect.right) / 2f, labelRect.bottom),
                         font = axisFont,
                         color = text,
-                        maxWidth = labelRect.size.width,
                         anchorX = TextAnchorX.Center,
                         anchorY = TextAnchorY.Bottom,
                         z = 10,
@@ -212,7 +213,6 @@ internal class MermaidGanttSubPipeline(
                     origin = Point((labelRect.left + labelRect.right) / 2f, labelRect.bottom),
                     font = axisFont,
                     color = text,
-                    maxWidth = labelRect.size.width,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Bottom,
                     z = 10,
@@ -221,10 +221,17 @@ internal class MermaidGanttSubPipeline(
         }
 
         // Track headers + items.
-        for (track in ir.tracks) {
+        for ((trackIndex, track) in ir.tracks.withIndex()) {
             val headerId = NodeId("gantt:track:${track.id.value}")
             val headerRect = laid.nodePositions[headerId]
             if (headerRect != null) {
+                axis?.let {
+                    out += DrawCommand.FillRect(
+                        rect = Rect.ltrb(headerRect.left - 6f, headerRect.top - 5f, it.right, headerRect.bottom + 5f),
+                        color = sectionBg,
+                        z = 0,
+                    )
+                }
                 val headerText = (track.label as? RichLabel.Plain)?.text ?: track.id.value
                 out += DrawCommand.DrawText(
                     text = headerText,
@@ -238,11 +245,18 @@ internal class MermaidGanttSubPipeline(
             }
 
             val items = ir.items.filter { it.trackId == track.id }
-            for (it in items) {
-                val isVert = it.payload["gantt.kind"] == "vert"
-                if (isVert) continue
+            for ((itemIndex, it) in items.filter { it.payload["gantt.kind"] != "vert" }.withIndex()) {
                 val barRect = laid.nodePositions[NodeId("gantt:item:${it.id.value}")] ?: continue
                 val labelRect = laid.nodePositions[NodeId("gantt:itemLabel:${it.id.value}")]
+                if ((trackIndex + itemIndex) % 2 == 1) {
+                    val rowTop = kotlin.math.min(labelRect?.top ?: barRect.top, barRect.top) - 4f
+                    val rowBottom = kotlin.math.max(labelRect?.bottom ?: barRect.bottom, barRect.bottom) + 4f
+                    out += DrawCommand.FillRect(
+                        rect = Rect.ltrb((labelRect?.left ?: barRect.left) - 6f, rowTop, axis?.right ?: barRect.right, rowBottom),
+                        color = rowAltBg,
+                        z = 0,
+                    )
+                }
 
                 val tags = it.payload["gantt.tags"]?.split(',')?.map { s -> s.trim() }?.filter { s -> s.isNotEmpty() }?.toSet().orEmpty()
                 val isMilestone = it.payload["gantt.kind"] == "milestone" || ("milestone" in tags)
@@ -293,6 +307,20 @@ internal class MermaidGanttSubPipeline(
             }
         }
 
+        axis?.let {
+            out += DrawCommand.StrokePath(
+                path = com.hrm.diagram.core.draw.PathCmd(
+                    listOf(
+                        com.hrm.diagram.core.draw.PathOp.MoveTo(Point(it.left, scaleBgTop(it))),
+                        com.hrm.diagram.core.draw.PathOp.LineTo(Point(it.left, it.bottom)),
+                    ),
+                ),
+                stroke = Stroke(width = 1f),
+                color = majorGridColor,
+                z = 5,
+            )
+        }
+
         for (item in ir.items.filter { it.payload["gantt.kind"] == "vert" }) {
             val markerRect = laid.nodePositions[NodeId("gantt:vert:${item.id.value}")] ?: continue
             val labelRect = laid.nodePositions[NodeId("gantt:vertLabel:${item.id.value}")]
@@ -310,6 +338,20 @@ internal class MermaidGanttSubPipeline(
             )
             if (labelRect != null) {
                 val labelText = (item.label as? RichLabel.Plain)?.text ?: item.id.value
+                val bubble = Rect.ltrb(labelRect.left - 5f, labelRect.top - 3f, labelRect.right + 5f, labelRect.bottom + 3f)
+                out += DrawCommand.FillRect(
+                    rect = bubble,
+                    color = Color(0xFFFFFFFF.toInt()),
+                    corner = 4f,
+                    z = 8,
+                )
+                out += DrawCommand.StrokeRect(
+                    rect = bubble,
+                    stroke = Stroke(width = 1f),
+                    color = Color(0xFFFFCDD2.toInt()),
+                    corner = 4f,
+                    z = 9,
+                )
                 out += DrawCommand.DrawText(
                     text = labelText,
                     origin = Point((labelRect.left + labelRect.right) / 2f, labelRect.top),
@@ -325,6 +367,8 @@ internal class MermaidGanttSubPipeline(
 
         return out
     }
+
+    private fun scaleBgTop(axis: Rect): Float = axis.top - 40f
 
     private fun axisMajorLabels(
         ticks: List<Long>,

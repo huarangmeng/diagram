@@ -11,6 +11,7 @@ import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -128,6 +129,53 @@ class MermaidGanttIntegrationTest {
         assertTrue(snapshot.drawCommands.any { it is DrawCommand.DrawText && it.text == "Initial vert" })
         assertTrue(taskB.top > taskA.top, "normal tasks should still occupy rows: $taskA vs $taskB")
         assertTrue(vert.top <= taskA.top && vert.bottom >= taskB.bottom, "vert marker should span the chart body: $vert tasks=[$taskA,$taskB]")
+    }
+
+    @Test
+    fun gantt_release_plan_prefix_vert_and_axis_labels_render_cleanly() {
+        val src =
+            """
+            gantt
+               title Release Plan
+               dateFormat  YYYY-MM-DD
+               axisFormat  %b %d
+               tickInterval 1week
+               excludes weekends
+               section Design
+               UX research       :done, ux, 2026-01-05, 5d
+               Prototype         :active, proto, after ux, 6d
+               section Build
+               API implementation :crit, api, 2026-01-12, 10d
+               Web integration    :web, after proto, 8d
+               Release candidate  :milestone, rc, after api, 0d
+               vert "Code freeze" : 2026-01-23
+               click api href " `https://example.com/api` "
+            """.trimIndent() + "\n"
+
+        val snapshot = run(src, chunkSize = src.length)
+        val laidOut = snapshot.laidOut ?: error("missing layout")
+        val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        val axisTexts = texts.filter { it.text.contains("Jan") || it.text.contains("Feb") || it.text.contains("2026") }
+        val apiLink = snapshot.drawCommands.filterIsInstance<DrawCommand.Hyperlink>().single()
+        val fillColors = snapshot.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }.toSet()
+        val axis = laidOut.nodePositions[NodeId("gantt:axis")] ?: error("missing axis")
+        val title = laidOut.nodePositions[NodeId("gantt:title")] ?: error("missing title")
+        val markerLabel = laidOut.nodePositions.entries.single { it.key.value.startsWith("gantt:vertLabel:") }.value
+        val axisLabelTop = laidOut.nodePositions
+            .filterKeys { it.value.startsWith("gantt:axisTickLabel:") || it.value.startsWith("gantt:axisMajorLabel:") }
+            .values
+            .minOf { it.top }
+
+        assertFalse(texts.any { it.text.startsWith("vert ") }, "prefix vert syntax must not render as a task label: $texts")
+        assertTrue(texts.any { it.text == "Code freeze" }, "marker label should be rendered")
+        assertTrue(laidOut.nodePositions.keys.any { it.value.startsWith("gantt:vert:") }, "prefix vert should produce a marker layout node")
+        assertTrue(markerLabel.top >= title.bottom + 2f, "marker label should stay below the title: label=$markerLabel title=$title")
+        assertTrue(markerLabel.bottom + 4f <= axisLabelTop, "marker label should be in the top annotation lane above axis labels: label=$markerLabel axisLabelTop=$axisLabelTop axis=$axis")
+        assertTrue(axisTexts.isNotEmpty(), "weekly axis labels should be visible")
+        assertTrue(axisTexts.all { it.maxWidth == null }, "axis labels are pre-measured by layout and must not wrap in render")
+        assertTrue(0xFFF3F6F8.toInt() in fillColors, "section bands should be rendered")
+        assertTrue(0xFFFAFBFC.toInt() in fillColors, "alternating task row bands should be rendered")
+        assertEquals("https://example.com/api", apiLink.href)
     }
 
     @Test

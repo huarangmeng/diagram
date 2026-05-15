@@ -183,4 +183,29 @@ class SugiyamaInternalsTest {
         assertTrue(ya < yb, "A is above B/C")
         assertTrue(yb < yd, "D is below B/C")
     }
+
+    @Test
+    fun final_reflow_centers_diamond_ranks_like_layered_layouts() {
+        val layout = SugiyamaLayouts.forGraph(defaultNodeSize = Size(120f, 48f))
+        val ir = GraphIR(
+            nodes = listOf(n("core"), n("layout"), n("parser"), n("render")),
+            edges = listOf(e("core", "layout"), e("core", "parser"), e("layout", "render"), e("parser", "render")),
+            sourceLanguage = SourceLanguage.DOT,
+            styleHints = StyleHints(direction = Direction.TB),
+        )
+        val opts = LayoutOptions(direction = Direction.TB, nodeSpacing = 24f, rankSpacing = 48f, incremental = false, allowGlobalReflow = true)
+        val l = layout.layout(null, ir, opts)
+
+        val core = l.nodePositions.getValue(NodeId("core"))
+        val layoutNode = l.nodePositions.getValue(NodeId("layout"))
+        val parser = l.nodePositions.getValue(NodeId("parser"))
+        val render = l.nodePositions.getValue(NodeId("render"))
+        val middleCenter = (layoutNode.left + parser.right) / 2f
+
+        assertEquals(middleCenter, (core.left + core.right) / 2f)
+        assertEquals(middleCenter, (render.left + render.right) / 2f)
+        assertEquals(layoutNode.top, parser.top)
+        assertTrue(core.top < layoutNode.top)
+        assertTrue(render.top > layoutNode.top)
+    }
 }

@@ -1,7 +1,9 @@
 package com.hrm.diagram.render.streaming.dot
 
 import com.hrm.diagram.core.draw.DrawCommand
+import com.hrm.diagram.core.draw.PathOp
 import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
@@ -34,7 +36,53 @@ class DotIntegrationTest {
         assertEquals(2, oneIr.edges.size)
         assertNotNull(one.laidOut)
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().isNotEmpty())
+        assertTrue(one.drawCommands.none { it is DrawCommand.DrawArrow })
+        assertTrue(one.drawCommands.filterIsInstance<DrawCommand.FillPath>().isNotEmpty())
         assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "run" })
+    }
+
+    @Test
+    fun digraph_edges_render_as_bezier_curves_not_control_point_polylines() {
+        val src =
+            """
+            digraph deps {
+              "core" -> "layout";
+              "core" -> "parser";
+              "layout" -> "render";
+              "parser" -> "render";
+            }
+            """.trimIndent() + "\n"
+
+        val snapshot = run(src, src.length)
+        val paths = snapshot.drawCommands.filterIsInstance<DrawCommand.StrokePath>()
+
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+        assertEquals(4, paths.size)
+        assertTrue(paths.all { path -> path.path.ops.any { it is PathOp.CubicTo } }, "DOT edges should consume Sugiyama Bezier routes as CubicTo ops")
+        assertTrue(snapshot.drawCommands.none { it is DrawCommand.DrawArrow }, "DOT must not emit DrawArrow because Compose currently renders it as an extra short line")
+    }
+
+    @Test
+    fun digraph_long_edge_routes_around_intermediate_node() {
+        val src =
+            """
+            digraph G {
+              A -> B;
+              B -> C;
+              A -> C;
+            }
+            """.trimIndent() + "\n"
+
+        val snapshot = run(src, src.length)
+        val ir = assertIs<GraphIR>(snapshot.ir)
+        val laidOut = snapshot.laidOut!!
+
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+        assertEquals(3, ir.edges.size)
+        assertTrue(laidOut.edgeRoutes.any { it.from == NodeId("dot_a") && it.to == NodeId("dot_c") })
+        assertEquals(3, snapshot.drawCommands.filterIsInstance<DrawCommand.StrokePath>().size)
+        assertEquals(3, snapshot.drawCommands.filterIsInstance<DrawCommand.FillPath>().size)
+        assertTrue(snapshot.drawCommands.none { it is DrawCommand.DrawArrow }, "DOT arrowheads should not render as extra line segments")
     }
 
     @Test
@@ -183,6 +231,24 @@ class DotIntegrationTest {
         assertTrue(edge.font.italic)
         assertEquals(700, head.font.weight)
         assertEquals(0xFFE53935.toInt(), head.color.argb)
+    }
+
+    @Test
+    fun added_draw_commands_are_delta_not_full_frame_for_idle_append() {
+        val session = Diagram.session(language = SourceLanguage.DOT)
+        try {
+            assertTrue(session.append("digraph {\n").addedDrawCommands.isEmpty())
+            val edgePatch = session.append("  a -> b;\n")
+            assertTrue(edgePatch.addedDrawCommands.isNotEmpty())
+            val frameSize = session.state.value.drawCommands.size
+            assertTrue(edgePatch.addedDrawCommands.size <= frameSize)
+
+            val idlePatch = session.append("\n")
+            assertTrue(idlePatch.addedDrawCommands.isEmpty(), "idle append must not replay the full draw frame")
+            assertEquals(frameSize, session.state.value.drawCommands.size)
+        } finally {
+            session.close()
+        }
     }
 
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.DOT).let { session ->

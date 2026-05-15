@@ -2,6 +2,7 @@ package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.FontSpec
+import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
@@ -251,6 +252,64 @@ class PlantUmlComponentIntegrationTest {
         assertTrue(chunked.diagnostics.isEmpty(), "chunked diagnostics: ${chunked.diagnostics}")
     }
 
+    @Test
+    fun component_ports_packages_and_notes_do_not_overlap() {
+        val snapshot = run(
+            """
+            @startuml
+            skinparam component {
+              BackgroundColor #EFF6FF
+              BorderColor #2563EB
+              FontColor #1E3A8A
+            }
+            package Backend {
+              component "Order API" as Api {
+                portin HttpIn
+                portout EventsOut
+              }
+              queue Jobs
+              database Orders
+            }
+            interface "HTTP" as Http
+            Http --> HttpIn : REST
+            EventsOut --> Jobs : publish
+            Api --> Orders : persist
+            note right of Api
+              port + package + queue/database preview
+            end note
+            @enduml
+            """.trimIndent() + "\n",
+            chunkSize = 5,
+        )
+        val laidOut = assertNotNull(snapshot.laidOut)
+        val api = laidOut.nodePositions.getValue(NodeId("Api"))
+        val httpIn = laidOut.nodePositions.getValue(NodeId("HttpIn"))
+        val eventsOut = laidOut.nodePositions.getValue(NodeId("EventsOut"))
+        val jobs = laidOut.nodePositions.getValue(NodeId("Jobs"))
+        val orders = laidOut.nodePositions.getValue(NodeId("Orders"))
+        val noteId = laidOut.nodePositions.keys.first { it.value.startsWith("Api__note_") }
+        val note = laidOut.nodePositions.getValue(noteId)
+        val componentCluster = laidOut.clusterRects.getValue(NodeId("Api__cluster"))
+        val packageCluster = laidOut.clusterRects.getValue(NodeId("Backend"))
+
+        assertTrue(kotlin.math.abs(httpIn.right - api.left) <= httpIn.size.width / 2f + 1f, "HttpIn should anchor to Api left border")
+        assertTrue(kotlin.math.abs(eventsOut.left - api.right) <= eventsOut.size.width / 2f + 1f, "EventsOut should anchor to Api right border")
+        assertTrue(!note.overlaps(jobs), "note should not overlap Jobs: note=$note jobs=$jobs")
+        assertTrue(!note.overlaps(orders), "note should not overlap Orders: note=$note orders=$orders")
+        assertTrue(!api.overlaps(jobs), "Api should not overlap Jobs: api=$api jobs=$jobs")
+        assertTrue(!api.overlaps(orders), "Api should not overlap Orders: api=$api orders=$orders")
+        assertTrue(!jobs.overlaps(orders), "Jobs should not overlap Orders: jobs=$jobs orders=$orders")
+        assertTrue(api.right + 30f <= jobs.left || jobs.right + 30f <= api.left, "Api and Jobs should keep horizontal visual gap")
+        assertTrue(api.right + 30f <= orders.left || orders.right + 30f <= api.left, "Api and Orders should keep horizontal visual gap")
+        assertTrue(componentCluster.contains(api), "component cluster should include Api host: cluster=$componentCluster api=$api")
+        assertTrue(componentCluster.contains(httpIn), "component cluster should include HttpIn: cluster=$componentCluster port=$httpIn")
+        assertTrue(componentCluster.contains(eventsOut), "component cluster should include EventsOut: cluster=$componentCluster port=$eventsOut")
+        assertTrue(packageCluster.contains(componentCluster), "package should include nested component cluster: package=$packageCluster component=$componentCluster")
+        assertTrue(packageCluster.contains(jobs), "package should include Jobs: package=$packageCluster jobs=$jobs")
+        assertTrue(packageCluster.contains(orders), "package should include Orders: package=$packageCluster orders=$orders")
+        assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.PLANTUML).let { s ->
         try {
             var i = 0
@@ -267,6 +326,12 @@ class PlantUmlComponentIntegrationTest {
 
     private fun centerOf(rect: com.hrm.diagram.core.draw.Rect) =
         com.hrm.diagram.core.draw.Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
+
+    private fun Rect.overlaps(other: Rect): Boolean =
+        left < other.right && right > other.left && top < other.bottom && bottom > other.top
+
+    private fun Rect.contains(other: Rect): Boolean =
+        left <= other.left && top <= other.top && right >= other.right && bottom >= other.bottom
 
     private fun drawSignature(cmds: List<DrawCommand>): List<DrawSig> = cmds.map { it.toSig() }
 

@@ -175,6 +175,29 @@ class DotParserTest {
         assertTrue(result.diagnostics.any { it.code == "DOT-W001" && it.message.contains("overlap") })
     }
 
+    @Test
+    fun incremental_session_matches_one_shot_parse_for_single_char_chunks() {
+        val src =
+            """
+            digraph {
+              graph [rankdir=LR];
+              { rank=same; a; b }
+              { a b } -> { c d } [label=< <B>fanout</B> >];
+              c:out:e -> sink:in:w [arrowtail=dot, arrowhead=vee];
+            }
+            """.trimIndent()
+        val expected = DotParser().parse(src)
+        val incremental = DotParser().incrementalSession()
+        var actual = incremental.feed("", eos = false)
+        for (ch in src) {
+            actual = incremental.feed(ch.toString(), eos = false)
+        }
+        actual = incremental.feed("", eos = true)
+
+        assertEquals(expected.ir, actual.ir)
+        assertEquals(expected.diagnostics, actual.diagnostics)
+    }
+
     private fun labelOf(label: com.hrm.diagram.core.ir.RichLabel): String =
         when (label) {
             is com.hrm.diagram.core.ir.RichLabel.Plain -> label.text
