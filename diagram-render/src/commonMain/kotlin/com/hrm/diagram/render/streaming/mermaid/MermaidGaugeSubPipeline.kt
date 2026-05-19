@@ -28,6 +28,8 @@ import kotlin.math.sin
 import kotlin.math.tan
 
 internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private val parser = MermaidGaugeParser()
     private val layout = GaugeLayout()
 
@@ -72,6 +74,12 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
             addedDrawCommands = draw,
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snap.ir,
+            laidOut = snap.laidOut,
+            commands = snap.drawCommands,
         )
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
@@ -214,5 +222,8 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
         val c2 = Point(p3.x + dx1, p3.y + dy1)
         ops += PathOp.CubicTo(c1, c2, p3)
     }
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }
 

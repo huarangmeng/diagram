@@ -307,6 +307,44 @@ class PlantUmlComponentIntegrationTest {
         assertTrue(packageCluster.contains(componentCluster), "package should include nested component cluster: package=$packageCluster component=$componentCluster")
         assertTrue(packageCluster.contains(jobs), "package should include Jobs: package=$packageCluster jobs=$jobs")
         assertTrue(packageCluster.contains(orders), "package should include Orders: package=$packageCluster orders=$orders")
+        val componentHeader = snapshot.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .first { it.text == "COMPONENT Order API" }
+        val headerSingleLineWidth = componentHeader.text.length * componentHeader.font.sizeSp * 0.58f
+        assertTrue(
+            (componentHeader.maxWidth ?: 0f) >= headerSingleLineWidth,
+            "component header should fit on one line: maxWidth=${componentHeader.maxWidth} required=$headerSingleLineWidth",
+        )
+        assertTrue(
+            componentCluster.size.width >= headerSingleLineWidth + 44f,
+            "component cluster should reserve header width: cluster=$componentCluster required=${headerSingleLineWidth + 44f}",
+        )
+        val persistText = snapshot.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .first { it.text == "persist" }
+        val persistRect = textRect(persistText)
+        assertTrue(!persistRect.overlaps(api), "persist label should not overlap Api: label=$persistRect api=$api")
+        assertTrue(!persistRect.overlaps(eventsOut), "persist label should not overlap EventsOut: label=$persistRect port=$eventsOut")
+        assertTrue(!persistRect.overlaps(orders), "persist label should not overlap Orders: label=$persistRect orders=$orders")
+        val restText = snapshot.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .first { it.text == "REST" }
+        val httpInText = snapshot.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .first { it.text == "HttpIn" }
+        val restRect = textRect(restText)
+        val httpInTextRect = textRect(httpInText)
+        assertTrue(!restRect.overlaps(httpIn), "REST label should not overlap HttpIn port: label=$restRect port=$httpIn")
+        assertTrue(!restRect.overlaps(httpInTextRect), "REST label should not overlap HttpIn text: label=$restRect httpInText=$httpInTextRect")
+        val publishText = snapshot.drawCommands
+            .filterIsInstance<DrawCommand.DrawText>()
+            .first { it.text == "publish" }
+        val publishRect = textRect(publishText)
+        assertTrue(!publishRect.overlaps(componentHeader.let(::textRect)), "publish label should not overlap component header")
+        assertTrue(!publishRect.overlaps(jobs), "publish label should not overlap Jobs: label=$publishRect jobs=$jobs")
+        assertTrue(restRect.isNearRoute(laidOut.edgeRoutes.first { it.from == NodeId("Http") && it.to == NodeId("HttpIn") }), "REST should stay near its edge route: label=$restRect")
+        assertTrue(publishRect.isNearRoute(laidOut.edgeRoutes.first { it.from == NodeId("EventsOut") && it.to == NodeId("Jobs") }), "publish should stay near its edge route: label=$publishRect")
+        assertTrue(persistRect.isNearRoute(laidOut.edgeRoutes.first { it.from == NodeId("Api") && it.to == NodeId("Orders") }), "persist should stay near its edge route: label=$persistRect")
         assertTrue(snapshot.diagnostics.isEmpty(), "diagnostics: ${snapshot.diagnostics}")
     }
 
@@ -332,6 +370,42 @@ class PlantUmlComponentIntegrationTest {
 
     private fun Rect.contains(other: Rect): Boolean =
         left <= other.left && top <= other.top && right >= other.right && bottom >= other.bottom
+
+    private fun Rect.isNearRoute(route: com.hrm.diagram.layout.EdgeRoute): Boolean {
+        val center = centerOf(this)
+        return route.points.zipWithNext().any { (a, b) ->
+            val horizontal = kotlin.math.abs(b.x - a.x) >= kotlin.math.abs(b.y - a.y)
+            if (horizontal) {
+                center.x >= minOf(a.x, b.x) - 12f &&
+                    center.x <= maxOf(a.x, b.x) + 12f &&
+                    kotlin.math.abs(center.y - a.y) <= 60f
+            } else {
+                center.y >= minOf(a.y, b.y) - 12f &&
+                    center.y <= maxOf(a.y, b.y) + 12f &&
+                    kotlin.math.abs(center.x - a.x) <= 60f
+            }
+        }
+    }
+
+    private fun textRect(text: DrawCommand.DrawText): Rect {
+        val width = (text.maxWidth ?: (text.text.length * text.font.sizeSp * 0.58f)).coerceAtLeast(1f)
+        val height = text.font.sizeSp * 1.4f
+        val left = when (text.anchorX) {
+            TextAnchorX.Start -> text.origin.x
+            TextAnchorX.Center -> text.origin.x - width / 2f
+            TextAnchorX.End -> text.origin.x - width
+        }
+        val top = when (text.anchorY) {
+            TextAnchorY.Top -> text.origin.y
+            TextAnchorY.Middle -> text.origin.y - height / 2f
+            TextAnchorY.Bottom -> text.origin.y - height
+            TextAnchorY.Baseline -> text.origin.y - height * 0.8f
+        }
+        return Rect(
+            origin = com.hrm.diagram.core.draw.Point(left, top),
+            size = com.hrm.diagram.core.draw.Size(width, height),
+        )
+    }
 
     private fun drawSignature(cmds: List<DrawCommand>): List<DrawSig> = cmds.map { it.toSig() }
 

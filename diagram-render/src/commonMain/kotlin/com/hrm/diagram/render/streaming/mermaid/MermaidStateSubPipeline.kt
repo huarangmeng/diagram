@@ -24,16 +24,22 @@ import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.stated.StateDiagramLayout
 import com.hrm.diagram.parser.mermaid.MermaidStateParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.cache.DrawEntityKey
+import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.StructuredDrawEntityProvider
 import kotlin.math.sqrt
 
 /** Sub-pipeline for `stateDiagram` / `stateDiagram-v2` Mermaid sources. */
 internal class MermaidStateSubPipeline(
     private val textMeasurer: TextMeasurer,
-) : MermaidSubPipeline {
+) : MermaidSubPipeline, StructuredDrawEntityProvider {
 
     private val parser = MermaidStateParser()
     private val layout = StateDiagramLayout(textMeasurer)
     private var graphStyles: MermaidGraphStyleState? = null
+    override var lastDrawEntities: List<DrawEntity> = emptyList()
+        private set
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
         // Reuse the same style carrier as GraphIR diagrams: classDef/class/style/::: bindings.
@@ -59,7 +65,9 @@ internal class MermaidStateSubPipeline(
             allowGlobalReflow = isFinal,
         )
         val laidOut: LaidOutDiagram = layout.layout(previousSnapshot.laidOut, ir, opts).copy(seq = seq)
-        val drawCommands = renderState(ir, laidOut)
+        val drawEntities = renderState(ir, laidOut)
+        lastDrawEntities = drawEntities
+        val drawCommands = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snapshot = com.hrm.diagram.render.streaming.DiagramSnapshot(
@@ -86,8 +94,14 @@ internal class MermaidStateSubPipeline(
         )
     }
 
-    private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    override fun dispose() {
+        lastDrawEntities = emptyList()
+    }
+
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = lastDrawEntities
+
+    private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<DrawEntity> {
+        val out = ArrayList<DrawEntity>()
         val boxFill = Color(0xFFE3F2FDU.toInt())
         val boxStroke = Color(0xFF1565C0U.toInt())
         val compositeFill = Color(0xFFF5F5F5U.toInt())
@@ -111,15 +125,16 @@ internal class MermaidStateSubPipeline(
         for (s in ir.states) {
             if (s.kind != StateKind.Composite) continue
             val r = laidOut.nodePositions[s.id] ?: continue
+            val commands = ArrayList<DrawCommand>(3)
             val st = styleById[s.id]
             val fill = st?.fill?.let { Color(it.argb) } ?: compositeFill
             val strokeColor = st?.stroke?.let { Color(it.argb) } ?: compositeStroke
             val strokeWidth = st?.strokeWidth ?: solid.width
-            out += DrawCommand.FillRect(rect = r, color = fill, corner = 8f, z = 0)
-            out += DrawCommand.StrokeRect(rect = r, stroke = Stroke(width = strokeWidth), color = strokeColor, corner = 8f, z = 1)
+            commands += DrawCommand.FillRect(rect = r, color = fill, corner = 8f, z = 0)
+            commands += DrawCommand.StrokeRect(rect = r, stroke = Stroke(width = strokeWidth), color = strokeColor, corner = 8f, z = 1)
             val title = s.description ?: s.name
             if (title.isNotEmpty()) {
-                out += DrawCommand.DrawText(
+                commands += DrawCommand.DrawText(
                     text = title,
                     origin = Point(r.left + 8f, r.top + 4f),
                     font = nodeFont,
@@ -129,24 +144,26 @@ internal class MermaidStateSubPipeline(
                     z = 2,
                 )
             }
+            out += DrawEntity(DrawEntityKey.node("mermaid", s.id), commands)
         }
 
         // Non-composite state shapes (per-kind).
         for (s in ir.states) {
             val r = laidOut.nodePositions[s.id] ?: continue
+            val commands = ArrayList<DrawCommand>(4)
             when (s.kind) {
                 StateKind.Composite -> { /* already drawn above */ }
                 StateKind.Initial -> {
                     val w = r.right - r.left
-                    out += DrawCommand.FillRect(rect = r, color = pseudoFill, corner = w / 2f, z = 4)
+                    commands += DrawCommand.FillRect(rect = r, color = pseudoFill, corner = w / 2f, z = 4)
                 }
                 StateKind.Final -> {
                     val w = r.right - r.left
-                    out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = pseudoFill, corner = w / 2f, z = 4)
+                    commands += DrawCommand.StrokeRect(rect = r, stroke = solid, color = pseudoFill, corner = w / 2f, z = 4)
                     val pad = 4f
                     val inner = Rect.ltrb(r.left + pad, r.top + pad, r.right - pad, r.bottom - pad)
                     val iw = inner.right - inner.left
-                    out += DrawCommand.FillRect(rect = inner, color = pseudoFill, corner = iw / 2f, z = 5)
+                    commands += DrawCommand.FillRect(rect = inner, color = pseudoFill, corner = iw / 2f, z = 5)
                 }
                 StateKind.Choice -> {
                     val cx = (r.left + r.right) / 2f
@@ -158,18 +175,18 @@ internal class MermaidStateSubPipeline(
                         PathOp.LineTo(Point(r.left, cy)),
                         PathOp.Close,
                     ))
-                    out += DrawCommand.FillPath(path = path, color = boxFill, z = 4)
-                    out += DrawCommand.StrokePath(path = path, stroke = solid, color = boxStroke, z = 5)
+                    commands += DrawCommand.FillPath(path = path, color = boxFill, z = 4)
+                    commands += DrawCommand.StrokePath(path = path, stroke = solid, color = boxStroke, z = 5)
                 }
                 StateKind.Fork, StateKind.Join -> {
-                    out += DrawCommand.FillRect(rect = r, color = pseudoFill, corner = 2f, z = 4)
+                    commands += DrawCommand.FillRect(rect = r, color = pseudoFill, corner = 2f, z = 4)
                 }
                 StateKind.History, StateKind.DeepHistory -> {
                     val w = r.right - r.left
-                    out += DrawCommand.FillRect(rect = r, color = boxFill, corner = w / 2f, z = 4)
-                    out += DrawCommand.StrokeRect(rect = r, stroke = solid, color = boxStroke, corner = w / 2f, z = 5)
+                    commands += DrawCommand.FillRect(rect = r, color = boxFill, corner = w / 2f, z = 4)
+                    commands += DrawCommand.StrokeRect(rect = r, stroke = solid, color = boxStroke, corner = w / 2f, z = 5)
                     val letter = if (s.kind == StateKind.DeepHistory) "H*" else "H"
-                    out += DrawCommand.DrawText(
+                    commands += DrawCommand.DrawText(
                         text = letter,
                         origin = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
                         font = pseudoFont,
@@ -185,11 +202,11 @@ internal class MermaidStateSubPipeline(
                     val strokeColor = st?.stroke?.let { Color(it.argb) } ?: boxStroke
                     val strokeWidth = st?.strokeWidth ?: solid.width
                     val stroke = Stroke(width = strokeWidth)
-                    out += DrawCommand.FillRect(rect = r, color = fill, corner = 8f, z = 4)
-                    out += DrawCommand.StrokeRect(rect = r, stroke = stroke, color = strokeColor, corner = 8f, z = 5)
+                    commands += DrawCommand.FillRect(rect = r, color = fill, corner = 8f, z = 4)
+                    commands += DrawCommand.StrokeRect(rect = r, stroke = stroke, color = strokeColor, corner = 8f, z = 5)
                     val name = s.description ?: s.name
                     if (name.isNotEmpty()) {
-                        out += DrawCommand.DrawText(
+                        commands += DrawCommand.DrawText(
                             text = name,
                             origin = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
                             font = nodeFont,
@@ -201,6 +218,7 @@ internal class MermaidStateSubPipeline(
                     }
                 }
             }
+            if (commands.isNotEmpty()) out += DrawEntity(DrawEntityKey.node("mermaid", s.id), commands)
             // Suppress lint about unused thick stroke when only Fork/Join hit it.
             @Suppress("UNUSED_EXPRESSION") thick
         }
@@ -211,11 +229,12 @@ internal class MermaidStateSubPipeline(
             if (!v.startsWith("note#")) continue
             val noteIdx = v.removePrefix("note#").toIntOrNull() ?: continue
             val note = ir.notes.getOrNull(noteIdx) ?: continue
-            out += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 7)
-            out += DrawCommand.StrokeRect(rect = rect, stroke = solid, color = noteStroke, corner = 4f, z = 8)
+            val commands = ArrayList<DrawCommand>(3)
+            commands += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 7)
+            commands += DrawCommand.StrokeRect(rect = rect, stroke = solid, color = noteStroke, corner = 4f, z = 8)
             val text = (note.text as? RichLabel.Plain)?.text ?: ""
             if (text.isNotEmpty()) {
-                out += DrawCommand.DrawText(
+                commands += DrawCommand.DrawText(
                     text = text,
                     origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
                     font = nodeFont,
@@ -226,6 +245,7 @@ internal class MermaidStateSubPipeline(
                     z = 9,
                 )
             }
+            out += DrawEntity(DrawEntityKey.cluster("mermaid", id), commands)
         }
 
         // Transitions / edges.
@@ -247,9 +267,10 @@ internal class MermaidStateSubPipeline(
             } else {
                 PathCmd(listOf(PathOp.MoveTo(from), PathOp.LineTo(to)))
             }
-            out += DrawCommand.StrokePath(path = path, stroke = solid, color = edgeColor, z = 3)
+            val commands = ArrayList<DrawCommand>(3)
+            commands += DrawCommand.StrokePath(path = path, stroke = solid, color = edgeColor, z = 3)
             val tangentFrom = if (route.kind == RouteKind.Bezier && pts.size >= 4) pts[pts.size - 2] else from
-            out += openArrowHead(tangentFrom, to, edgeColor)
+            commands += openArrowHead(tangentFrom, to, edgeColor)
 
             val labelText = (tr.label as? RichLabel.Plain)?.text ?: ""
             if (labelText.isNotEmpty()) {
@@ -263,7 +284,7 @@ internal class MermaidStateSubPipeline(
                 } else {
                     ((from.x + to.x) / 2f) to ((from.y + to.y) / 2f)
                 }
-                out += DrawCommand.DrawText(
+                commands += DrawCommand.DrawText(
                     text = labelText,
                     origin = Point(mx, my - 4f),
                     font = edgeLabelFont,
@@ -273,6 +294,7 @@ internal class MermaidStateSubPipeline(
                     z = 9,
                 )
             }
+            out += DrawEntity(DrawEntityKey.edge("mermaid", tr.from, tr.to, idx), commands)
         }
 
         // Reference unused parameter to avoid lint.

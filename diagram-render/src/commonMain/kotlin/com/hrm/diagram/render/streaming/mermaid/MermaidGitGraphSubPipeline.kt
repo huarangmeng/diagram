@@ -28,6 +28,8 @@ import com.hrm.diagram.render.streaming.SessionPatch
 internal class MermaidGitGraphSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private val parser = MermaidGitGraphParser()
     private val layout = GitGraphLayout(textMeasurer)
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
@@ -57,6 +59,12 @@ internal class MermaidGitGraphSubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snap.ir,
+            laidOut = snap.laidOut,
+            commands = snap.drawCommands,
         )
         return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
     }
@@ -169,4 +177,7 @@ internal class MermaidGitGraphSubPipeline(
         Color(0xFF8D6E63.toInt()),
         Color(0xFFEC407A.toInt()),
     )[index % 8]
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

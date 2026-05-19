@@ -30,6 +30,8 @@ import kotlin.math.min
 internal class MermaidMindmapSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private val parser = MermaidMindmapParser()
     private val layout = MindmapLayout(textMeasurer)
     private val font = FontSpec(family = "sans-serif", sizeSp = 12f)
@@ -70,6 +72,12 @@ internal class MermaidMindmapSubPipeline(
             addedDrawCommands = draw,
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snap.ir,
+            laidOut = snap.laidOut,
+            commands = snap.drawCommands,
         )
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
@@ -245,4 +253,7 @@ internal class MermaidMindmapSubPipeline(
             else -> (parts[0].take(1) + parts[1].take(1)).uppercase()
         }
     }
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

@@ -56,6 +56,68 @@ public data class LaidOutDiagram(
     val bounds: Rect,
     /** Monotonically-increasing version, mirrors `DiagramSnapshot.seq`. */
     val seq: Long = 0L,
+    /** Explicit incremental state for layouts that can resume without hidden mutable caches. */
+    val layoutState: LayoutState = LayoutState.from(nodePositions, edgeRoutes, bounds),
+)
+
+/**
+ * Explicit state carried across streaming layout passes.
+ *
+ * `edgeRoutesByKey` is indexed by source edge order, so parallel edges with the same endpoints do
+ * not overwrite each other. `dirtyEdgeKeys` is informational for tests/benchmarks and renderers
+ * that want to distinguish fresh routes from stable cached routes.
+ */
+public data class LayoutState(
+    val nodePositions: Map<NodeId, Rect>,
+    val edgeRoutesByKey: Map<EdgeRouteKey, EdgeRoute>,
+    val bounds: Rect,
+    val dirtyEdgeKeys: Set<EdgeRouteKey> = emptySet(),
+) {
+    public val edgeRoutes: List<EdgeRoute>
+        get() = edgeRoutesByKey.entries
+            .sortedWith(
+                compareBy<Map.Entry<EdgeRouteKey, EdgeRoute>> { it.key.ordinal }
+                    .thenBy { it.key.from.value }
+                    .thenBy { it.key.to.value },
+            )
+            .map { it.value }
+            .toList()
+
+    public companion object {
+        public fun empty(): LayoutState = LayoutState(
+            nodePositions = emptyMap(),
+            edgeRoutesByKey = emptyMap(),
+            bounds = Rect(Point(0f, 0f), com.hrm.diagram.core.draw.Size(0f, 0f)),
+        )
+
+        public fun from(
+            nodePositions: Map<NodeId, Rect>,
+            edgeRoutes: List<EdgeRoute>,
+            bounds: Rect,
+            dirtyEdgeKeys: Set<EdgeRouteKey> = emptySet(),
+        ): LayoutState {
+            val counts = LinkedHashMap<Pair<NodeId, NodeId>, Int>()
+            val indexed = LinkedHashMap<EdgeRouteKey, EdgeRoute>()
+            for (route in edgeRoutes) {
+                val pair = route.from to route.to
+                val ordinal = counts[pair] ?: 0
+                counts[pair] = ordinal + 1
+                indexed[EdgeRouteKey(route.from, route.to, ordinal)] = route
+            }
+            return LayoutState(
+                nodePositions = LinkedHashMap(nodePositions),
+                edgeRoutesByKey = indexed,
+                bounds = bounds,
+                dirtyEdgeKeys = dirtyEdgeKeys,
+            )
+        }
+    }
+}
+
+public data class EdgeRouteKey(
+    val from: NodeId,
+    val to: NodeId,
+    val ordinal: Int = 0,
 )
 
 /**

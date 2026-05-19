@@ -1,6 +1,9 @@
 package com.hrm.diagram.core.streaming
 
 import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.streaming.NodeIds.anonymous
+import com.hrm.diagram.core.streaming.NodeIds.anonymousIndexed
+import com.hrm.diagram.core.streaming.NodeIds.explicit
 
 /**
  * Stable [NodeId] derivation helpers.
@@ -18,22 +21,22 @@ import com.hrm.diagram.core.ir.NodeId
  * Parsers MUST go through these helpers; hand-rolled `NodeId(...)` for anonymous nodes is forbidden
  * by `docs/rules.md` §F3.
  */
-public object NodeIds {
+object NodeIds {
     private const val ANON_PREFIX = "\$anon@"
 
-    public fun explicit(name: String): NodeId = NodeId(name)
+    fun explicit(name: String): NodeId = NodeId(name)
 
-    public fun anonymous(absoluteOffset: Int): NodeId {
+    fun anonymous(absoluteOffset: Int): NodeId {
         require(absoluteOffset >= 0) { "offset must be non-negative, got $absoluteOffset" }
         return NodeId("$ANON_PREFIX$absoluteOffset")
     }
 
-    public fun anonymousIndexed(absoluteOffset: Int, ordinal: Int): NodeId {
+    fun anonymousIndexed(absoluteOffset: Int, ordinal: Int): NodeId {
         require(absoluteOffset >= 0) { "offset must be non-negative, got $absoluteOffset" }
         require(ordinal >= 0) { "ordinal must be non-negative, got $ordinal" }
         return NodeId("$ANON_PREFIX$absoluteOffset#$ordinal")
     }
 
     /** True IFF [id] was produced by [anonymous] / [anonymousIndexed]. */
-    public fun isAnonymous(id: NodeId): Boolean = id.value.startsWith(ANON_PREFIX)
+    fun isAnonymous(id: NodeId): Boolean = id.value.startsWith(ANON_PREFIX)
 }

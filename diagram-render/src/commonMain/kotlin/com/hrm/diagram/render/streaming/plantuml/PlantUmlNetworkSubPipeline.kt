@@ -51,7 +51,7 @@ internal class PlantUmlNetworkSubPipeline(
             seq = seq,
             incremental = !isFinal,
         )
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laid,
             drawCommands = render(ir, laid),

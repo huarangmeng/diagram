@@ -26,16 +26,22 @@ import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.classd.ClassDiagramLayout
 import com.hrm.diagram.parser.mermaid.MermaidClassParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.cache.DrawEntityKey
+import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.StructuredDrawEntityProvider
 import kotlin.math.sqrt
 
 /** Sub-pipeline for `classDiagram` Mermaid sources. */
 internal class MermaidClassSubPipeline(
     private val textMeasurer: TextMeasurer,
-) : MermaidSubPipeline {
+) : MermaidSubPipeline, StructuredDrawEntityProvider {
 
     private val parser = MermaidClassParser()
     private val layout = ClassDiagramLayout(textMeasurer)
     private var graphStyles: MermaidGraphStyleState? = null
+    override var lastDrawEntities: List<DrawEntity> = emptyList()
+        private set
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
         graphStyles = styles
@@ -60,7 +66,9 @@ internal class MermaidClassSubPipeline(
             allowGlobalReflow = isFinal,
         )
         val laidOut: LaidOutDiagram = layout.layout(previousSnapshot.laidOut, ir, opts).copy(seq = seq)
-        val drawCommands = renderClass(ir, laidOut)
+        val drawEntities = renderClass(ir, laidOut)
+        lastDrawEntities = drawEntities
+        val drawCommands = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snapshot = com.hrm.diagram.render.streaming.DiagramSnapshot(
@@ -87,8 +95,14 @@ internal class MermaidClassSubPipeline(
         )
     }
 
-    private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    override fun dispose() {
+        lastDrawEntities = emptyList()
+    }
+
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = lastDrawEntities
+
+    private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<DrawEntity> {
+        val out = ArrayList<DrawEntity>()
         val boxFill = Color(0xFFFFFDE7U.toInt())
         val boxStroke = Color(0xFF6D4C41U.toInt())
         val headerFill = Color(0xFFFFE0B2U.toInt())
@@ -128,9 +142,10 @@ internal class MermaidClassSubPipeline(
         for ((id, rect) in laidOut.clusterRects) {
             val v = id.value
             if (v.startsWith("ns#")) {
-                out += DrawCommand.StrokeRect(rect = rect, stroke = dashed, color = nsStroke, corner = 6f, z = 0)
+                val commands = ArrayList<DrawCommand>(2)
+                commands += DrawCommand.StrokeRect(rect = rect, stroke = dashed, color = nsStroke, corner = 6f, z = 0)
                 val title = v.removePrefix("ns#")
-                out += DrawCommand.DrawText(
+                commands += DrawCommand.DrawText(
                     text = title,
                     origin = Point(rect.left + 8f, rect.top + 4f),
                     font = memberFont,
@@ -139,6 +154,7 @@ internal class MermaidClassSubPipeline(
                     anchorY = TextAnchorY.Top,
                     z = 1,
                 )
+                out += DrawEntity(DrawEntityKey.cluster("mermaid", id), commands)
             }
         }
 
@@ -146,6 +162,7 @@ internal class MermaidClassSubPipeline(
         // used so divider positions track real glyph heights at any density.
         for (c in ir.classes) {
             val r = laidOut.nodePositions[c.id] ?: continue
+            val commands = ArrayList<DrawCommand>(8 + c.members.size)
             val st = resolvedNodeStyleById[c.id]
             val palette = paletteFor(classStyleByName[c.id])
             val cBoxFill = st?.fill?.let { Color(it.argb) } ?: (palette?.fill ?: boxFill)
@@ -162,14 +179,14 @@ internal class MermaidClassSubPipeline(
             val headerMetrics = textMeasurer.measure(headerText, headerFont)
             val headerH = headerMetrics.height + sectionPad
 
-            out += DrawCommand.FillRect(rect = r, color = cBoxFill, corner = 4f, z = 2)
-            out += DrawCommand.StrokeRect(rect = r, stroke = borderStroke, color = cBoxStroke, corner = 4f, z = 4)
+            commands += DrawCommand.FillRect(rect = r, color = cBoxFill, corner = 4f, z = 2)
+            commands += DrawCommand.StrokeRect(rect = r, stroke = borderStroke, color = cBoxStroke, corner = 4f, z = 4)
 
             val headerRect = Rect.ltrb(r.left, r.top, r.right, r.top + headerH)
-            out += DrawCommand.FillRect(rect = headerRect, color = cHeaderFill, corner = 4f, z = 3)
+            commands += DrawCommand.FillRect(rect = headerRect, color = cHeaderFill, corner = 4f, z = 3)
 
             val cx = (r.left + r.right) / 2f
-            out += DrawCommand.DrawText(
+            commands += DrawCommand.DrawText(
                 text = headerText,
                 origin = Point(cx, r.top + sectionPad / 2f),
                 font = headerFont,
@@ -188,7 +205,7 @@ internal class MermaidClassSubPipeline(
             // single header chip and we don't draw a stray horizontal line.
             if (hasAttrs || hasMethods) {
                 val divY1 = r.top + headerH
-                out += DrawCommand.StrokePath(
+                commands += DrawCommand.StrokePath(
                     path = PathCmd(listOf(PathOp.MoveTo(Point(r.left, divY1)), PathOp.LineTo(Point(r.right, divY1)))),
                     stroke = borderStroke, color = cBoxStroke, z = 4,
                 )
@@ -196,7 +213,7 @@ internal class MermaidClassSubPipeline(
                 for (a in attrs) {
                     val line = renderMemberLine(a)
                     val lm = textMeasurer.measure(line, memberFont)
-                    out += DrawCommand.DrawText(
+                    commands += DrawCommand.DrawText(
                         text = line,
                         origin = Point(r.left + 6f, y),
                         font = memberFont,
@@ -208,7 +225,7 @@ internal class MermaidClassSubPipeline(
                     y += lm.height
                 }
                 if (hasAttrs && hasMethods) {
-                    out += DrawCommand.StrokePath(
+                    commands += DrawCommand.StrokePath(
                         path = PathCmd(listOf(PathOp.MoveTo(Point(r.left, y + rowGap)), PathOp.LineTo(Point(r.right, y + rowGap)))),
                         stroke = borderStroke, color = cBoxStroke, z = 4,
                     )
@@ -217,7 +234,7 @@ internal class MermaidClassSubPipeline(
                 for (m in methods) {
                     val line = renderMemberLine(m)
                     val lm = textMeasurer.measure(line, memberFont)
-                    out += DrawCommand.DrawText(
+                    commands += DrawCommand.DrawText(
                         text = line,
                         origin = Point(r.left + 6f, y),
                         font = memberFont,
@@ -229,6 +246,7 @@ internal class MermaidClassSubPipeline(
                     y += lm.height
                 }
             }
+            out += DrawEntity("mermaid.class.node.${c.id.value}", commands)
         }
 
         // Notes.
@@ -237,11 +255,12 @@ internal class MermaidClassSubPipeline(
             if (!v.startsWith("note#")) continue
             val noteIdx = v.removePrefix("note#").toIntOrNull() ?: continue
             val note = ir.notes.getOrNull(noteIdx) ?: continue
-            out += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 6)
-            out += DrawCommand.StrokeRect(rect = rect, stroke = solid, color = noteStroke, corner = 4f, z = 7)
+            val commands = ArrayList<DrawCommand>(3)
+            commands += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 6)
+            commands += DrawCommand.StrokeRect(rect = rect, stroke = solid, color = noteStroke, corner = 4f, z = 7)
             val text = (note.text as? RichLabel.Plain)?.text ?: ""
             if (text.isNotEmpty()) {
-                out += DrawCommand.DrawText(
+                commands += DrawCommand.DrawText(
                     text = text,
                     origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
                     font = memberFont,
@@ -252,6 +271,7 @@ internal class MermaidClassSubPipeline(
                     z = 8,
                 )
             }
+            out += DrawEntity(DrawEntityKey.cluster("mermaid", id), commands)
         }
 
         // Relations / edges.
@@ -274,29 +294,30 @@ internal class MermaidClassSubPipeline(
             } else {
                 PathCmd(listOf(PathOp.MoveTo(from), PathOp.LineTo(to)))
             }
-            out += DrawCommand.StrokePath(path = path, stroke = stroke, color = edgeColor, z = 1)
+            val commands = ArrayList<DrawCommand>(6)
+            commands += DrawCommand.StrokePath(path = path, stroke = stroke, color = edgeColor, z = 1)
             // Arrowhead direction uses the last segment's tangent so heads stay aligned with
             // the curve, not with the straight from→to line.
             val tangentFrom = if (route.kind == com.hrm.diagram.layout.RouteKind.Bezier && pts.size >= 4) pts[pts.size - 2] else from
             // Arrowheads at the `to` end.
             when (rel.kind) {
                 ClassRelationKind.Inheritance, ClassRelationKind.Realization ->
-                    out += hollowTriangle(tangentFrom, to, edgeColor)
+                    commands += hollowTriangle(tangentFrom, to, edgeColor)
                 ClassRelationKind.Composition ->
-                    out += filledDiamond(tangentFrom, to, edgeColor)
+                    commands += filledDiamond(tangentFrom, to, edgeColor)
                 ClassRelationKind.Aggregation ->
-                    out += hollowDiamond(tangentFrom, to, edgeColor)
+                    commands += hollowDiamond(tangentFrom, to, edgeColor)
                 ClassRelationKind.Association, ClassRelationKind.Dependency ->
-                    out += openArrowHead(tangentFrom, to, edgeColor)
+                    commands += openArrowHead(tangentFrom, to, edgeColor)
                 ClassRelationKind.Link, ClassRelationKind.LinkDashed -> { /* no head */ }
             }
 
             // Cardinality labels.
             rel.fromCardinality?.let {
-                if (it.isNotEmpty()) out += cardinalityText(from, pts.getOrElse(1) { to }, it, edgeLabelFont, textColor, atStart = true)
+                if (it.isNotEmpty()) commands += cardinalityText(from, pts.getOrElse(1) { to }, it, edgeLabelFont, textColor, atStart = true)
             }
             rel.toCardinality?.let {
-                if (it.isNotEmpty()) out += cardinalityText(tangentFrom, to, it, edgeLabelFont, textColor, atStart = false)
+                if (it.isNotEmpty()) commands += cardinalityText(tangentFrom, to, it, edgeLabelFont, textColor, atStart = false)
             }
             // Edge label at the geometric midpoint of the curve (or straight line).
             val labelText = (rel.label as? RichLabel.Plain)?.text ?: ""
@@ -311,7 +332,7 @@ internal class MermaidClassSubPipeline(
                 } else {
                     ((from.x + to.x) / 2f) to ((from.y + to.y) / 2f)
                 }
-                out += DrawCommand.DrawText(
+                commands += DrawCommand.DrawText(
                     text = labelText,
                     origin = Point(mx, my - 4f),
                     font = edgeLabelFont,
@@ -321,6 +342,7 @@ internal class MermaidClassSubPipeline(
                     z = 9,
                 )
             }
+            out += DrawEntity("mermaid.class.relation.$idx.${rel.from.value}->${rel.to.value}", commands)
         }
 
         return out

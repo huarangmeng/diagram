@@ -17,6 +17,7 @@ import com.hrm.diagram.parser.mermaid.MermaidStyleExtrasCodec
 import com.hrm.diagram.parser.mermaid.MermaidStyleParsers
 import com.hrm.diagram.parser.mermaid.MermaidTokenKind
 import com.hrm.diagram.render.cache.DrawCommandStore
+import com.hrm.diagram.render.cache.withMeasuredEntityTextBounds
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -587,7 +588,10 @@ internal class MermaidSessionPipeline(
 
     private fun wrapWithStyleDiagnosticsAndHints(advance: PipelineAdvance, newStyleDiags: List<Diagnostic>): PipelineAdvance {
         val styledSnapshot = injectStyleHints(advance.snapshot)
-        val drawDelta = drawStore.updateFullFrame(styledSnapshot.drawCommands)
+        val drawEntities = sub?.drawEntitiesFor(styledSnapshot) ?: emptyList()
+        val drawDelta = drawStore.updateEntities(
+            drawEntities.withMeasuredEntityTextBounds(textMeasurer),
+        )
         val drawSnapshot = styledSnapshot.copy(drawCommands = drawDelta.fullFrame)
         val mergedSnapshot = if (styleDiagnosticsAll.isEmpty()) {
             drawSnapshot

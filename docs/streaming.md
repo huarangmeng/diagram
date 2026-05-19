@@ -137,15 +137,16 @@ sealed interface IrPatch {
   2. 顺序（order）：新节点尾部追加；触发 1 轮 barycenter 局部交叉缩减（仅在受影响层）。
   3. 坐标分配（x）：增量 Brandes-Köpf——已有节点 x 不动，新节点用同算法补齐。
   4. 边路由：仅对新边 + 受新节点影响的旧边重路。
+- `LaidOutDiagram.layoutState` 暴露显式增量状态：`nodePositions`、按 `EdgeRouteKey(from,to,ordinal)` 建索引的 `edgeRoutesByKey`、`dirtyEdgeKeys` 与 bounds。Sugiyama 必须优先复用 route index，仅重算 dirty edge，避免每次 append 全量 edge routing / O(E²) 查找。
 - finish() 时可选触发一次 **finalize pass**：在已有坐标基础上做轻量优化（≤ 10ms）以提升美观；保证不会让节点跳变超过 1 个网格单位。
 - `LayoutOptions.incremental: Boolean`（默认 true）允许调用方关闭以做完整布局。
 
 ### 3.5 Render（DrawCommand 增量 + Compose 复用）
 
 - `SessionPatch.addedDrawCommands` 仅含新增；UI 层在 Canvas 内做 `key()` 化，已绘节点用 `Modifier.drawWithCache` 复用 path。
-- `:diagram-render` 使用 `DrawCommandStore` 维护 session-local 完整帧与增量帧：现有 renderer 可通过 full-frame seam 迁移，新增/重构 renderer 应优先使用 stable entity key（node/edge/cluster）提交 delta，避免把已存在图元的坐标/样式更新误报为新增。
-- 文本测量缓存：`TextMeasurer` 结果以 `(text, style, maxWidth)` 三元组为键缓存，避免重复测量。
-- 视口剔除（viewport culling）：基于四叉树空间索引，仅绘制可见区域 DrawCommand；在万节点场景仍可保持 60fps。
+- `:diagram-render` 使用 `DrawCommandStore` 维护 session-local 完整帧与增量帧：DOT 已使用 node/edge/cluster/background entity key；Mermaid / PlantUML 默认 pipeline 已迁移到 DrawEntity 契约（原生 renderer 直接输出实体，未拆分 renderer 在子流水线边界统一结构化实体化），不再走 full-frame seam、位置索引 key 或 DrawCommand 语义派生 key。新增/重构 renderer 应优先使用 stable entity key（node/edge/cluster/message/item）提交 delta，避免把已存在图元的坐标/样式更新误报为新增。
+- 文本测量缓存：`Diagram.session()` 默认把注入的 `TextMeasurer` 包装为 session-scoped `CachedTextMeasurer`，以 `(text, style, maxWidth)` 三元组为键缓存，避免重复测量。Render 阶段不得直接绕过该 facade 调平台 measurer；新增 renderer 应在 layout/geometry 准备阶段完成测量并只消费缓存后的 metrics。
+- 视口剔除（viewport culling）：`DiagramSnapshot.drawCommandIndex` 基于四叉树空间索引，仅返回可见区域 DrawCommand；`DiagramCanvas` 默认通过该索引消费 snapshot，并可通过 `DiagramViewportState` 启用真实 pan/zoom 后反算 diagram-space viewport。无法安全界定 bounds 的命令保守保留为 always-visible，避免误裁剪。Mermaid / PlantUML / DOT 默认 pipeline 都会在发布 snapshot 前递归写入 `DrawText.measuredBounds`，文本命令只有在该字段存在时才进入 quadtree；禁止在 culling/render 阶段用字符宽度估算或重新调用平台 `TextMeasurer`。在万节点场景仍可保持 60fps。
 
 ---
 

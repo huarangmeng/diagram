@@ -42,6 +42,8 @@ import kotlin.math.sqrt
 internal class MermaidRequirementSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private val parser = MermaidRequirementParser()
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val nodeCardLayouts: MutableMap<NodeId, RequirementCardLayout> = HashMap()
@@ -109,6 +111,12 @@ internal class MermaidRequirementSubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snapshot.ir,
+            laidOut = snapshot.laidOut,
+            commands = snapshot.drawCommands,
         )
         return PipelineAdvance(
             snapshot = snapshot,
@@ -560,4 +568,7 @@ internal class MermaidRequirementSubPipeline(
         val corner: Float,
         val bodyPadX: Float,
     )
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

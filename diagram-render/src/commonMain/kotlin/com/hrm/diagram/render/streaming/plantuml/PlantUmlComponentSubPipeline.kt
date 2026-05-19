@@ -88,10 +88,11 @@ internal class PlantUmlComponentSubPipeline(
         val notesLaid = applyAnchoredNotes(ir, portsLaid)
         val routedLaid = routeDecoratedEdges(ir, notesLaid)
         val laidOut = withClusterRects(ir, routedLaid, palette, seq)
-        return PlantUmlRenderState(
+        val edgeLabelRects = layoutEdgeLabels(ir, laidOut)
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laidOut,
-            drawCommands = render(ir, laidOut, palette),
+            drawCommands = render(ir, laidOut, palette, edgeLabelRects),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -160,7 +161,7 @@ internal class PlantUmlComponentSubPipeline(
                     )
                 }
                 else -> {
-                    val metrics = textMeasurer.measure(label, nodeFont, maxWidth = 180f)
+                    val metrics = textMeasurer.measure(label, nodeFont)
                     val hasPorts = (portCountByHost[node.id] ?: 0) > 0
                     nodeSizes[node.id] = Size(
                         width = (metrics.width + if (hasPorts) 64f else 36f).coerceAtLeast(if (hasPorts) 172f else 132f),
@@ -190,14 +191,28 @@ internal class PlantUmlComponentSubPipeline(
         childRects += nestedRects
         if (childRects.isEmpty()) return null
         val (kind, title) = parseClusterLabel(cluster)
-        val titleMetrics = textMeasurer.measure(title.ifBlank { cluster.id.value }, scopedFont(palette.scopes[kind.lowercase()], groupFont), maxWidth = 220f)
+        val headerText = clusterHeaderText(kind, title, cluster.id)
+        val headerFont = clusterHeaderFont(palette.scopes[kind.lowercase()])
+        val headerMetrics = textMeasurer.measure(headerText, headerFont)
+        val headerBandHeight = headerMetrics.height + 28f
+        val headerMinWidth = headerMetrics.width + 44f
         val left = childRects.minOf { it.left } - 20f
-        val top = childRects.minOf { it.top } - (titleMetrics.height + 26f)
-        val right = childRects.maxOf { it.right } + 20f
+        val top = childRects.minOf { it.top } - headerBandHeight
+        val naturalRight = childRects.maxOf { it.right } + 20f
+        val right = naturalRight.coerceAtLeast(left + headerMinWidth)
         val bottom = childRects.maxOf { it.bottom } + 18f
         val rect = Rect.ltrb(left, top, right, bottom)
         out[cluster.id] = rect
         return rect
+    }
+
+    private fun clusterHeaderText(kind: String, title: String, id: NodeId): String =
+        "${kind.uppercase()} ${title.ifBlank { id.value }}"
+
+    private fun clusterHeaderFont(scoped: ScopePalette?): FontSpec {
+        val base = scopedFont(scoped, groupFont)
+        if (scoped?.fontSize != null) return base
+        return base.copy(sizeSp = (base.sizeSp * 0.86f).coerceAtLeast(9f))
     }
 
     private fun inlineClusterHost(clusterId: NodeId): NodeId? =
@@ -242,7 +257,12 @@ internal class PlantUmlComponentSubPipeline(
         return Rect.ltrb(minLeft, minTop, maxRight + 20f, maxBottom + 20f)
     }
 
-    private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: ComponentPalette): List<DrawCommand> {
+    private fun render(
+        ir: GraphIR,
+        laidOut: LaidOutDiagram,
+        palette: ComponentPalette,
+        edgeLabelRects: Map<Int, Rect>,
+    ): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
         val bounds = laidOut.bounds
         out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
@@ -250,7 +270,7 @@ internal class PlantUmlComponentSubPipeline(
         for (node in ir.nodes) drawNode(node, ir, laidOut, out, palette)
         for ((index, route) in laidOut.edgeRoutes.withIndex()) {
             val edge = ir.edges.getOrNull(index) ?: continue
-            drawEdge(edge, route, laidOut, out)
+            drawEdge(edge, route, edgeLabelRects[index], out)
         }
         return out
     }
@@ -274,15 +294,20 @@ internal class PlantUmlComponentSubPipeline(
 
         val (kind, title) = parseClusterLabel(cluster)
         val textColor = palette.scopes[kind.lowercase()]?.text?.let { Color(it.argb) } ?: strokeColor
-        val chipRect = Rect.ltrb(rect.left + 12f, rect.top + 10f, rect.left + 132f.coerceAtMost(rect.size.width - 24f), rect.top + 34f)
+        val headerText = clusterHeaderText(kind, title, cluster.id)
+        val headerFont = clusterHeaderFont(scoped)
+        val headerMetrics = textMeasurer.measure(headerText, headerFont)
+        val chipWidth = (headerMetrics.width + 22f).coerceAtMost(rect.size.width - 24f).coerceAtLeast(40f)
+        val chipHeight = (headerMetrics.height + 10f).coerceAtLeast(22f)
+        val chipRect = Rect.ltrb(rect.left + 12f, rect.top + 8f, rect.left + 12f + chipWidth, rect.top + 8f + chipHeight)
         out += DrawCommand.FillRect(rect = chipRect, color = Color(0xFFFFFFFF.toInt()), corner = 12f, z = 2)
         out += DrawCommand.StrokeRect(rect = chipRect, stroke = Stroke(width = 1f), color = strokeColor, corner = 12f, z = 3)
         out += DrawCommand.DrawText(
-            text = "${kind.uppercase()}  ${title.ifBlank { cluster.id.value }}",
+            text = headerText,
             origin = Point(chipRect.left + 10f, (chipRect.top + chipRect.bottom) / 2f),
-            font = scopedFont(scoped, groupFont),
+            font = headerFont,
             color = textColor,
-            maxWidth = chipRect.size.width - 20f,
+            maxWidth = headerMetrics.width + 2f,
             anchorX = TextAnchorX.Start,
             anchorY = TextAnchorY.Middle,
             z = 4,
@@ -675,6 +700,9 @@ internal class PlantUmlComponentSubPipeline(
     private fun Rect.shift(dx: Float, dy: Float): Rect =
         Rect.ltrb(left + dx, top + dy, right + dx, bottom + dy)
 
+    private fun Rect.expand(dx: Float, dy: Float): Rect =
+        Rect.ltrb(left - dx, top - dy, right + dx, bottom + dy)
+
     private fun boundaryPoint(rect: Rect, toward: Point): Point {
         val center = centerOf(rect)
         val dx = toward.x - center.x
@@ -730,7 +758,7 @@ internal class PlantUmlComponentSubPipeline(
         }
     }
 
-    private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge, route: com.hrm.diagram.layout.EdgeRoute, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>) {
+    private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge, route: com.hrm.diagram.layout.EdgeRoute, labelRect: Rect?, out: MutableList<DrawCommand>) {
         val pts = route.points
         if (pts.size < 2) return
         val ops = ArrayList<PathOp>(pts.size)
@@ -764,33 +792,101 @@ internal class PlantUmlComponentSubPipeline(
         }
         val text = (edge.label as? RichLabel.Plain)?.text ?: return
         if (text.isEmpty()) return
-        val mid = edgeLabelOrigin(route, laidOut)
+        val rect = labelRect ?: edgeLabelRect(text, route).second
         out += DrawCommand.DrawText(
             text = text,
-            origin = mid,
+            origin = Point(rect.left + rect.size.width / 2f, rect.top + rect.size.height / 2f),
             font = edgeLabelFont,
             color = Color(0xFF263238.toInt()),
+            maxWidth = rect.size.width,
             anchorX = TextAnchorX.Center,
-            anchorY = TextAnchorY.Bottom,
+            anchorY = TextAnchorY.Middle,
             z = 5,
         )
     }
 
-    private fun edgeLabelOrigin(route: EdgeRoute, laidOut: LaidOutDiagram): Point {
+    private fun layoutEdgeLabels(ir: GraphIR, laidOut: LaidOutDiagram): Map<Int, Rect> {
+        val occupied = ArrayList<Rect>()
+        occupied += laidOut.nodePositions.values.map { it.expand(8f, 6f) }
+        occupied += portLabelRects(ir, laidOut)
+        val result = LinkedHashMap<Int, Rect>()
+        for ((index, edge) in ir.edges.withIndex()) {
+            val label = (edge.label as? RichLabel.Plain)?.text?.takeIf { it.isNotBlank() } ?: continue
+            val route = laidOut.edgeRoutes.getOrNull(index) ?: continue
+            val candidates = edgeLabelCandidates(label, route)
+            val chosen = candidates.firstOrNull { candidate -> occupied.none { it.overlaps(candidate) } }
+                ?: candidates.minByOrNull { candidate -> occupied.count { it.overlaps(candidate) } }
+                ?: edgeLabelRect(label, route).second
+            result[index] = chosen
+            occupied += chosen.expand(8f, 4f)
+        }
+        return result
+    }
+
+    private fun edgeLabelCandidates(text: String, route: EdgeRoute): List<Rect> {
+        val (size, base) = edgeLabelRect(text, route)
+        val candidates = ArrayList<Rect>()
+        val (a, b) = semanticLabelSegment(route)
+        val horizontal = kotlin.math.abs(b.x - a.x) >= kotlin.math.abs(b.y - a.y)
+        val offsets = listOf(14f, 24f, 36f)
+        val positions = listOf(0.5f, 0.42f, 0.58f)
+        for (offset in offsets) {
+            for (t in positions) {
+                val p = Point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+                if (horizontal) {
+                    candidates += Rect(Point(p.x - size.width / 2f, p.y - size.height - offset), size)
+                    candidates += Rect(Point(p.x - size.width / 2f, p.y + offset), size)
+                } else {
+                    candidates += Rect(Point(p.x + offset, p.y - size.height / 2f), size)
+                    candidates += Rect(Point(p.x - size.width - offset, p.y - size.height / 2f), size)
+                }
+            }
+        }
+        candidates += base
+        return candidates
+    }
+
+    private fun semanticLabelSegment(route: EdgeRoute): Pair<Point, Point> {
+        val segments = route.points.zipWithNext()
+        if (segments.isEmpty()) return route.points.first() to route.points.first()
+        val overallHorizontal = kotlin.math.abs(route.points.last().x - route.points.first().x) >=
+            kotlin.math.abs(route.points.last().y - route.points.first().y)
+        return segments
+            .filter { (a, b) ->
+                val horizontal = kotlin.math.abs(b.x - a.x) >= kotlin.math.abs(b.y - a.y)
+                horizontal == overallHorizontal
+            }
+            .maxByOrNull { (a, b) -> segmentLength(a, b) }
+            ?: segments.maxBy { (a, b) -> segmentLength(a, b) }
+    }
+
+    private fun segmentLength(a: Point, b: Point): Float =
+        kotlin.math.abs(b.x - a.x) + kotlin.math.abs(b.y - a.y)
+
+    private fun edgeLabelRect(text: String, route: EdgeRoute): Pair<Size, Rect> {
+        val metrics = textMeasurer.measure(text, edgeLabelFont)
+        val size = Size(metrics.width + 10f, metrics.height + 4f)
         val pts = route.points
         val a = pts.first()
         val b = pts.last()
-        val base = Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
-        val from = laidOut.nodePositions[route.from]
-        val to = laidOut.nodePositions[route.to]
-        val horizontal = kotlin.math.abs(b.x - a.x) >= kotlin.math.abs(b.y - a.y)
-        var candidate = if (horizontal) Point(base.x, base.y - 16f) else Point(base.x + 16f, base.y)
-        val labelBox = Rect(Point(candidate.x - 42f, candidate.y - 14f), Size(84f, 18f))
-        if ((from != null && labelBox.overlaps(from)) || (to != null && labelBox.overlaps(to))) {
-            candidate = if (horizontal) Point(base.x, base.y + 26f) else Point(base.x - 26f, base.y)
-        }
-        return candidate
+        val center = Point((a.x + b.x) / 2f, (a.y + b.y) / 2f)
+        return size to Rect(Point(center.x - size.width / 2f, center.y - size.height - 12f), size)
     }
+
+    private fun portLabelRects(ir: GraphIR, laidOut: LaidOutDiagram): List<Rect> =
+        ir.nodes.filter { it.payload[PlantUmlComponentParser.KIND_KEY] == "port" }
+            .mapNotNull { port ->
+                val rect = laidOut.nodePositions[port.id] ?: return@mapNotNull null
+                val label = labelTextOf(port)
+                val metrics = textMeasurer.measure(label, iconFallbackFont)
+                val size = Size(metrics.width + 8f, metrics.height + 4f)
+                val origin = portLabelOrigin(port, rect, laidOut)
+                when (portLabelAnchorX(port, laidOut)) {
+                    TextAnchorX.End -> Rect(Point(origin.x - size.width, origin.y - size.height / 2f), size)
+                    TextAnchorX.Center -> Rect(Point(origin.x - size.width / 2f, origin.y - size.height / 2f), size)
+                    else -> Rect(Point(origin.x, origin.y - size.height / 2f), size)
+                }
+            }
 
     private fun arrowHead(from: Point, to: Point, color: Color): DrawCommand {
         val dx = to.x - from.x

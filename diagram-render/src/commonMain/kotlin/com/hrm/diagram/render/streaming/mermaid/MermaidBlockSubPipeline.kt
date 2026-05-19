@@ -38,6 +38,8 @@ import kotlin.math.sqrt
 internal class MermaidBlockSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private val parser = MermaidBlockParser()
     private val layout = BlockLayout(textMeasurer)
     private var graphStyles: MermaidGraphStyleState? = null
@@ -82,6 +84,12 @@ internal class MermaidBlockSubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snapshot.ir,
+            laidOut = snapshot.laidOut,
+            commands = snapshot.drawCommands,
         )
         return PipelineAdvance(
             snapshot = snapshot,
@@ -375,6 +383,9 @@ internal class MermaidBlockSubPipeline(
         val p2 = Point(baseX - nx * size * 0.5f, baseY - ny * size * 0.5f)
         return DrawCommand.FillPath(path = PathCmd(listOf(PathOp.MoveTo(to), PathOp.LineTo(p1), PathOp.LineTo(p2), PathOp.Close)), color = color, z = 4)
     }
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }
 
 private class BlockLayout(

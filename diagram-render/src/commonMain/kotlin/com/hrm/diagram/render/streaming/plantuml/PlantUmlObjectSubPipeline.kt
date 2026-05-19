@@ -78,7 +78,7 @@ internal class PlantUmlObjectSubPipeline(
             ir,
             baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq),
         )
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laidOut,
             drawCommands = render(ir, laidOut, palette),

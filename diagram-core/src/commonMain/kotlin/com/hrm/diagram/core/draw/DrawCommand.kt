@@ -45,6 +45,9 @@ sealed interface DrawCommand {
     /**
      * Origin's interpretation depends on [anchorX] / [anchorY]; default keeps the historic
      * baseline-left convention. Width pre-measured by the layout layer.
+     *
+     * [measuredBounds] is optional for source compatibility, but viewport culling may only index
+     * text when this field was written by the measure/layout stage.
      */
     data class DrawText(
         val text: String,
@@ -55,6 +58,7 @@ sealed interface DrawCommand {
         val anchorX: TextAnchorX = TextAnchorX.Start,
         val anchorY: TextAnchorY = TextAnchorY.Baseline,
         override val z: Int = 0,
+        val measuredBounds: Rect? = null,
     ) : DrawCommand
 
     data class DrawArrow(

@@ -31,6 +31,8 @@ import kotlin.math.tan
 internal class MermaidPieSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
 
     private val parser = MermaidPieParser()
     private val layout = PieLayout(textMeasurer)
@@ -64,6 +66,12 @@ internal class MermaidPieSubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = out.ir,
+            laidOut = out.laidOut,
+            commands = out.drawCommands,
         )
         return PipelineAdvance(
             snapshot = out,
@@ -197,4 +205,7 @@ internal class MermaidPieSubPipeline(
         val c2 = Point(p3.x + dx1, p3.y + dy1)
         ops += PathOp.CubicTo(c1, c2, p3)
     }
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

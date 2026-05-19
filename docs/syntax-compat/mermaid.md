@@ -2,6 +2,7 @@
 
 > 每实现一项就更新一行；`✅` = 完整、`🟡` = 部分（在备注列出限制）、`⬜` = 未开始。
 > 兼容目标：直接跑 Mermaid 官方文档示例。
+> Streaming：默认 pipeline 已接入 `CachedTextMeasurer`、递归 `DrawText.measuredBounds`、`DrawCommandIndex` viewport culling 与 IR 结构化 entity key 的 `DrawCommandStore.updateEntities()`。
 
 | 图类型 | 状态 | 关键修饰符 / 子语法 | Phase | 备注 |
 |---|---|---|---|---|

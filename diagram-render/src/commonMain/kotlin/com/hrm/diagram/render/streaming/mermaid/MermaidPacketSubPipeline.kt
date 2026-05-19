@@ -24,6 +24,8 @@ import com.hrm.diagram.render.streaming.SessionPatch
 internal class MermaidPacketSubPipeline(
     textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private companion object {
         val fill = Color(0xFFFFF8E1.toInt())
         val rootFill = Color(0xFFFFECB3.toInt())
@@ -59,6 +61,12 @@ internal class MermaidPacketSubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snap.ir,
+            laidOut = snap.laidOut,
+            commands = snap.drawCommands,
         )
         return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
     }
@@ -105,4 +113,7 @@ internal class MermaidPacketSubPipeline(
             is StructNode.Scalar -> "$prefix${node.value}"
         }
     }
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

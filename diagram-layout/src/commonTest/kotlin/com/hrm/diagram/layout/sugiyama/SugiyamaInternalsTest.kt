@@ -9,6 +9,7 @@ import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.layout.LayoutOptions
+import com.hrm.diagram.layout.EdgeRouteKey
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.internal.CoordinateAssignment
 import com.hrm.diagram.layout.sugiyama.internal.CrossingMinimization
@@ -162,6 +163,25 @@ class SugiyamaInternalsTest {
         assertEquals(l1.nodePositions.getValue(NodeId("A")), l2.nodePositions.getValue(NodeId("A")))
         assertEquals(l1.nodePositions.getValue(NodeId("B")), l2.nodePositions.getValue(NodeId("B")))
         assertTrue(NodeId("C") in l2.nodePositions)
+    }
+
+    @Test
+    fun incremental_layout_marks_only_new_edge_routes_dirty() {
+        val layout = SugiyamaLayouts.forGraph()
+        val opts = LayoutOptions(direction = Direction.TB, incremental = true, allowGlobalReflow = false)
+        val ir1 = GraphIR(
+            nodes = listOf(n("A"), n("B")),
+            edges = listOf(e("A", "B")),
+            sourceLanguage = SourceLanguage.MERMAID,
+            styleHints = StyleHints(direction = Direction.TB),
+        )
+        val l1 = layout.layout(null, ir1, opts)
+        val ir2 = ir1.copy(nodes = ir1.nodes + n("C"), edges = ir1.edges + e("B", "C"))
+        val l2 = layout.layout(l1, ir2, opts)
+
+        assertTrue(EdgeRouteKey(NodeId("B"), NodeId("C")) in l2.layoutState.dirtyEdgeKeys)
+        assertTrue(EdgeRouteKey(NodeId("A"), NodeId("B")) !in l2.layoutState.dirtyEdgeKeys)
+        assertEquals(2, l2.layoutState.edgeRoutesByKey.size)
     }
 
     @Test

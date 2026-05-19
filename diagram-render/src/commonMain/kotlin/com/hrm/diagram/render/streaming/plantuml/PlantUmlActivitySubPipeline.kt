@@ -75,7 +75,7 @@ internal class PlantUmlActivitySubPipeline(
         for (cluster in lowered.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
         val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
         val laidOut = baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laidOut,
             drawCommands = render(lowered, laidOut, palette),

@@ -96,7 +96,7 @@ internal class PlantUmlErdSubPipeline(
         )
         val adjusted = applyAnchoredNotes(ir, laidOut).copy(seq = seq)
         val drawCommands = renderDraw(ir, adjusted, isFinal)
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = adjusted,
             drawCommands = drawCommands,

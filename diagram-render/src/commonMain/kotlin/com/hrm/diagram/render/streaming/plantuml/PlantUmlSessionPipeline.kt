@@ -9,6 +9,7 @@ import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
 import com.hrm.diagram.render.cache.DrawCommandStore
+import com.hrm.diagram.render.cache.withMeasuredEntityTextBounds
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -91,7 +92,7 @@ internal class PlantUmlSessionPipeline(
 
         val rendered = subPipeline?.render(previousSnapshot, seq, isFinal)
         return if (rendered != null) {
-            val drawDelta = drawStore.updateFullFrame(rendered.drawCommands)
+            val drawDelta = drawStore.updateEntities(rendered.drawEntities.withMeasuredEntityTextBounds(textMeasurer))
             PipelineAdvance(
                 snapshot = DiagramSnapshot(
                     ir = rendered.ir,

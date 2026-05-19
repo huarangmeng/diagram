@@ -82,7 +82,7 @@ internal class PlantUmlDeploymentSubPipeline(
             seq = seq,
         )
         val laidOut = applyAnchoredNotes(ir, laidOutWithClusters)
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laidOut,
             drawCommands = render(ir, laidOut, palette),

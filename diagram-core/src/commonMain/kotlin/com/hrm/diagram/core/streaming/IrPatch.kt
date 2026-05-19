@@ -22,13 +22,14 @@ import com.hrm.diagram.core.ir.NodeStyle
  *   reference); downstream layers should keep a deferred-resolution buffer and emit a
  *   warning [Diagnostic] on `finish()` if still unresolved.
  */
-public sealed interface IrPatch {
-    public data class AddNode(val node: Node) : IrPatch
-    public data class AddEdge(val edge: Edge) : IrPatch
-    public data class AddCluster(val cluster: Cluster) : IrPatch
+sealed interface IrPatch {
+    data class AddNode(val node: Node) : IrPatch
+    data class AddEdge(val edge: Edge) : IrPatch
+    data class AddCluster(val cluster: Cluster) : IrPatch
+
     /** In-chunk attribute update for a node added by an earlier patch *in the same chunk*. */
-    public data class UpdateAttr(val target: NodeId, val style: NodeStyle) : IrPatch
-    public data class AddDiagnostic(val diagnostic: Diagnostic) : IrPatch
+    data class UpdateAttr(val target: NodeId, val style: NodeStyle) : IrPatch
+    data class AddDiagnostic(val diagnostic: Diagnostic) : IrPatch
 }
 
 /**
@@ -37,9 +38,9 @@ public sealed interface IrPatch {
  * `seq` is strictly increasing per session; consumers may use it to dedupe / order
  * cross-thread deliveries.
  */
-public data class IrPatchBatch(
+data class IrPatchBatch(
     val seq: Long,
     val patches: List<IrPatch>,
 ) {
-    public val isEmpty: Boolean get() = patches.isEmpty()
+    val isEmpty: Boolean get() = patches.isEmpty()
 }

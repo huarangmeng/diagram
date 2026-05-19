@@ -68,7 +68,7 @@ internal class PlantUmlC4SubPipeline(
             bounds = computeBounds(base.nodePositions.values + clusterRects.values + edgeLabelRects.values),
             seq = seq,
         )
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laid,
             drawCommands = render(ir, laid),

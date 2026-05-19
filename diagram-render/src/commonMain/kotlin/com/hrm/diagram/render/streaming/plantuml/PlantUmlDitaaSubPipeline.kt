@@ -43,7 +43,7 @@ internal class PlantUmlDitaaSubPipeline(
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val ir = parser.snapshot()
         val laid = layout(ir, previousSnapshot.laidOut, !isFinal).copy(seq = seq)
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laid,
             drawCommands = render(ir, laid),

@@ -95,4 +95,23 @@ class IncrementalLayoutTest {
         assertEquals(0f, out.bounds.right)
         assertNull(out.clusterRects[NodeId("anything")])
     }
+
+    @Test
+    fun laid_out_diagram_exposes_explicit_layout_state() {
+        val route = EdgeRoute(
+            from = NodeId("a"),
+            to = NodeId("b"),
+            points = listOf(Point(0f, 0f), Point(10f, 10f)),
+        )
+        val out = LaidOutDiagram(
+            source = graph("a", "b"),
+            nodePositions = mapOf(NodeId("a") to Rect(Point.Zero, Size(10f, 10f))),
+            edgeRoutes = listOf(route),
+            bounds = Rect.ltrb(0f, 0f, 20f, 20f),
+        )
+
+        assertEquals(out.nodePositions, out.layoutState.nodePositions)
+        assertEquals(route, out.layoutState.edgeRoutesByKey.getValue(EdgeRouteKey(NodeId("a"), NodeId("b"))))
+        assertEquals(out.edgeRoutes, out.layoutState.edgeRoutes)
+    }
 }

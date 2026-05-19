@@ -12,9 +12,9 @@ package com.hrm.diagram.core.streaming
  *
  * Implementations are language-specific and live under `:diagram-parser`.
  */
-public interface ResumableLexer<S : LexerState> {
+interface ResumableLexer<S : LexerState> {
     /** State a fresh session begins in. MUST be cheap and re-usable. */
-    public fun initialState(): S
+    fun initialState(): S
 
     /**
      * Feed one append-only chunk.
@@ -25,7 +25,7 @@ public interface ResumableLexer<S : LexerState> {
      * @param eos `true` IFF the stream is finalised (LLM finished); lexer MUST then flush any
      *            buffered partial token (commonly as an ERROR token + diagnostic) instead of holding it.
      */
-    public fun feed(state: S, input: CharSequence, offset: Int, eos: Boolean = false): LexerStep<S>
+    fun feed(state: S, input: CharSequence, offset: Int, eos: Boolean = false): LexerStep<S>
 }
 
 /**
@@ -35,12 +35,12 @@ public interface ResumableLexer<S : LexerState> {
  * (data class / value class) so streaming tests can assert state equivalence between
  * "fed in one chunk" and "fed in N chunks" runs.
  */
-public interface LexerState {
+interface LexerState {
     /**
      * Number of chars carried over from the previous chunk that have NOT yet been emitted as tokens.
      * Used by hosts to size buffers; MUST equal `0` whenever the lexer is at a safe point.
      */
-    public val pendingChars: Int
+    val pendingChars: Int
 }
 
 /**
@@ -51,7 +51,7 @@ public interface LexerState {
  * - `safePoint <= offset + input.length`
  * - tokens' spans, if any, MUST fall entirely before `safePoint` OR be marked as partial.
  */
-public data class LexerStep<S : LexerState>(
+data class LexerStep<S : LexerState>(
     val tokens: List<Token>,
     val newState: S,
     /** Absolute source offset up to which all tokens have been finalised. */
@@ -65,30 +65,31 @@ public data class LexerStep<S : LexerState>(
  * token kind table without polluting `:diagram-core`. The [text] field is a view into the
  * original source — implementations SHOULD use [CharSequence.subSequence] to avoid copies.
  */
-public data class Token(
+data class Token(
     /** Per-language token kind id (see e.g. `MermaidTokenKind`, `DotTokenKind`). */
     val kind: Int,
     /** Inclusive absolute start offset in the canonical source. */
     val start: Int,
     /** Exclusive absolute end offset. `end > start`. */
     val end: Int,
-    /** The token text. May be a sub-view of the source for zero-copy. */
+    /** The token text. Maybe a sub-view of the source for zero-copy. */
     val text: CharSequence,
 ) {
     init {
         require(end > start) { "Token end must be > start (got $start..$end)" }
     }
-    public val length: Int get() = end - start
+
+    val length: Int get() = end - start
 }
 
 /**
  * Lex-time diagnostic. Distinct from `Diagnostic` (which is parser/IR-level) so that hosts
  * may apply different policies (e.g. silently skip illegal control chars vs surface a ParseError).
  */
-public data class LexDiagnostic(
+data class LexDiagnostic(
     val message: String,
     val absoluteOffset: Int,
     val severity: Severity = Severity.ERROR,
 ) {
-    public enum class Severity { ERROR, WARNING }
+    enum class Severity { ERROR, WARNING }
 }

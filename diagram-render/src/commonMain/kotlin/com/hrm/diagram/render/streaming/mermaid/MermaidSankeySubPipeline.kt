@@ -28,6 +28,8 @@ import kotlin.math.max
 internal class MermaidSankeySubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private val parser = MermaidSankeyParser()
     private val layout = SankeyLayout(textMeasurer)
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
@@ -55,6 +57,12 @@ internal class MermaidSankeySubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snap.ir,
+            laidOut = snap.laidOut,
+            commands = snap.drawCommands,
         )
         return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
     }
@@ -141,4 +149,7 @@ internal class MermaidSankeySubPipeline(
         Color(0xFF26C6DA.toInt()),
         Color(0xFFEF5350.toInt()),
     )[index % 6]
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

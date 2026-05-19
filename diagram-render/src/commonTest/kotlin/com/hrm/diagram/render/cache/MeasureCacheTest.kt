@@ -1,7 +1,26 @@
 package com.hrm.diagram.render.cache
 
+import com.hrm.diagram.core.draw.Color
+import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.FontSpec
+import com.hrm.diagram.core.draw.Point
+import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Size
+import com.hrm.diagram.core.ir.ClassIR
+import com.hrm.diagram.core.ir.ClassNode
+import com.hrm.diagram.core.ir.ClassRelation
+import com.hrm.diagram.core.ir.ClassRelationKind
+import com.hrm.diagram.core.ir.GraphIR
+import com.hrm.diagram.core.ir.Node
+import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.Participant
+import com.hrm.diagram.core.ir.RichLabel
+import com.hrm.diagram.core.ir.SequenceIR
+import com.hrm.diagram.core.ir.SequenceMessage
+import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.text.TextMetrics
+import com.hrm.diagram.layout.LaidOutDiagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -92,5 +111,111 @@ class MeasureCacheTest {
             cache.put(MeasureKey("k$i", font), Size(i.toFloat(), 1f))
         }
         assertEquals(10, cache.size)
+    }
+
+    @Test
+    fun cached_text_measurer_delegates_only_on_miss() {
+        var calls = 0
+        val delegate = object : TextMeasurer {
+            override fun measure(text: String, font: FontSpec, maxWidth: Float?): TextMetrics {
+                calls++
+                return TextMetrics(width = text.length * 10f, height = 12f, ascent = 9f)
+            }
+        }
+        val cached = CachedTextMeasurer(delegate, maxEntries = 4)
+
+        val first = cached.measure("hello", font, maxWidth = 100f)
+        val second = cached.measure("hello", font, maxWidth = 100f)
+
+        assertEquals(first, second)
+        assertEquals(1, calls)
+        assertEquals(1L, cached.hits)
+        assertEquals(1L, cached.misses)
+    }
+
+    @Test
+    fun structured_draw_entities_use_ir_entity_keys() {
+        val commands = listOf(
+            DrawCommand.DrawText(
+                text = "Alpha Node",
+                origin = Point(10f, 10f),
+                font = font,
+                color = Color.Black,
+            ),
+            DrawCommand.DrawText(
+                text = "Alpha Node",
+                origin = Point(80f, 80f),
+                font = font,
+                color = Color.Black,
+            ),
+        )
+        val ir = GraphIR(
+            nodes = listOf(Node(id = NodeId("A"), label = RichLabel.Plain("Alpha Node"))),
+            sourceLanguage = SourceLanguage.MERMAID,
+        )
+
+        val entities = structuredDrawEntities("mermaid", ir, laidOut = null, commands)
+
+        assertEquals(1, entities.size)
+        assertEquals("mermaid.node.A", entities.single().key)
+        assertEquals(commands, entities.single().commands)
+        assertTrue(entities.none { ".text." in it.key || ".command." in it.key })
+    }
+
+    @Test
+    fun structured_draw_entities_cover_sequence_and_class_families() {
+        val commands = listOf(
+            DrawCommand.DrawText("participant", Point(0f, 0f), font, Color.Black),
+            DrawCommand.DrawText("message", Point(0f, 20f), font, Color.Black),
+            DrawCommand.DrawText("class", Point(0f, 40f), font, Color.Black),
+        )
+        val sequence = SequenceIR(
+            participants = listOf(Participant(NodeId("Alice")), Participant(NodeId("Bob"))),
+            messages = listOf(SequenceMessage(NodeId("Alice"), NodeId("Bob"), RichLabel.Plain("hi"))),
+            sourceLanguage = SourceLanguage.MERMAID,
+        )
+        val classIr = ClassIR(
+            classes = listOf(ClassNode(NodeId("User"), "User")),
+            relations = listOf(ClassRelation(NodeId("User"), NodeId("Repo"), ClassRelationKind.Association)),
+            sourceLanguage = SourceLanguage.PLANTUML,
+        )
+
+        val sequenceKeys = structuredDrawEntities("mermaid", sequence, laidOut = null, commands).map { it.key }
+        val classKeys = structuredDrawEntities("plantuml", classIr, laidOut = null, commands).map { it.key }
+
+        assertEquals(listOf("mermaid.participant.Alice", "mermaid.participant.Bob", "mermaid.message.0.Alice->Bob"), sequenceKeys)
+        assertEquals(listOf("plantuml.class.relation.0.User->Repo", "plantuml.class.node.User"), classKeys)
+    }
+
+    @Test
+    fun structured_draw_entities_prefer_layout_bounds_when_available() {
+        val nodeA = NodeId("A")
+        val nodeB = NodeId("B")
+        val ir = GraphIR(
+            nodes = listOf(
+                Node(id = nodeA, label = RichLabel.Plain("A")),
+                Node(id = nodeB, label = RichLabel.Plain("B")),
+            ),
+            sourceLanguage = SourceLanguage.MERMAID,
+        )
+        val laidOut = LaidOutDiagram(
+            source = ir,
+            nodePositions = mapOf(
+                nodeA to Rect.ltrb(0f, 0f, 50f, 50f),
+                nodeB to Rect.ltrb(100f, 0f, 150f, 50f),
+            ),
+            edgeRoutes = emptyList(),
+            bounds = Rect.ltrb(0f, 0f, 150f, 50f),
+        )
+        val commands = listOf(
+            DrawCommand.FillRect(Rect.ltrb(102f, 2f, 148f, 48f), Color.Black),
+            DrawCommand.FillRect(Rect.ltrb(2f, 2f, 48f, 48f), Color.Black),
+        )
+
+        val entities = structuredDrawEntities("mermaid", ir, laidOut, commands)
+
+        assertEquals(listOf("mermaid.node.B", "mermaid.node.A"), entities.map { it.key })
+        assertEquals(commands[0], entities[0].commands.single())
+        assertEquals(commands[1], entities[1].commands.single())
     }
 }

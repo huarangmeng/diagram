@@ -251,6 +251,23 @@ class DotIntegrationTest {
         }
     }
 
+    @Test
+    fun dot_text_commands_carry_measured_bounds_for_viewport_culling() {
+        val session = Diagram.session(language = SourceLanguage.DOT)
+        try {
+            session.append("digraph {\n  a [label=\"Alpha\"];\n}\n")
+            val text = session.state.value.drawCommands
+                .filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.DrawText>()
+                .first { it.text == "Alpha" }
+            assertNotNull(text.measuredBounds)
+
+            val visible = session.state.value.drawCommandIndex.query(text.measuredBounds!!)
+            assertTrue(visible.contains(text))
+        } finally {
+            session.close()
+        }
+    }
+
     private fun run(src: String, chunkSize: Int) = Diagram.session(language = SourceLanguage.DOT).let { session ->
         try {
             var i = 0

@@ -9,8 +9,10 @@ import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.layout.EdgeRoute
+import com.hrm.diagram.layout.EdgeRouteKey
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
+import com.hrm.diagram.layout.LayoutState
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.internal.CoordinateAssignment
 import com.hrm.diagram.layout.sugiyama.internal.CrossingMinimization
@@ -45,6 +47,8 @@ internal class SugiyamaIncrementalLayout(
 
     private val cache = LayeredGraph()
     private val rectCache: LinkedHashMap<NodeId, Rect> = LinkedHashMap()
+    private val routeCache: LinkedHashMap<EdgeRouteKey, EdgeRoute> = LinkedHashMap()
+    private var layoutState: LayoutState = LayoutState.empty()
 
     override fun layout(
         previous: LaidOutDiagram?,
@@ -53,6 +57,7 @@ internal class SugiyamaIncrementalLayout(
     ): LaidOutDiagram {
         val direction = options.direction ?: model.styleHints.direction
         val effectiveOptions = if (options.direction == null) options.copy(direction = direction) else options
+        hydrateFrom(previous)
         return if (effectiveOptions.allowGlobalReflow) fullReflow(model, effectiveOptions)
         else incremental(model, effectiveOptions)
     }
@@ -60,11 +65,13 @@ internal class SugiyamaIncrementalLayout(
     private fun incremental(model: GraphIR, options: LayoutOptions): LaidOutDiagram {
         // Slot every not-yet-placed node into a layer using its already-placed predecessors.
         val predsByNode: Map<NodeId, List<NodeId>> = model.edges.groupBy({ it.to }, { it.from })
+        val newNodes = LinkedHashSet<NodeId>()
         for (n in model.nodes) {
             if (n.id in cache.layer) continue
             val preds = predsByNode[n.id]?.filter { it in cache.layer }.orEmpty()
             val layerIdx = if (preds.isEmpty()) 0 else (preds.maxOf { cache.layer.getValue(it) } + 1)
             cache.appendToLayer(n.id, layerIdx)
+            newNodes += n.id
         }
         // Place new nodes; existing rects stay frozen.
         val placement = CoordinateAssignment.assign(
@@ -77,12 +84,14 @@ internal class SugiyamaIncrementalLayout(
         for ((id, rect) in placement) {
             if (id !in rectCache) rectCache[id] = rect
         }
-        return assemble(model, options)
+        val dirty = dirtyRouteKeys(model.edges, newNodes, forceAll = false)
+        return assemble(model, options, dirty)
     }
 
     private fun fullReflow(model: GraphIR, options: LayoutOptions): LaidOutDiagram {
         cache.reset()
         rectCache.clear()
+        routeCache.clear()
         val reversed = CycleRemoval.reversedEdges(model.nodes, model.edges)
         cache.reversedEdges += reversed
         LayerAssignment.assign(model.nodes, model.edges, reversed, cache)
@@ -98,15 +107,28 @@ internal class SugiyamaIncrementalLayout(
             direction = options.direction,
         )
         rectCache.putAll(placement)
-        return assemble(model, options)
+        val dirty = dirtyRouteKeys(model.edges, model.nodes.mapTo(LinkedHashSet()) { it.id }, forceAll = true)
+        return assemble(model, options, dirty)
     }
 
-    private fun assemble(model: GraphIR, options: LayoutOptions): LaidOutDiagram {
-        val routes: List<EdgeRoute> = model.edges.mapNotNull { e ->
-            val a = rectCache[e.from] ?: return@mapNotNull null
-            val b = rectCache[e.to] ?: return@mapNotNull null
-            routeEdge(e, a, b, options)
+    private fun assemble(
+        model: GraphIR,
+        options: LayoutOptions,
+        dirtyRouteKeys: Set<EdgeRouteKey>,
+    ): LaidOutDiagram {
+        val liveKeys = LinkedHashSet<EdgeRouteKey>()
+        val counts = LinkedHashMap<Pair<NodeId, NodeId>, Int>()
+        for (edge in model.edges) {
+            val key = routeKey(edge, counts)
+            liveKeys += key
+            if (key in dirtyRouteKeys || key !in routeCache) {
+                val a = rectCache[edge.from] ?: continue
+                val b = rectCache[edge.to] ?: continue
+                routeCache[key] = routeEdge(edge, a, b, options)
+            }
         }
+        routeCache.keys.retainAll(liveKeys)
+        val routes = routeCache.values.toList()
         val pad = options.padding
         val routePoints = routes.flatMap { it.points }
         val maxRight = max(
@@ -117,13 +139,57 @@ internal class SugiyamaIncrementalLayout(
             rectCache.values.maxOfOrNull { it.bottom } ?: 0f,
             routePoints.maxOfOrNull { it.y } ?: 0f,
         ) + pad.bottom
+        val state = LayoutState(
+            nodePositions = LinkedHashMap(rectCache),
+            edgeRoutesByKey = LinkedHashMap(routeCache),
+            bounds = Rect.ltrb(0f, 0f, maxRight, maxBottom),
+            dirtyEdgeKeys = dirtyRouteKeys,
+        )
+        layoutState = state
         return LaidOutDiagram(
             source = model,
-            nodePositions = LinkedHashMap(rectCache),
+            nodePositions = state.nodePositions,
             edgeRoutes = routes,
-            bounds = Rect.ltrb(0f, 0f, maxRight, maxBottom),
+            bounds = state.bounds,
             seq = 0L,
+            layoutState = state,
         )
+    }
+
+    private fun hydrateFrom(previous: LaidOutDiagram?) {
+        if (previous == null) return
+        if (rectCache.isEmpty() && previous.layoutState.nodePositions.isNotEmpty()) {
+            rectCache.putAll(previous.layoutState.nodePositions)
+        }
+        if (routeCache.isEmpty() && previous.layoutState.edgeRoutesByKey.isNotEmpty()) {
+            routeCache.putAll(previous.layoutState.edgeRoutesByKey)
+        }
+        if (layoutState.nodePositions.isEmpty()) {
+            layoutState = previous.layoutState
+        }
+    }
+
+    private fun dirtyRouteKeys(
+        edges: List<Edge>,
+        dirtyNodes: Set<NodeId>,
+        forceAll: Boolean,
+    ): Set<EdgeRouteKey> {
+        val out = LinkedHashSet<EdgeRouteKey>()
+        val counts = LinkedHashMap<Pair<NodeId, NodeId>, Int>()
+        for (edge in edges) {
+            val key = routeKey(edge, counts)
+            if (forceAll || key !in routeCache || edge.from in dirtyNodes || edge.to in dirtyNodes) {
+                out += key
+            }
+        }
+        return out
+    }
+
+    private fun routeKey(edge: Edge, counts: MutableMap<Pair<NodeId, NodeId>, Int>): EdgeRouteKey {
+        val pair = edge.from to edge.to
+        val ordinal = counts[pair] ?: 0
+        counts[pair] = ordinal + 1
+        return EdgeRouteKey(edge.from, edge.to, ordinal)
     }
 
     private fun routeEdge(

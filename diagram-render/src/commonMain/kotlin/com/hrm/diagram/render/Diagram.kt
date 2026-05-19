@@ -5,6 +5,7 @@ import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.core.theme.DiagramTheme
+import com.hrm.diagram.render.cache.cached
 import com.hrm.diagram.render.streaming.DiagramSession
 import com.hrm.diagram.render.streaming.SessionPipeline
 import com.hrm.diagram.render.streaming.StubSessionPipeline
@@ -40,9 +41,12 @@ object Diagram {
     private fun defaultPipelineFor(
         language: SourceLanguage,
         textMeasurer: TextMeasurer,
-    ): SessionPipeline = when (language) {
-        SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = textMeasurer)
-        SourceLanguage.PLANTUML -> PlantUmlSessionPipeline(textMeasurer = textMeasurer)
-        SourceLanguage.DOT -> DotSessionPipeline(textMeasurer = textMeasurer)
+    ): SessionPipeline {
+        val cachedMeasurer = textMeasurer.cached()
+        return when (language) {
+            SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = cachedMeasurer)
+            SourceLanguage.PLANTUML -> PlantUmlSessionPipeline(textMeasurer = cachedMeasurer)
+            SourceLanguage.DOT -> DotSessionPipeline(textMeasurer = cachedMeasurer)
+        }
     }
 }

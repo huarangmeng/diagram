@@ -70,7 +70,7 @@ internal class PlantUmlArchimateSubPipeline(
             bounds = computeBounds(laid.nodePositions.values + clusterRects.values + edgeLabelRects),
             seq = seq,
         )
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = finalLaid,
             drawCommands = render(ir, finalLaid),

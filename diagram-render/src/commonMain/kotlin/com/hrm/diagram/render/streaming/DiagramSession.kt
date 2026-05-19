@@ -11,6 +11,7 @@ import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
+import com.hrm.diagram.render.cache.DrawCommandIndex
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -125,6 +126,10 @@ data class DiagramSnapshot(
     val isFinal: Boolean,
     val sourceLanguage: SourceLanguage,
 ) {
+    val drawCommandIndex: DrawCommandIndex by lazy(LazyThreadSafetyMode.NONE) {
+        DrawCommandIndex.from(drawCommands, laidOut?.bounds)
+    }
+
     companion object {
         fun empty(language: SourceLanguage): DiagramSnapshot = DiagramSnapshot(
             ir = null,

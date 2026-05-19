@@ -27,11 +27,12 @@ sealed interface DrawCommand {
     data class StrokePath(val path: PathCmd, val stroke: Stroke, val color: Color, override val z: Int = 0) : DrawCommand
     data class DrawText(
         val text: String,
-        val origin: Point,            // baseline-left
+        val origin: Point,            // interpreted by anchorX / anchorY
         val font: FontSpec,
         val color: Color,
         val maxWidth: Float? = null,
         override val z: Int = 0,
+        val measuredBounds: Rect? = null, // set by layout/measure stage; culling may index only when non-null
     ) : DrawCommand
     data class DrawArrow(val from: Point, val to: Point, val style: ArrowStyle, override val z: Int = 0) : DrawCommand
     data class DrawIcon(val name: String, val rect: Rect, override val z: Int = 0) : DrawCommand
@@ -58,3 +59,4 @@ data class ArrowStyle(val head: ArrowHead = ArrowHead.Triangle, val tail: ArrowH
 - 指令流是布局结果的**纯函数**，相同 IR + Theme 必产出相同列表（用于快照测试）。
 - 列表中所有 `Rect/Point` 坐标都在最终画布坐标系内，导出器只做缩放/换格式。
 - 不允许引入"延迟测量"指令；所有文本必须已有显式 `FontSpec` 与可选 `maxWidth`。
+- `DrawText.measuredBounds` 必须由布局/测量阶段用共享 `TextMeasurer` 写入；渲染/导出/viewport culling 阶段禁止为了 bounds 重新测量或用字符宽度估算。

@@ -71,7 +71,7 @@ internal class PlantUmlStateSubPipeline(
                 allowGlobalReflow = isFinal,
             ),
         ).copy(seq = seq)
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laidOut,
             drawCommands = renderState(ir, laidOut),

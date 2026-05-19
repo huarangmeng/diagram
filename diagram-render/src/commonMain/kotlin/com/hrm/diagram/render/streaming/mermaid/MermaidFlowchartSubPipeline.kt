@@ -28,9 +28,12 @@ import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.mermaid.MermaidFlowchartParser
 import com.hrm.diagram.parser.mermaid.MermaidTokenKind
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.cache.DrawEntityKey
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
+import com.hrm.diagram.render.streaming.StructuredDrawEntityProvider
 
 /**
  * Sub-pipeline that handles the original flowchart subset. Lifted out of the previous
@@ -39,7 +42,7 @@ import com.hrm.diagram.render.streaming.SessionPatch
  */
 internal class MermaidFlowchartSubPipeline(
     private val textMeasurer: TextMeasurer,
-) : MermaidSubPipeline {
+) : MermaidSubPipeline, StructuredDrawEntityProvider {
 
     private val parser = MermaidFlowchartParser()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
@@ -47,6 +50,8 @@ internal class MermaidFlowchartSubPipeline(
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val nodeMetrics: MutableMap<NodeId, TextMetrics> = HashMap()
     private var graphStyles: MermaidGraphStyleState? = null
+    override var lastDrawEntities: List<DrawEntity> = emptyList()
+        private set
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
         defaultNodeSize = Size(120f, 48f),
         nodeSizeOf = { id -> nodeSizes[id] ?: Size(120f, 48f) },
@@ -89,7 +94,9 @@ internal class MermaidFlowchartSubPipeline(
         val laidOut: LaidOutDiagram = layout
             .layout(previousSnapshot.laidOut, ir, layoutOptions)
             .copy(seq = seq)
-        val drawCommands = renderDraw(ir, laidOut)
+        val drawEntities = renderEntities(ir, laidOut)
+        lastDrawEntities = drawEntities
+        val drawCommands = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snapshot = DiagramSnapshot(
@@ -119,7 +126,10 @@ internal class MermaidFlowchartSubPipeline(
     override fun dispose() {
         nodeSizes.clear()
         nodeMetrics.clear()
+        lastDrawEntities = emptyList()
     }
+
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = lastDrawEntities
 
     private fun labelTextOf(n: Node): String =
         (n.label as? RichLabel.Plain)?.text?.takeIf { it.isNotEmpty() } ?: n.id.value
@@ -150,8 +160,8 @@ internal class MermaidFlowchartSubPipeline(
         return Size(finalW, finalH) to raw
     }
 
-    private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>(ir.nodes.size * 3 + ir.edges.size * 2)
+    private fun renderEntities(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawEntity> {
+        val out = ArrayList<DrawEntity>(ir.nodes.size + ir.edges.size)
         val defaultNodeFill = Color(0xFFE3F2FDU.toInt())
         val defaultNodeStroke = Color(0xFF1565C0U.toInt())
         val defaultTextColor = Color(0xFF0D47A1U.toInt())
@@ -161,6 +171,7 @@ internal class MermaidFlowchartSubPipeline(
 
         for (n in ir.nodes) {
             val r = laidOut.nodePositions[n.id] ?: continue
+            val commands = ArrayList<DrawCommand>(3)
             val nodeFill = n.style.fill?.let { Color(it.argb) } ?: defaultNodeFill
             val nodeStroke = n.style.stroke?.let { Color(it.argb) } ?: defaultNodeStroke
             val textColor = n.style.textColor?.let { Color(it.argb) } ?: defaultTextColor
@@ -176,8 +187,8 @@ internal class MermaidFlowchartSubPipeline(
                         PathOp.LineTo(Point(r.left, cy)),
                         PathOp.Close,
                     ))
-                    out += DrawCommand.FillPath(path = path, color = nodeFill, z = 1)
-                    out += DrawCommand.StrokePath(path = path, stroke = stroke, color = nodeStroke, z = 2)
+                    commands += DrawCommand.FillPath(path = path, color = nodeFill, z = 1)
+                    commands += DrawCommand.StrokePath(path = path, stroke = stroke, color = nodeStroke, z = 2)
                 }
                 else -> {
                     val corner = when (n.shape) {
@@ -186,14 +197,14 @@ internal class MermaidFlowchartSubPipeline(
                         is NodeShape.RoundedBox -> 14f
                         else -> 4f
                     }
-                    out += DrawCommand.FillRect(rect = r, color = nodeFill, corner = corner, z = 1)
-                    out += DrawCommand.StrokeRect(rect = r, stroke = stroke, color = nodeStroke, corner = corner, z = 2)
+                    commands += DrawCommand.FillRect(rect = r, color = nodeFill, corner = corner, z = 1)
+                    commands += DrawCommand.StrokeRect(rect = r, stroke = stroke, color = nodeStroke, corner = corner, z = 2)
                 }
             }
             val labelStr = labelTextOf(n)
             val cx = (r.left + r.right) / 2f
             val cy = (r.top + r.bottom) / 2f
-            out += DrawCommand.DrawText(
+            commands += DrawCommand.DrawText(
                 text = labelStr,
                 origin = Point(cx, cy),
                 font = labelFont,
@@ -203,10 +214,13 @@ internal class MermaidFlowchartSubPipeline(
                 anchorY = TextAnchorY.Middle,
                 z = 3,
             )
+            out += DrawEntity(DrawEntityKey.node("mermaid", n.id), commands)
         }
         for ((idx, route) in laidOut.edgeRoutes.withIndex()) {
             val pts = route.points
             if (pts.size < 2) continue
+            val edge = ir.edges.getOrNull(idx) ?: continue
+            val commands = ArrayList<DrawCommand>(4)
             val ops = ArrayList<PathOp>(pts.size)
             ops += PathOp.MoveTo(pts[0])
             when (route.kind) {
@@ -221,46 +235,47 @@ internal class MermaidFlowchartSubPipeline(
                 else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
             }
             val path = PathCmd(ops)
-            val edge = ir.edges.getOrNull(idx) ?: continue
             val edgeColor = edge.style.color?.let { Color(it.argb) } ?: defaultEdgeColor
             val edgeStroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
-            out += DrawCommand.StrokePath(path = path, stroke = edgeStroke, color = edgeColor, z = 0)
+            commands += DrawCommand.StrokePath(path = path, stroke = edgeStroke, color = edgeColor, z = 0)
             val tail = pts[pts.size - 2]
             val head = pts.last()
             val startTail = pts[1]
             val startHead = pts[0]
             when (edge.arrow) {
                 com.hrm.diagram.core.ir.ArrowEnds.None -> Unit
-                com.hrm.diagram.core.ir.ArrowEnds.ToOnly -> out += arrowHead(tail, head, edgeColor)
-                com.hrm.diagram.core.ir.ArrowEnds.FromOnly -> out += arrowHead(startTail, startHead, edgeColor)
+                com.hrm.diagram.core.ir.ArrowEnds.ToOnly -> commands += arrowHead(tail, head, edgeColor)
+                com.hrm.diagram.core.ir.ArrowEnds.FromOnly -> commands += arrowHead(startTail, startHead, edgeColor)
                 com.hrm.diagram.core.ir.ArrowEnds.Both -> {
-                    out += arrowHead(tail, head, edgeColor)
-                    out += arrowHead(startTail, startHead, edgeColor)
+                    commands += arrowHead(tail, head, edgeColor)
+                    commands += arrowHead(startTail, startHead, edgeColor)
                 }
             }
-            val text = (edge.label as? RichLabel.Plain)?.text ?: continue
-            if (text.isEmpty()) continue
-            val midIdx = pts.size / 2
-            val midPoint = pts[midIdx]
-            val metrics = textMeasurer.measure(text, edgeLabelFont)
-            val padding = 4f
-            val bgRect = Rect.ltrb(
-                midPoint.x - metrics.width / 2f - padding,
-                midPoint.y - metrics.height / 2f - padding / 2f,
-                midPoint.x + metrics.width / 2f + padding,
-                midPoint.y + metrics.height / 2f + padding / 2f,
-            )
-            val bg = edge.style.labelBg?.let { Color(it.argb) } ?: defaultEdgeLabelBg
-            out += DrawCommand.FillRect(rect = bgRect, color = bg, corner = 3f, z = 4)
-            out += DrawCommand.DrawText(
-                text = text,
-                origin = midPoint,
-                font = edgeLabelFont,
-                color = defaultEdgeLabelColor,
-                anchorX = TextAnchorX.Center,
-                anchorY = TextAnchorY.Middle,
-                z = 5,
-            )
+            val text = (edge.label as? RichLabel.Plain)?.text
+            if (!text.isNullOrEmpty()) {
+                val midIdx = pts.size / 2
+                val midPoint = pts[midIdx]
+                val metrics = textMeasurer.measure(text, edgeLabelFont)
+                val padding = 4f
+                val bgRect = Rect.ltrb(
+                    midPoint.x - metrics.width / 2f - padding,
+                    midPoint.y - metrics.height / 2f - padding / 2f,
+                    midPoint.x + metrics.width / 2f + padding,
+                    midPoint.y + metrics.height / 2f + padding / 2f,
+                )
+                val bg = edge.style.labelBg?.let { Color(it.argb) } ?: defaultEdgeLabelBg
+                commands += DrawCommand.FillRect(rect = bgRect, color = bg, corner = 3f, z = 4)
+                commands += DrawCommand.DrawText(
+                    text = text,
+                    origin = midPoint,
+                    font = edgeLabelFont,
+                    color = defaultEdgeLabelColor,
+                    anchorX = TextAnchorX.Center,
+                    anchorY = TextAnchorY.Middle,
+                    z = 5,
+                )
+            }
+            out += DrawEntity(DrawEntityKey.edge("mermaid", edge.from, edge.to, idx), commands)
         }
         return out
     }
@@ -296,6 +311,8 @@ internal interface MermaidSubPipeline {
         seq: Long,
         isFinal: Boolean,
     ): PipelineAdvance
+
+    fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity>
 
     fun dispose() {}
 }

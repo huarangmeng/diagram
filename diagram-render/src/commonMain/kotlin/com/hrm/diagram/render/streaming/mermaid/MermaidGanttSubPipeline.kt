@@ -28,6 +28,8 @@ import kotlin.math.abs
 internal class MermaidGanttSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
 
     private val parser = MermaidGanttParser()
     private val layout = GanttLayout(textMeasurer)
@@ -82,6 +84,12 @@ internal class MermaidGanttSubPipeline(
             addedDrawCommands = draw,
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snap.ir,
+            laidOut = snap.laidOut,
+            commands = snap.drawCommands,
         )
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
@@ -518,4 +526,7 @@ internal class MermaidGanttSubPipeline(
 
     private fun Int.pad(width: Int): String = toString().padStart(width, '0')
     private fun Long.pad(width: Int): String = toString().padStart(width, '0')
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

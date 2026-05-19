@@ -23,19 +23,22 @@ import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
-import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.text.TextMetrics
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.dot.DotParser
 import com.hrm.diagram.render.cache.DrawCommandStore
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.cache.DrawEntityKey
+import com.hrm.diagram.render.cache.withMeasuredEntityTextBounds
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.PipelineAdvanceAssembler
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 import com.hrm.diagram.render.streaming.SessionPipeline
+import com.hrm.diagram.render.streaming.StreamingDiffTracker
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -53,9 +56,9 @@ internal class DotSessionPipeline(
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val nodeSizes: MutableMap<NodeId, Size> = LinkedHashMap()
-    private var lastNodeIds: Set<NodeId> = emptySet()
-    private var lastEdgeKeys: Set<String> = emptySet()
-    private var lastDiagnosticCount: Int = 0
+    private val diffTracker = StreamingDiffTracker(
+        edgeKeyOf = { index, edge -> "${edge.from.value}->${edge.to.value}:$index:${labelOf(edge.label)}" },
+    )
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
         defaultNodeSize = Size(112f, 44f),
         nodeSizeOf = { id -> nodeSizes[id] ?: Size(112f, 44f) },
@@ -82,44 +85,18 @@ internal class DotSessionPipeline(
         )
         val base = layout.layout(previousSnapshot.laidOut, layoutIr, layoutOptions).copy(source = ir, seq = seq)
         val laid = withClusterRects(ir, base)
-        val drawDelta = drawStore.updateFullFrame(render(ir, laid))
+        val drawDelta = drawStore.updateEntities(renderEntities(ir, laid).withMeasuredEntityTextBounds(textMeasurer))
+        val diff = diffTracker.diffGraph(ir, result.diagnostics)
 
-        val nodeIds = ir.nodes.map { it.id }.toSet()
-        val edgeKeys = ir.edges.mapIndexed { index, edge -> "${edge.from.value}->${edge.to.value}:$index:${labelOf(edge.label)}" }.toSet()
-        val addedNodes = ir.nodes.filter { it.id !in lastNodeIds }.map { it.id }
-        val addedEdges = ir.edges.filterIndexed { index, edge ->
-            "${edge.from.value}->${edge.to.value}:$index:${labelOf(edge.label)}" !in lastEdgeKeys
-        }
-        val newDiagnostics = result.diagnostics.drop(lastDiagnosticCount)
-        lastNodeIds = nodeIds
-        lastEdgeKeys = edgeKeys
-        lastDiagnosticCount = result.diagnostics.size
-
-        val patches = buildList {
-            addedNodes.forEach { id -> ir.nodes.firstOrNull { it.id == id }?.let { add(IrPatch.AddNode(it)) } }
-            addedEdges.forEach { add(IrPatch.AddEdge(it)) }
-            newDiagnostics.forEach { add(IrPatch.AddDiagnostic(it)) }
-        }
-        val snapshot = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = drawDelta.fullFrame,
-            diagnostics = result.diagnostics,
+        return PipelineAdvanceAssembler.assemble(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        return PipelineAdvance(
-            snapshot = snapshot,
-            patch = SessionPatch(
-                seq = seq,
-                addedNodes = addedNodes,
-                addedEdges = addedEdges,
-                addedDrawCommands = drawDelta.addedCommands,
-                newDiagnostics = newDiagnostics,
-                isFinal = isFinal,
-            ),
-            irBatch = IrPatchBatch(seq, patches),
+            model = ir,
+            laidOut = laid,
+            drawDelta = drawDelta,
+            diagnostics = result.diagnostics,
+            diff = diff,
         )
     }
 
@@ -127,9 +104,7 @@ internal class DotSessionPipeline(
         parserSession.reset()
         drawStore.clear()
         nodeSizes.clear()
-        lastNodeIds = emptySet()
-        lastEdgeKeys = emptySet()
-        lastDiagnosticCount = 0
+        diffTracker.reset()
     }
 
     private fun measureNodes(ir: GraphIR, remeasure: Boolean) {
@@ -181,14 +156,14 @@ internal class DotSessionPipeline(
         return rect
     }
 
-    private fun render(ir: GraphIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun renderEntities(ir: GraphIR, laid: LaidOutDiagram): List<DrawEntity> {
+        val out = ArrayList<DrawEntity>()
         val routeByEndpoints = laid.edgeRoutes.associateBy { it.from to it.to }
         ir.styleHints.extras["dot.graph.bgcolor"]?.let(::colorOf)?.let { bg ->
-            out += DrawCommand.FillRect(rect = laid.bounds, color = bg, z = -10)
+            out += DrawEntity(DrawEntityKey.graphBackground("dot"), listOf(DrawCommand.FillRect(rect = laid.bounds, color = bg, z = -10)))
         }
         renderClusters(ir.clusters, laid, out)
-        for (edge in ir.edges) {
+        for ((edgeIndex, edge) in ir.edges.withIndex()) {
             if (edge.kind == EdgeKind.Invisible) continue
             val route = routeByEndpoints[edge.from to edge.to]
             val rawPoints = route?.points ?: fallbackRoute(edge.from, edge.to, laid.nodePositions) ?: continue
@@ -196,17 +171,18 @@ internal class DotSessionPipeline(
             val color = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF4B5563.toInt())
             val stroke = Stroke(width = edge.style.width ?: if (edge.kind == EdgeKind.Thick) 2.2f else 1.2f, dash = edge.style.dash)
             val kind = route?.kind ?: RouteKind.Polyline
-            out += DrawCommand.StrokePath(path = pathOf(points, kind), stroke = stroke, color = color, z = 3)
-            renderArrowHeads(edge, points, kind, color, stroke, out)
+            val commands = ArrayList<DrawCommand>()
+            commands += DrawCommand.StrokePath(path = pathOf(points, kind), stroke = stroke, color = color, z = 3)
+            renderArrowHeads(edge, points, kind, color, stroke, commands)
             labelOf(edge.label).takeIf { it.isNotBlank() }?.let { label ->
                 val mid = points[points.size / 2]
-                out += DrawCommand.FillRect(
+                commands += DrawCommand.FillRect(
                     rect = Rect(Point(mid.x - 36f, mid.y - 10f), Size(72f, 20f)),
                     color = edge.style.labelBg?.let { Color(it.argb) } ?: Color(0xF0FFFFFF.toInt()),
                     corner = 4f,
                     z = 5,
                 )
-                out += DrawCommand.DrawText(
+                commands += textCommand(
                     text = label,
                     origin = mid,
                     font = edgeLabelFont(edge, "dot.edge.html"),
@@ -217,10 +193,11 @@ internal class DotSessionPipeline(
                     z = 6,
                 )
             }
-            renderEndpointLabel(edge.payload["dot.edge.headlabel"], points.last(), color, out, edge, "dot.edge.head.html")
-            renderEndpointLabel(edge.payload["dot.edge.taillabel"], points.first(), color, out, edge, "dot.edge.tail.html")
+            renderEndpointLabel(edge.payload["dot.edge.headlabel"], points.last(), color, commands, edge, "dot.edge.head.html")
+            renderEndpointLabel(edge.payload["dot.edge.taillabel"], points.first(), color, commands, edge, "dot.edge.tail.html")
+            out += DrawEntity(DrawEntityKey.edge("dot", edge.from, edge.to, edgeIndex), commands)
         }
-        for (node in ir.nodes) renderNode(node, laid.nodePositions[node.id] ?: continue, out)
+        for (node in ir.nodes) out += renderNode(node, laid.nodePositions[node.id] ?: continue)
         return out
     }
 
@@ -239,7 +216,7 @@ internal class DotSessionPipeline(
             corner = 4f,
             z = 5,
         )
-        out += DrawCommand.DrawText(
+        out += textCommand(
             text = label,
             origin = point,
             font = edgeLabelFont(edge, prefix),
@@ -251,17 +228,18 @@ internal class DotSessionPipeline(
         )
     }
 
-    private fun renderClusters(clusters: List<Cluster>, laid: LaidOutDiagram, out: MutableList<DrawCommand>) {
+    private fun renderClusters(clusters: List<Cluster>, laid: LaidOutDiagram, out: MutableList<DrawEntity>) {
         for (cluster in clusters) {
             val rect = laid.clusterRects[cluster.id]
             if (rect != null) {
-                out += DrawCommand.FillRect(
+                val commands = ArrayList<DrawCommand>()
+                commands += DrawCommand.FillRect(
                     rect = rect,
                     color = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FAFC.toInt()),
                     corner = 12f,
                     z = 0,
                 )
-                out += DrawCommand.StrokeRect(
+                commands += DrawCommand.StrokeRect(
                     rect = rect,
                     stroke = Stroke(width = cluster.style.strokeWidth ?: 1.2f),
                     color = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF94A3B8.toInt()),
@@ -269,7 +247,7 @@ internal class DotSessionPipeline(
                     z = 1,
                 )
                 labelOf(cluster.label).takeIf { it.isNotBlank() }?.let {
-                    out += DrawCommand.DrawText(
+                    commands += textCommand(
                         text = it,
                         origin = Point(rect.left + 12f, rect.top + 10f),
                         font = clusterFont,
@@ -279,12 +257,14 @@ internal class DotSessionPipeline(
                         z = 2,
                     )
                 }
+                out += DrawEntity(DrawEntityKey.cluster("dot", cluster.id), commands)
             }
             renderClusters(cluster.nestedClusters, laid, out)
         }
     }
 
-    private fun renderNode(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+    private fun renderNode(node: Node, rect: Rect): DrawEntity {
+        val out = ArrayList<DrawCommand>()
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFF9FAFB.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF374151.toInt())
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.2f)
@@ -313,7 +293,7 @@ internal class DotSessionPipeline(
                 out += DrawCommand.StrokeRect(rect, stroke, strokeColor, corner = corner, z = 8)
             }
         }
-        out += DrawCommand.DrawText(
+        out += textCommand(
             text = labelOf(node.label),
             origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
             font = fontOf(node),
@@ -326,6 +306,51 @@ internal class DotSessionPipeline(
         (node.payload["dot.node.url"] ?: node.payload["dot.node.href"])?.takeIf { it.isNotBlank() }?.let { href ->
             out += DrawCommand.Hyperlink(href = href, rect = rect, z = 10)
         }
+        return DrawEntity(DrawEntityKey.node("dot", node.id), out)
+    }
+
+    private fun textCommand(
+        text: String,
+        origin: Point,
+        font: FontSpec,
+        color: Color,
+        maxWidth: Float? = null,
+        anchorX: TextAnchorX = TextAnchorX.Start,
+        anchorY: TextAnchorY = TextAnchorY.Baseline,
+        z: Int = 0,
+    ): DrawCommand.DrawText {
+        val metrics = textMeasurer.measure(text, font, maxWidth)
+        return DrawCommand.DrawText(
+            text = text,
+            origin = origin,
+            font = font,
+            color = color,
+            maxWidth = maxWidth,
+            anchorX = anchorX,
+            anchorY = anchorY,
+            measuredBounds = textBounds(origin, metrics, anchorX, anchorY),
+            z = z,
+        )
+    }
+
+    private fun textBounds(
+        origin: Point,
+        metrics: TextMetrics,
+        anchorX: TextAnchorX,
+        anchorY: TextAnchorY,
+    ): Rect {
+        val left = when (anchorX) {
+            TextAnchorX.Start -> origin.x
+            TextAnchorX.Center -> origin.x - metrics.width / 2f
+            TextAnchorX.End -> origin.x - metrics.width
+        }
+        val top = when (anchorY) {
+            TextAnchorY.Top -> origin.y
+            TextAnchorY.Middle -> origin.y - metrics.height / 2f
+            TextAnchorY.Baseline -> origin.y - metrics.ascent
+            TextAnchorY.Bottom -> origin.y - metrics.height
+        }
+        return Rect(Point(left, top), Size(metrics.width, metrics.height))
     }
 
     private fun fontOf(node: Node): FontSpec =

@@ -16,7 +16,7 @@
 | Rank 约束 | ✅ | `{rank=same; a; b}`, `rank=min/max/source/sink` | 6 | full reflow 阶段会强制调整 Sugiyama layer；streaming 增量阶段仍保持 pinned layout |
 | HTML-like label | ✅ | TABLE/TR/TD、PORT、IMG、字体修饰 | 6 | TABLE/TR/TD/BR 会清洗为多行纯文本并解码基础 entity；FONT/B/I 会映射到文本字体/字号/颜色/粗斜体；PORT/IMG 作为文本兼容，不做嵌入图片/table cell layout |
 | 注释 | ✅ | `//`, `/* */`, `#` 行首 | 6 | |
-| Streaming 增量 | ✅ | statement-level parser、`SessionPatch.addedDrawCommands` delta | 6 | DOT session 按 `;` / `}` / 换行 safe point 推进完整 statement，不再在 append 时对累计源码做 `source.toString()` 全量解析；渲染 patch 通过 `DrawCommandStore` 避免空闲 append 重放整帧 |
+| Streaming 增量 | ✅ | statement-level parser、dirty edge routing、viewport culling、`SessionPatch.addedDrawCommands` delta | 6 | DOT session 按 `;` / `}` / 换行 safe point 推进完整 statement，不再在 append 时对累计源码做 `source.toString()` 全量解析；Sugiyama 通过 `LayoutState` / `EdgeRouteKey` route index 仅重算 dirty edge routes；渲染 patch 通过 stable entity key 的 `DrawCommandStore.updateEntities()` 避免空闲 append 重放整帧；文本测量统一走 `CachedTextMeasurer` 并写入 `DrawText.measuredBounds`；UI 通过 `DrawCommandIndex` 做 quadtree 可见区查询 |
 | 不支持 | — | `neato/fdp/twopi/circo` 专属布局指令视为提示，统一走 Sugiyama；记录 RenderWarning | 6 | |
 
 ## 文档参考

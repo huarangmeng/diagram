@@ -50,7 +50,7 @@ internal class PlantUmlStructSubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         ).copy(seq = seq)
-        return PlantUmlRenderState(
+        return PlantUmlRenderState.fromCommands(
             ir = ir,
             laidOut = laid,
             drawCommands = render(ir, laid),

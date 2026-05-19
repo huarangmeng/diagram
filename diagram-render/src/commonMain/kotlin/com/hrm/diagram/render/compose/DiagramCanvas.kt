@@ -1,8 +1,12 @@
 package com.hrm.diagram.render.compose
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -15,12 +19,14 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke as ComposeStroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.sp
+import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.draw.ArrowHead
 import com.hrm.diagram.core.draw.ArrowStyle
 import com.hrm.diagram.core.draw.Color as DiagramColor
@@ -34,8 +40,53 @@ import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+
+/**
+ * Pan/zoom state for [DiagramCanvas].
+ *
+ * Minimal usage:
+ * ```kotlin
+ * val viewportState = rememberDiagramViewportState()
+ * DiagramCanvas(snapshot, viewportState = viewportState, panZoomEnabled = true)
+ * ```
+ */
+@DiagramApi
+class DiagramViewportState(
+    initialZoom: Float = 1f,
+    initialPan: Offset = Offset.Zero,
+) {
+    var zoom: Float by mutableStateOf(initialZoom.coerceIn(MIN_ZOOM, MAX_ZOOM))
+        private set
+
+    var pan: Offset by mutableStateOf(initialPan)
+        private set
+
+    fun reset() {
+        zoom = 1f
+        pan = Offset.Zero
+    }
+
+    internal fun applyGesture(centroid: Offset, panDelta: Offset, zoomChange: Float) {
+        val oldZoom = zoom
+        val newZoom = (oldZoom * zoomChange).coerceIn(MIN_ZOOM, MAX_ZOOM)
+        val scaleChange = if (oldZoom == 0f) 1f else newZoom / oldZoom
+        pan = (pan + panDelta - centroid) * scaleChange + centroid
+        zoom = newZoom
+    }
+
+    private companion object {
+        const val MIN_ZOOM = 0.1f
+        const val MAX_ZOOM = 8f
+    }
+}
+
+@Composable
+@DiagramApi
+fun rememberDiagramViewportState(): DiagramViewportState =
+    remember { DiagramViewportState() }
 
 /**
  * Renders a [DiagramSnapshot]'s `drawCommands` into a Compose [Canvas]. Pure projection: the
@@ -50,12 +101,24 @@ import kotlin.math.sin
 fun DiagramCanvas(
     snapshot: DiagramSnapshot,
     modifier: Modifier = Modifier,
+    viewport: DiagramRect? = null,
+    viewportState: DiagramViewportState = rememberDiagramViewportState(),
+    panZoomEnabled: Boolean = false,
 ) {
     val measurer = rememberTextMeasurer()
     val sortedCommands = remember(snapshot.drawCommands) {
         snapshot.drawCommands.sortedBy { it.z }
     }
-    Canvas(modifier = modifier) {
+    val canvasModifier = if (panZoomEnabled) {
+        modifier.pointerInput(viewportState) {
+            detectTransformGestures { centroid, pan, zoom, _ ->
+                viewportState.applyGesture(centroid, pan, zoom)
+            }
+        }
+    } else {
+        modifier
+    }
+    Canvas(modifier = canvasModifier) {
         val bounds = snapshot.laidOut?.bounds
         if (bounds == null || bounds.size.width <= 0f || bounds.size.height <= 0f) {
             for (cmd in sortedCommands) execute(cmd, measurer)
@@ -64,17 +127,40 @@ fun DiagramCanvas(
 
         val fitScale = min(size.width / bounds.size.width, size.height / bounds.size.height)
             .coerceAtMost(1f)
-        val offsetX = (size.width - bounds.size.width * fitScale) / 2f
-        val offsetY = (size.height - bounds.size.height * fitScale) / 2f
+        val zoom = viewportState.zoom
+        val totalScale = max(0.0001f, fitScale * zoom)
+        val offsetX = (size.width - bounds.size.width * fitScale) / 2f + viewportState.pan.x
+        val offsetY = (size.height - bounds.size.height * fitScale) / 2f + viewportState.pan.y
+        val queryViewport = viewport ?: visibleDiagramViewport(bounds, size, offsetX, offsetY, totalScale)
+        val visibleCommands = snapshot.drawCommandIndex.query(queryViewport)
 
         withTransform({
             translate(left = offsetX, top = offsetY)
-            scale(scaleX = fitScale, scaleY = fitScale)
+            scale(scaleX = totalScale, scaleY = totalScale)
             translate(left = -bounds.left, top = -bounds.top)
         }) {
-            for (cmd in sortedCommands) execute(cmd, measurer)
+            for (cmd in visibleCommands) execute(cmd, measurer)
         }
     }
+}
+
+private fun visibleDiagramViewport(
+    bounds: DiagramRect,
+    canvasSize: Size,
+    offsetX: Float,
+    offsetY: Float,
+    totalScale: Float,
+): DiagramRect {
+    val left = bounds.left + (0f - offsetX) / totalScale
+    val top = bounds.top + (0f - offsetY) / totalScale
+    val right = bounds.left + (canvasSize.width - offsetX) / totalScale
+    val bottom = bounds.top + (canvasSize.height - offsetY) / totalScale
+    return DiagramRect.ltrb(
+        left = min(left, right),
+        top = min(top, bottom),
+        right = max(left, right),
+        bottom = max(top, bottom),
+    )
 }
 
 private fun DrawScope.execute(cmd: DrawCommand, measurer: TextMeasurer) {

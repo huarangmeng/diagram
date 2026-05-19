@@ -25,6 +25,8 @@ import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
 
 internal class MermaidQuadrantChartSubPipeline : MermaidSubPipeline {
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+
     private var styleExtras: Map<String, String> = emptyMap()
 
     override fun updateStyleExtras(extras: Map<String, String>) {
@@ -62,6 +64,12 @@ internal class MermaidQuadrantChartSubPipeline : MermaidSubPipeline {
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
+        )
+        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+            prefix = "mermaid",
+            model = snap.ir,
+            laidOut = snap.laidOut,
+            commands = snap.drawCommands,
         )
         val patch = SessionPatch(seq = seq, addedNodes = emptyList(), addedEdges = emptyList(), addedDrawCommands = draw, newDiagnostics = newDiagnostics, isFinal = isFinal)
         return PipelineAdvance(snapshot = snap, patch = patch)
@@ -152,4 +160,7 @@ internal class MermaidQuadrantChartSubPipeline : MermaidSubPipeline {
             (plot.left + plot.size.width * p.x).toFloat(),
             (plot.bottom - plot.size.height * p.y).toFloat(),
         )
+
+    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+
 }

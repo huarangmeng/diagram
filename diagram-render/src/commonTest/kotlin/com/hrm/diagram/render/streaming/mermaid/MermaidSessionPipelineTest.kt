@@ -182,6 +182,27 @@ class MermaidSessionPipelineTest {
     }
 
     @Test
+    fun native_entity_renderers_do_not_replay_full_frame_on_blank_append() {
+        val cases = listOf(
+            "sequenceDiagram\nAlice ->> Bob: hi\n",
+            "classDiagram\nA <|-- B\n",
+            "stateDiagram-v2\n[*] --> A\nA --> [*]\n",
+        )
+        for (src in cases) {
+            val s = Diagram.session(language = SourceLanguage.MERMAID)
+            try {
+                s.append(src)
+                val before = s.state.value.drawCommands.size
+                val patch = s.append("\n")
+                assertTrue(before > 0, "case should render draw commands: $src")
+                assertEquals(0, patch.addedDrawCommands.size, "blank append must not replay frame for: $src")
+            } finally {
+                s.close()
+            }
+        }
+    }
+
+    @Test
     fun state_header_dispatches_to_state_sub_pipeline() {
         val s = Diagram.session(language = SourceLanguage.MERMAID)
         try {
