@@ -1,6 +1,5 @@
 package com.hrm.diagram.render.streaming.plantuml
 
-import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.DiagramModel
 import com.hrm.diagram.core.streaming.IrPatchBatch
@@ -13,9 +12,7 @@ internal data class PlantUmlRenderState(
     val laidOut: LaidOutDiagram,
     val diagnostics: List<Diagnostic>,
     val drawEntities: List<DrawEntity>,
-) {
-    val drawCommands: List<DrawCommand> = drawEntities.flatMap { it.commands }
-}
+)
 
 internal interface PlantUmlSubPipeline {
     fun acceptLine(line: String): IrPatchBatch

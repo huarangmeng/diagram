@@ -8,12 +8,12 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
-import com.hrm.diagram.render.cache.DrawCommandStore
-import com.hrm.diagram.render.cache.withMeasuredEntityTextBounds
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
 import com.hrm.diagram.render.streaming.SessionPipeline
+import com.hrm.diagram.render.streaming.StreamingDiff
+import com.hrm.diagram.render.streaming.kernel.StreamingFamilyPipelineKernel
 
 /**
  * Streaming PlantUML dispatcher for the Phase-4 MVP.
@@ -42,7 +42,7 @@ internal class PlantUmlSessionPipeline(
     }
 
     private val diagnosticsAll: MutableList<Diagnostic> = ArrayList()
-    private val drawStore = DrawCommandStore()
+    private val familyKernel = StreamingFamilyPipelineKernel(textMeasurer)
 
     private var rawPending: String = ""
     private var blockStarted: Boolean = false
@@ -92,26 +92,20 @@ internal class PlantUmlSessionPipeline(
 
         val rendered = subPipeline?.render(previousSnapshot, seq, isFinal)
         return if (rendered != null) {
-            val drawDelta = drawStore.updateEntities(rendered.drawEntities.withMeasuredEntityTextBounds(textMeasurer))
-            PipelineAdvance(
-                snapshot = DiagramSnapshot(
-                    ir = rendered.ir,
-                    laidOut = rendered.laidOut,
-                    drawCommands = drawDelta.fullFrame,
-                    diagnostics = diagnosticsAll + rendered.diagnostics,
-                    seq = seq,
-                    isFinal = isFinal,
-                    sourceLanguage = previousSnapshot.sourceLanguage,
-                ),
-                patch = SessionPatch(
-                    seq = seq,
+            familyKernel.assembleRendered(
+                seq = seq,
+                isFinal = isFinal,
+                sourceLanguage = previousSnapshot.sourceLanguage,
+                model = rendered.ir,
+                laidOut = rendered.laidOut,
+                drawEntities = rendered.drawEntities,
+                diagnostics = diagnosticsAll + rendered.diagnostics,
+                diff = StreamingDiff(
                     addedNodes = emptyList(),
                     addedEdges = emptyList(),
-                    addedDrawCommands = drawDelta.addedCommands,
                     newDiagnostics = newDiagnostics,
-                    isFinal = isFinal,
+                    irPatches = newPatches,
                 ),
-                irBatch = IrPatchBatch(seq, newPatches),
             )
         } else {
             PipelineAdvance(
@@ -837,7 +831,7 @@ internal class PlantUmlSessionPipeline(
         )
 
     override fun dispose() {
-        drawStore.clear()
+        familyKernel.clear()
         diagnosticsAll.clear()
         rawPending = ""
         bufferedBodyLines.clear()

@@ -6,12 +6,9 @@ import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeShape
-import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
-import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.parser.mermaid.MermaidFlowchartParser
 import com.hrm.diagram.parser.mermaid.MermaidTokenKind
 import com.hrm.diagram.render.cache.DrawEntity
@@ -21,7 +18,6 @@ import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.graph.graphLabelText
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 
 /**
@@ -50,7 +46,6 @@ internal class MermaidFlowchartSubPipeline(
             }
         },
     )
-    private val layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(120f, 48f), measurePolicy)
     private val renderer = GraphIrRenderer(
         textMeasurer,
         GraphRenderStyle(
@@ -74,6 +69,15 @@ internal class MermaidFlowchartSubPipeline(
             nodeFontOf = { _, _ -> labelFont },
         ),
     )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.MERMAID,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(120f, 48f), measurePolicy),
+        renderEntities = { graph, laid ->
+            renderer.render(graph, laid).also { lastDrawEntities = it }
+        },
+    )
     private var graphStyles: MermaidGraphStyleState? = null
 
     var lastDrawEntities: List<DrawEntity> = emptyList()
@@ -89,52 +93,23 @@ internal class MermaidFlowchartSubPipeline(
         seq: Long,
         isFinal: Boolean,
     ): PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        val addedNodeIds = ArrayList<com.hrm.diagram.core.ir.NodeId>()
         for (lineToks in lines) {
-            val batch = parser.acceptLine(lineToks)
-            for (patch in batch.patches) {
-                newPatches += patch
-                if (patch is IrPatch.AddNode) addedNodeIds += patch.node.id
-            }
+            parser.acceptLine(lineToks)
         }
 
         val rawIr: GraphIR = parser.snapshot()
         val ir: GraphIR = graphStyles?.applyTo(rawIr) ?: rawIr
-        measurePolicy.measure(ir, remeasure = isFinal)
-        val laidOut: LaidOutDiagram = layout
-            .layout(
-                previousSnapshot.laidOut,
-                ir,
-                LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-            )
-            .copy(source = ir, seq = seq)
-        lastDrawEntities = renderer.render(ir, laidOut)
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-        return PipelineAdvance(
-            snapshot = DiagramSnapshot(
-                ir = ir,
-                laidOut = laidOut,
-                drawCommands = lastDrawEntities.flatMap { it.commands },
-                diagnostics = parser.diagnosticsSnapshot(),
-                seq = seq,
-                isFinal = isFinal,
-                sourceLanguage = previousSnapshot.sourceLanguage,
-            ),
-            patch = SessionPatch(
-                seq = seq,
-                addedNodes = addedNodeIds,
-                addedEdges = newPatches.filterIsInstance<IrPatch.AddEdge>().map { it.edge },
-                addedDrawCommands = lastDrawEntities.flatMap { it.commands },
-                newDiagnostics = newDiagnostics,
-                isFinal = isFinal,
-            ),
-            irBatch = IrPatchBatch(seq, newPatches),
+        return kernel.advance(
+            previousSnapshot = previousSnapshot,
+            seq = seq,
+            isFinal = isFinal,
+            ir = ir,
+            diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
     override fun dispose() {
-        measurePolicy.clear()
+        kernel.clear()
         lastDrawEntities = emptyList()
     }
 

@@ -94,7 +94,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 ```
 
 > 仍处于演进期：模块骨架已建，但 Phase 1 之后的能力尚未全部补齐，仍以 `docs/plan.md` 为交付路线。
-> 当前 streaming 渲染已通过 `DrawCommandStore` 收敛 patch 语义：`DiagramSnapshot.drawCommands` 保持完整帧，`SessionPatch.addedDrawCommands` 只表达本轮新增命令；DOT 使用 node/edge/cluster/background entity key，Mermaid / PlantUML 默认 pipeline 使用 DrawEntity 契约（原生 renderer 直接输出实体；共享图族 renderer 通过 `FrameEntityRenderer.sink` 在绘制过程中即时写入稳定实体 bucket），不再走 full-frame seam、位置索引 key、DrawCommand 语义派生 key 或子流水线边界 flat frame 再实体化；DOT session 使用 statement-level 增量 parser，禁止回退到 append 时全文 `source.toString()` 重解析。
+> 当前 streaming 渲染已通过 `DrawCommandStore` 收敛 patch 语义：`DiagramSnapshot.drawCommands` 保持完整帧，`SessionPatch.addedDrawCommands` 只表达本轮新增命令；DOT 使用 node/edge/cluster/background entity key，Mermaid Flowchart 与 DOT 共用 `StreamingGraphPipelineKernel`，Mermaid / PlantUML 顶层共用 `StreamingFamilyPipelineKernel` 提交 DrawEntity；原生 renderer 直接输出实体，共享图族 renderer 通过 `FrameEntityRenderer.sink` 在绘制过程中即时写入稳定实体 bucket，不再走 full-frame seam、位置索引 key、DrawCommand 语义派生 key 或子流水线边界 flat frame 再实体化；DOT session 使用 statement-level 增量 parser，禁止回退到 append 时全文 `source.toString()` 重解析。
 > 当前 Sugiyama 布局已通过 `LaidOutDiagram.layoutState` 暴露显式增量状态与 `EdgeRouteKey` route index；新增图型必须复用 dirty edge routing，不得每帧全量重路由。`Diagram.session()` 默认注入 `CachedTextMeasurer`，新增 renderer 不得绕过该 facade 在 Render 阶段直接调用平台 measurer。
 > 当前 UI 消费链路已接入 `DiagramSnapshot.drawCommandIndex` / `DrawCommandIndex` viewport culling；`DiagramCanvas` 支持 `DiagramViewportState` pan/zoom 并反算真实可见 viewport。新增 Compose/导出视图优先通过 viewport 查询消费 draw commands，不要直接遍历完整帧。Mermaid / PlantUML / DOT 默认 pipeline 都会递归写入 `DrawText.measuredBounds`；文本命令必须使用该真实测量 bounds 参与裁剪，禁止用字符宽度估算做裁剪。
 
