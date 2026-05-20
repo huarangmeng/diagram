@@ -50,7 +50,8 @@ internal class MermaidGitGraphSubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         )
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
         val snap = DiagramSnapshot(
             ir = ir,
             laidOut = laid,
@@ -60,17 +61,12 @@ internal class MermaidGitGraphSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
     }
 
-    private fun render(ir: GitGraphIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: GitGraphIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val text = Color(0xFF263238.toInt())
         val lane = Color(0xFFE0E0E0.toInt())
@@ -164,7 +160,7 @@ internal class MermaidGitGraphSubPipeline(
                 out += DrawCommand.DrawText(commit.tag!!, Point((tagRect.left + tagRect.right) / 2f, tagRect.top + 3f), tagFont, text, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
             }
         }
-        return out
+        return out.entities()
     }
 
     private fun palette(index: Int): Color = listOf(

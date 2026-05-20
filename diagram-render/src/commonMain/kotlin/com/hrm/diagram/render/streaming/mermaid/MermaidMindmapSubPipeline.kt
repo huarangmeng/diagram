@@ -53,7 +53,8 @@ internal class MermaidMindmapSubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         )
-        val draw = render(ir, laid, parser.snapshotNodeShapes())
+        val drawEntities = render(ir, laid, parser.snapshotNodeShapes())
+        val draw = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snap = DiagramSnapshot(
@@ -73,17 +74,12 @@ internal class MermaidMindmapSubPipeline(
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
 
-    private fun render(ir: TreeIR, laid: LaidOutDiagram, shapes: Map<NodeId, NodeShape>): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: TreeIR, laid: LaidOutDiagram, shapes: Map<NodeId, NodeShape>): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val icons = parser.snapshotNodeIcons()
         val defaultNodeFill = Color(0xFFE8F5E9.toInt())
         val defaultNodeStroke = Color(0xFF2E7D32.toInt())
@@ -240,7 +236,7 @@ internal class MermaidMindmapSubPipeline(
 
         drawEdges(ir.root)
         drawNode(ir.root, true)
-        return out
+        return out.entities()
     }
 
     private fun iconFallbackLabel(iconName: String): String {

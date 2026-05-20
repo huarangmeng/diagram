@@ -53,18 +53,13 @@ internal class PlantUmlStructSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laid,
-                commands = render(ir, laid),
-            ),
+            drawEntities = render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun render(ir: StructIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: StructIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
         val collapsiblePaths = parsePathSet(ir.styleHints.extras[PlantUmlStructParser.COLLAPSIBLE_PATHS_KEY].orEmpty())
         val scalarKinds = parsePathMap(ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty())
         for (route in laid.edgeRoutes) {
@@ -96,7 +91,7 @@ internal class PlantUmlStructSubPipeline(
         }
 
         drawNode(ir.root, "root", true)
-        return out
+        return out.entities()
     }
 
     private fun labelFor(node: StructNode, collapsible: Boolean): String {

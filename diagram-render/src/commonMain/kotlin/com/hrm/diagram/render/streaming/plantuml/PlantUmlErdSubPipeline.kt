@@ -95,16 +95,11 @@ internal class PlantUmlErdSubPipeline(
             LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
         )
         val adjusted = applyAnchoredNotes(ir, laidOut).copy(seq = seq)
-        val drawCommands = renderDraw(ir, adjusted, isFinal)
+        val drawEntities = renderDraw(ir, adjusted, isFinal)
         return PlantUmlRenderState(
             ir = ir,
             laidOut = adjusted,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laidOut,
-                commands = drawCommands,
-            ),
+            drawEntities = drawEntities,
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -138,8 +133,8 @@ internal class PlantUmlErdSubPipeline(
         return Size((raw.width + 2 * padX).coerceAtLeast(minW), (raw.height + 2 * padY).coerceAtLeast(minH))
     }
 
-    private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
         val nodeById = ir.nodes.associateBy { it.id }
         val fallbackEntityFill = Color(0xFFE8F5E9U.toInt())
         val fallbackEntityStroke = Color(0xFF2E7D32U.toInt())
@@ -232,7 +227,7 @@ internal class PlantUmlErdSubPipeline(
             val labelBg = edge.style.labelBg?.let { Color(it.argb) } ?: fallbackRelationLabelBg
             drawRelationshipBadge(out, relBadge[idx], pts[pts.size / 2], labelBg, relationLabelText, edgeColor)
         }
-        return out
+        return out.entities()
     }
 
     private fun drawRelationshipEndpointMarkers(

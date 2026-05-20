@@ -61,7 +61,8 @@ internal class MermaidTimelineSubPipeline(
             model = ir,
             options = LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
         )
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snap = DiagramSnapshot(
@@ -81,17 +82,12 @@ internal class MermaidTimelineSubPipeline(
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
 
-    private fun render(ir: TimeSeriesIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: TimeSeriesIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
 
         val textColor = Color(0xFF263238.toInt())
@@ -226,7 +222,7 @@ internal class MermaidTimelineSubPipeline(
             }
         }
 
-        return out
+        return out.entities()
     }
 
     override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities

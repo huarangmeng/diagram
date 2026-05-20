@@ -74,7 +74,8 @@ internal class MermaidBlockSubPipeline(
             ir,
             LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         ).copy(seq = seq)
-        val drawCommands = render(ir, laidOut)
+        val drawEntities = render(ir, laidOut)
+        val drawCommands = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
         val snapshot = DiagramSnapshot(
             ir = ir,
@@ -85,12 +86,7 @@ internal class MermaidBlockSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snapshot.ir,
-            laidOut = snapshot.laidOut,
-            commands = snapshot.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(
             snapshot = snapshot,
             patch = SessionPatch(
@@ -105,8 +101,8 @@ internal class MermaidBlockSubPipeline(
         )
     }
 
-    private fun render(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: GraphIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         out += DrawCommand.FillRect(
             rect = Rect(Point(laidOut.bounds.left, laidOut.bounds.top), Size(laidOut.bounds.size.width, laidOut.bounds.size.height)),
             color = Color(0xFFFFFFFF.toInt()),
@@ -118,7 +114,7 @@ internal class MermaidBlockSubPipeline(
             val edge = ir.edges.getOrNull(index) ?: continue
             drawEdge(edge, route, out)
         }
-        return out
+        return out.entities()
     }
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {

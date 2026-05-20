@@ -74,18 +74,13 @@ internal class PlantUmlStateSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laidOut,
-                commands = renderState(ir, laidOut),
-            ),
+            drawEntities = renderState(ir, laidOut),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
         val boxFill = Color((palette.stateFill ?: ArgbColor(0xFFE8F5E9U.toInt())).argb)
         val boxStroke = Color((palette.stateStroke ?: ArgbColor(0xFF2E7D32U.toInt())).argb)
@@ -334,7 +329,7 @@ internal class PlantUmlStateSubPipeline(
             }
         }
 
-        return out
+        return out.entities()
     }
 
     private fun cubicMidPoint(p0: Point, p1: Point, p2: Point, p3: Point): Point {

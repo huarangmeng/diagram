@@ -44,18 +44,13 @@ internal class PlantUmlSaltSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laid,
-                commands = render(ir, laid),
-            ),
+            drawEntities = render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun render(ir: WireframeIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: WireframeIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
         val rootRect = laid.nodePositions[NodeId("wire:root")]
         if (rootRect != null) {
             out += DrawCommand.FillRect(rootRect, Color(0xFFF8FAFC.toInt()), corner = 8f, z = 0)
@@ -212,7 +207,7 @@ internal class PlantUmlSaltSubPipeline(
         }
 
         draw(ir.root, "root")
-        return out
+        return out.entities()
     }
 
     private fun labelOf(box: WireBox): String =

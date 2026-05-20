@@ -128,7 +128,8 @@ internal class MermaidErSubPipeline(
             allowGlobalReflow = isFinal,
         )
         val laidOut: LaidOutDiagram = layout.layout(previousSnapshot.laidOut, ir, opts).copy(seq = seq)
-        val drawCommands = renderDraw(ir, laidOut, isFinal = isFinal)
+        val drawEntities = renderDraw(ir, laidOut, isFinal = isFinal)
+        val drawCommands = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snapshot = DiagramSnapshot(
@@ -148,12 +149,7 @@ internal class MermaidErSubPipeline(
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snapshot.ir,
-            laidOut = snapshot.laidOut,
-            commands = snapshot.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(
             snapshot = snapshot,
             patch = patch,
@@ -199,8 +195,8 @@ internal class MermaidErSubPipeline(
         return Size(w, h) to raw
     }
 
-    private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>(ir.nodes.size * 3 + ir.edges.size * 2)
+    private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         val fallbackEntityFill = Color(0xFFE8F5E9U.toInt())
         val fallbackEntityStroke = Color(0xFF2E7D32U.toInt())
         val fallbackEntityText = Color(0xFF1B5E20U.toInt())
@@ -306,7 +302,7 @@ internal class MermaidErSubPipeline(
             )
         }
 
-        return out
+        return out.entities()
     }
 
     private fun drawAttributeNode(

@@ -106,16 +106,15 @@ class FrameEntityRendererTest {
             clusterRects = mapOf(id("c") to Rect(Point(0f, 0f), Size(60f, 60f))),
             bounds = Rect(Point(0f, 0f), Size(140f, 80f)),
         )
-        val entities = FrameEntityRenderer.render(
+        val sink = FrameEntityRenderer.sink(
             prefix = "test",
             model = model,
             laidOut = laidOut,
-            commands = listOf(
-                DrawCommand.FillRect(Rect(Point(12f, 12f), Size(6f, 6f)), Color.Black),
-                DrawCommand.FillRect(Rect(Point(94f, 14f), Size(6f, 6f)), Color.Black),
-                DrawCommand.FillRect(Rect(Point(55f, 23f), Size(8f, 4f)), Color.Black),
-            ),
         )
+        sink += DrawCommand.FillRect(Rect(Point(12f, 12f), Size(6f, 6f)), Color.Black)
+        sink += DrawCommand.FillRect(Rect(Point(94f, 14f), Size(6f, 6f)), Color.Black)
+        sink += DrawCommand.FillRect(Rect(Point(55f, 23f), Size(8f, 4f)), Color.Black)
+        val entities = sink.entities()
         val keys = entities.map { it.key }
         assertTrue(keys.any { it == "test.node.a" }, "Expected node a anchor in $keys")
         assertTrue(keys.any { it == "test.node.b" }, "Expected node b anchor in $keys")
@@ -123,7 +122,9 @@ class FrameEntityRendererTest {
     }
 
     private fun assertKeys(model: com.hrm.diagram.core.ir.DiagramModel, vararg fragments: String) {
-        val keys = FrameEntityRenderer.render("test", model, commands = sampleCommands(80)).map { it.key }
+        val sink = FrameEntityRenderer.sink("test", model)
+        sampleCommands(80).forEach { sink += it }
+        val keys = sink.entities().map { it.key }
         for (fragment in fragments) {
             assertTrue(keys.any { fragment in it }, "Expected entity key containing '$fragment' in $keys")
         }

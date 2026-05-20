@@ -49,18 +49,13 @@ internal class PlantUmlPieSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laid,
-                commands = render(ir, laid),
-            ),
+            drawEntities = render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun render(ir: PieIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: PieIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
         val pad = 20f
         val pieRect = laid.nodePositions[NodeId("pie:plot")] ?: Rect(Point(pad, laid.nodePositions[NodeId("pie:title")]?.bottom?.plus(10f) ?: pad), Size(240f, 240f))
         val radius = pieRect.size.width.coerceAtMost(pieRect.size.height) / 2f
@@ -107,7 +102,7 @@ internal class PlantUmlPieSubPipeline(
             angle = end
         }
 
-        if (ir.styleHints.extras[PlantUmlPieParser.STYLE_LEGEND_KEY] == "none") return out
+        if (ir.styleHints.extras[PlantUmlPieParser.STYLE_LEGEND_KEY] == "none") return out.entities()
 
         for ((index, slice) in ir.slices.withIndex()) {
             val row = laid.nodePositions[NodeId("pie:legend:$index")] ?: continue
@@ -141,7 +136,7 @@ internal class PlantUmlPieSubPipeline(
             color = Color(0x1A000000),
             z = 0,
         )
-        return out
+        return out.entities()
     }
 
     private fun defaultPalette(): List<Color> =

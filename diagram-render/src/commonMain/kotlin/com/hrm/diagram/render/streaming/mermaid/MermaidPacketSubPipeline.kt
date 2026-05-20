@@ -53,26 +53,23 @@ internal class MermaidPacketSubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         ).copy(seq = seq)
+        val drawEntities = render(ir, laid)
+        val drawCommands = drawEntities.flatMap { it.commands }
         val snap = DiagramSnapshot(
             ir = ir,
             laidOut = laid,
-            drawCommands = render(ir, laid),
+            drawCommands = drawCommands,
             diagnostics = parser.diagnosticsSnapshot(),
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
     }
 
-    private fun render(ir: StructIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: StructIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         for (route in laid.edgeRoutes) {
             out += DrawCommand.StrokePath(
                 PathCmd(route.points.mapIndexed { index, point -> if (index == 0) PathOp.MoveTo(point) else PathOp.LineTo(point) }),
@@ -102,7 +99,7 @@ internal class MermaidPacketSubPipeline(
             }
         }
         drawNode(ir.root, "root", true)
-        return out
+        return out.entities()
     }
 
     private fun labelFor(node: StructNode): String {

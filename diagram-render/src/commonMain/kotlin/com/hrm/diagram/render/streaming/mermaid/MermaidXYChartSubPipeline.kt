@@ -60,7 +60,8 @@ internal class MermaidXYChartSubPipeline(
         }
         val ir = parser.snapshot()
         val laid = layout.layout(previousSnapshot.laidOut, ir, LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal))
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snap = DiagramSnapshot(
@@ -72,18 +73,13 @@ internal class MermaidXYChartSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         val patch = SessionPatch(seq = seq, addedNodes = emptyList(), addedEdges = emptyList(), addedDrawCommands = draw, newDiagnostics = newDiagnostics, isFinal = isFinal)
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
 
-    private fun render(ir: XYChartIR, laid: com.hrm.diagram.layout.LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: XYChartIR, laid: com.hrm.diagram.layout.LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val plot = laid.nodePositions[NodeId("xychart:plot")] ?: return emptyList()
         val horizontal = ir.styleHints.extras["xyChart.orientation"] == "horizontal" || ir.styleHints.direction == Direction.LR
@@ -187,7 +183,7 @@ internal class MermaidXYChartSubPipeline(
             ir.xAxis.kind == com.hrm.diagram.core.ir.AxisKind.Category -> ir.xAxis.categories.size
             else -> ir.series.maxOfOrNull { it.ys.size } ?: 0
         }
-        if (itemCount <= 0) return out
+        if (itemCount <= 0) return out.entities()
 
         val slot = plot.size.width / itemCount.toFloat()
         for (i in 0 until itemCount) {
@@ -288,7 +284,7 @@ internal class MermaidXYChartSubPipeline(
                 }
             }
         }
-        return out
+        return out.entities()
     }
 
     private fun formatTick(v: Double): String {

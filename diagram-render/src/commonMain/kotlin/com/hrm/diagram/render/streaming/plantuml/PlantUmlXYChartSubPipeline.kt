@@ -49,18 +49,13 @@ internal class PlantUmlXYChartSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laid,
-                commands = render(ir, laid),
-            ),
+            drawEntities = render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun render(ir: XYChartIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: XYChartIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val plot = laid.nodePositions[NodeId("xychart:plot")] ?: return emptyList()
         val bg = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_BACKGROUND_KEY]) ?: Color(0xFFFFFFFF.toInt())
@@ -97,7 +92,7 @@ internal class PlantUmlXYChartSubPipeline(
             ir.xAxis.kind == AxisKind.Category -> ir.xAxis.categories.size
             else -> (ir.series.maxOfOrNull { it.ys.size } ?: 0).coerceAtLeast(2)
         }
-        if (itemCount <= 0) return out
+        if (itemCount <= 0) return out.entities()
         val slot = plot.size.width / itemCount.toFloat()
         for (i in 0 until itemCount) {
             val x = plot.left + slot * (i + 0.5f)
@@ -165,7 +160,7 @@ internal class PlantUmlXYChartSubPipeline(
             }
         }
         if (ir.styleHints.extras[PlantUmlXYChartParser.STYLE_LEGEND_KEY] != "none") drawLegend(ir, out, plot, palette, text)
-        return out
+        return out.entities()
     }
 
     private fun drawTitles(ir: XYChartIR, laid: LaidOutDiagram, out: MutableList<DrawCommand>, text: Color) {

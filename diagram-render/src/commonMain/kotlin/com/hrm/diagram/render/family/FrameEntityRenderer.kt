@@ -30,28 +30,60 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.DrawEntityKey
 
 /**
- * Native entity seam for diagram families that have not yet been split into
- * finer-grained semantic entities. The owner key is the IR family, not command
- * position, so command-level churn does not leak into session patches.
+ * Entity sink for diagram-family renderers that emit commands while rendering.
+ *
+ * Commands are assigned to stable semantic entities as they are produced, so
+ * callers do not need to build a full flat DrawCommand frame before grouping.
  */
 internal object FrameEntityRenderer {
-    fun render(
+    fun sink(
         prefix: String,
         model: DiagramModel?,
         laidOut: LaidOutDiagram? = null,
-        commands: List<DrawCommand>,
-    ): List<DrawEntity> {
-        if (commands.isEmpty()) return emptyList()
+    ): EntitySink {
         val keys = semanticKeys(prefix, model).ifEmpty {
             listOf(DrawEntityKey.decoration(prefix, familyKey(model), "frame"))
         }
-        val buckets = LinkedHashMap<String, MutableList<DrawCommand>>()
-        val anchors = entityAnchors(prefix, laidOut)
-        for ((index, command) in commands.withIndex()) {
-            val key = anchors.bestKeyFor(command) ?: keys[index % keys.size]
-            buckets.getOrPut(key) { ArrayList() } += command
+        return EntitySink(keys = keys, anchors = entityAnchors(prefix, laidOut))
+    }
+
+    internal class EntitySink internal constructor(
+        private val keys: List<String>,
+        private val anchors: List<EntityAnchor>,
+    ) : AbstractMutableList<DrawCommand>() {
+        private val buckets = LinkedHashMap<String, MutableList<DrawCommand>>()
+        private var commandIndex = 0
+
+        operator fun plusAssign(command: DrawCommand) {
+            add(command)
         }
-        return buckets.map { (key, groupedCommands) -> DrawEntity(key, groupedCommands) }
+
+        fun emit(key: String, commands: List<DrawCommand>) {
+            if (commands.isEmpty()) return
+            buckets.getOrPut(key) { ArrayList() } += commands
+            commandIndex += commands.size
+        }
+
+        fun entities(): List<DrawEntity> =
+            buckets.map { (key, groupedCommands) -> DrawEntity(key, groupedCommands) }
+
+        override val size: Int
+            get() = commandIndex
+
+        override fun add(index: Int, element: DrawCommand) {
+            val key = anchors.bestKeyFor(element) ?: keys[commandIndex % keys.size]
+            buckets.getOrPut(key) { ArrayList() } += element
+            commandIndex += 1
+        }
+
+        override fun get(index: Int): DrawCommand =
+            throw UnsupportedOperationException("EntitySink does not expose a flat command list")
+
+        override fun removeAt(index: Int): DrawCommand =
+            throw UnsupportedOperationException("EntitySink does not support removing emitted commands")
+
+        override fun set(index: Int, element: DrawCommand): DrawCommand =
+            throw UnsupportedOperationException("EntitySink does not support replacing emitted commands")
     }
 
     private fun semanticKeys(prefix: String, model: DiagramModel?): List<String> {
@@ -185,7 +217,7 @@ internal object FrameEntityRenderer {
     private fun flattenClusters(clusters: List<com.hrm.diagram.core.ir.Cluster>): List<com.hrm.diagram.core.ir.Cluster> =
         clusters.flatMap { cluster -> listOf(cluster) + flattenClusters(cluster.nestedClusters) }
 
-    private data class EntityAnchor(
+    internal data class EntityAnchor(
         val key: String,
         val bounds: Rect,
         val priority: Int,

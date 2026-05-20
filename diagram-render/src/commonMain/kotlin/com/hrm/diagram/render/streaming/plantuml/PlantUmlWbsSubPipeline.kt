@@ -55,18 +55,13 @@ internal class PlantUmlWbsSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laid,
-                commands = render(ir, laid),
-            ),
+            drawEntities = render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun render(ir: TreeIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: TreeIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
         val boxless = parseBoxless(ir)
         val inlineColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlWbsParser.INLINE_COLOR_KEY].orEmpty())
         val styleColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlWbsParser.STYLE_COLOR_KEY].orEmpty())
@@ -151,7 +146,7 @@ internal class PlantUmlWbsSubPipeline(
 
         drawEdges(ir.root)
         drawNode(ir.root, true)
-        return out
+        return out.entities()
     }
 
     private fun parseBoxless(ir: TreeIR): Set<NodeId> =

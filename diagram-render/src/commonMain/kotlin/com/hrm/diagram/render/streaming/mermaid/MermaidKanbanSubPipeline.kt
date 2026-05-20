@@ -58,7 +58,8 @@ internal class MermaidKanbanSubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         )
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snap = DiagramSnapshot(
@@ -78,17 +79,12 @@ internal class MermaidKanbanSubPipeline(
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
 
-    private fun render(ir: KanbanIR, laid: com.hrm.diagram.layout.LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: KanbanIR, laid: com.hrm.diagram.layout.LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val bg = Color(0xFFF7F9FC.toInt())
         val colFill = Color(0xFFECEFF1.toInt())
@@ -199,7 +195,7 @@ internal class MermaidKanbanSubPipeline(
                 }
             }
         }
-        return out
+        return out.entities()
     }
 
     private fun buildMetaLines(payload: Map<String, String>): List<String> {

@@ -49,18 +49,13 @@ internal class PlantUmlClassSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laidOut,
-                commands = renderClass(ir, laidOut),
-            ),
+            drawEntities = renderClass(ir, laidOut),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
         val classStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_CLASS_LINE_THICKNESS_KEY) ?: 1.5f
         val noteStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_NOTE_LINE_THICKNESS_KEY) ?: 1.5f
@@ -313,7 +308,7 @@ internal class PlantUmlClassSubPipeline(
             }
         }
 
-        return out
+        return out.entities()
     }
 
     private fun renderMemberLine(member: ClassMember): String {

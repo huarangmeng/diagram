@@ -56,7 +56,8 @@ internal class MermaidPieSubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         )
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
 
         val out = DiagramSnapshot(
             ir = ir,
@@ -67,20 +68,15 @@ internal class MermaidPieSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = out.ir,
-            laidOut = out.laidOut,
-            commands = out.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(
             snapshot = out,
             patch = SessionPatch.empty(seq, isFinal),
         )
     }
 
-    private fun render(ir: PieIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: PieIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
 
         // Compute pie geometry from bounds. Layout fixes pie at left, legend at right.
         val pad = 20f
@@ -161,7 +157,7 @@ internal class MermaidPieSubPipeline(
 
         // Overall border (optional).
         out += DrawCommand.StrokeRect(rect = Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), stroke = Stroke.Hairline, color = Color(0x1A000000), corner = 0f, z = 0)
-        return out
+        return out.entities()
     }
 
     private fun wedgePath(center: Point, radius: Float, start: Double, end: Double): PathCmd {

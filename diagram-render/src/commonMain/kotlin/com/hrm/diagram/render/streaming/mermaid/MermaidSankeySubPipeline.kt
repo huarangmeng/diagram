@@ -48,7 +48,8 @@ internal class MermaidSankeySubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         )
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
         val snap = DiagramSnapshot(
             ir = ir,
             laidOut = laid,
@@ -58,17 +59,12 @@ internal class MermaidSankeySubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
     }
 
-    private fun render(ir: SankeyIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: SankeyIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val text = Color(0xFF263238.toInt())
         val border = Color(0xFF607D8B.toInt())
@@ -115,7 +111,7 @@ internal class MermaidSankeySubPipeline(
                 out += DrawCommand.DrawText(label, Point(labelRect.left, labelRect.top), labelFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
             }
         }
-        return out
+        return out.entities()
     }
 
     private fun computeNodeValues(ir: SankeyIR): Map<NodeId, Double> {

@@ -55,7 +55,8 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         )
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<com.hrm.diagram.core.streaming.IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snap = DiagramSnapshot(
@@ -75,17 +76,12 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
 
-    private fun render(ir: GaugeIR, laid: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: GaugeIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
 
         val titleRect = laid.nodePositions[NodeId("gauge:title")]
@@ -177,7 +173,7 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
                 z = 11,
             )
         }
-        return out
+        return out.entities()
     }
 
     private fun formatValue(v: Double): String =

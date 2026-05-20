@@ -78,18 +78,13 @@ internal class PlantUmlSequenceSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laidOut,
-                commands = renderSequence(ir, laidOut),
-            ),
+            drawEntities = renderSequence(ir, laidOut),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun renderSequence(ir: SequenceIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun renderSequence(ir: SequenceIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
         val headerFillDefault = Color(0xFFE3F2FDU.toInt())
         val headerStrokeDefault = Color(0xFF1565C0U.toInt())
@@ -272,7 +267,7 @@ internal class PlantUmlSequenceSubPipeline(
             }
         }
 
-        return out
+        return out.entities()
     }
 
     private fun parseDecorations(ir: SequenceIR): Map<Int, MessageDecoration> {

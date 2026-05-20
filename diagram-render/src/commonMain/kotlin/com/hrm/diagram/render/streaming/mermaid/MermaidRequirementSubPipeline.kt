@@ -101,7 +101,8 @@ internal class MermaidRequirementSubPipeline(
             ir,
             LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
         ).copy(seq = seq)
-        val drawCommands = flowchartRender(ir, laidOut)
+        val drawEntities = flowchartRender(ir, laidOut)
+        val drawCommands = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
         val snapshot = DiagramSnapshot(
             ir = ir,
@@ -112,12 +113,7 @@ internal class MermaidRequirementSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snapshot.ir,
-            laidOut = snapshot.laidOut,
-            commands = snapshot.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         return PipelineAdvance(
             snapshot = snapshot,
             patch = SessionPatch(
@@ -137,8 +133,8 @@ internal class MermaidRequirementSubPipeline(
         nodeCardLayouts.clear()
     }
 
-    private fun flowchartRender(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>(ir.nodes.size * 3 + ir.edges.size * 2)
+    private fun flowchartRender(ir: GraphIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         val defaultNodeFill = Color(0xFFE3F2FD.toInt())
         val defaultNodeStroke = Color(0xFF1565C0.toInt())
         val defaultTextColor = Color(0xFF0D47A1.toInt())
@@ -244,7 +240,7 @@ internal class MermaidRequirementSubPipeline(
                 z = 5,
             )
         }
-        return out
+        return out.entities()
     }
 
     private fun labelTextOf(n: Node): String =

@@ -92,12 +92,7 @@ internal class PlantUmlComponentSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laidOut,
-                commands = render(ir, laidOut, palette, edgeLabelRects),
-            ),
+            drawEntities = render(ir, laidOut, palette, edgeLabelRects),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -267,8 +262,8 @@ internal class PlantUmlComponentSubPipeline(
         laidOut: LaidOutDiagram,
         palette: ComponentPalette,
         edgeLabelRects: Map<Int, Rect>,
-    ): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    ): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
         val bounds = laidOut.bounds
         out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)
@@ -277,7 +272,7 @@ internal class PlantUmlComponentSubPipeline(
             val edge = ir.edges.getOrNull(index) ?: continue
             drawEdge(edge, route, edgeLabelRects[index], out)
         }
-        return out
+        return out.entities()
     }
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>, palette: ComponentPalette) {

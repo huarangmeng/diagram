@@ -81,12 +81,7 @@ internal class PlantUmlObjectSubPipeline(
         return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-                prefix = "plantuml",
-                model = ir,
-                laidOut = laidOut,
-                commands = render(ir, laidOut, palette),
-            ),
+            drawEntities = render(ir, laidOut, palette),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -146,8 +141,8 @@ internal class PlantUmlObjectSubPipeline(
         )
     }
 
-    private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: ObjectPalette): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: ObjectPalette): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)
         for (node in ir.nodes) {
             val rect = laidOut.nodePositions[node.id] ?: continue
@@ -157,7 +152,7 @@ internal class PlantUmlObjectSubPipeline(
             val edge = ir.edges.getOrNull(index) ?: continue
             drawEdge(edge, route, out)
         }
-        return out
+        return out.entities()
     }
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>, palette: ObjectPalette) {

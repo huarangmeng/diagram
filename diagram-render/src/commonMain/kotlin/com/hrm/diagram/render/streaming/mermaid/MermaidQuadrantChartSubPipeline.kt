@@ -53,7 +53,8 @@ internal class MermaidQuadrantChartSubPipeline : MermaidSubPipeline {
         }
         val ir = parser.snapshot()
         val laid = layout.layout(ir)
-        val draw = render(ir, laid)
+        val drawEntities = render(ir, laid)
+        val draw = drawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
 
         val snap = DiagramSnapshot(
@@ -65,18 +66,13 @@ internal class MermaidQuadrantChartSubPipeline : MermaidSubPipeline {
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
-            prefix = "mermaid",
-            model = snap.ir,
-            laidOut = snap.laidOut,
-            commands = snap.drawCommands,
-        )
+        lastDrawEntities = drawEntities
         val patch = SessionPatch(seq = seq, addedNodes = emptyList(), addedEdges = emptyList(), addedDrawCommands = draw, newDiagnostics = newDiagnostics, isFinal = isFinal)
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
 
-    private fun render(ir: QuadrantChartIR, laid: com.hrm.diagram.layout.LaidOutDiagram): List<DrawCommand> {
-        val out = ArrayList<DrawCommand>()
+    private fun render(ir: QuadrantChartIR, laid: com.hrm.diagram.layout.LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val plot = laid.nodePositions[NodeId("quadrant:plot")] ?: return emptyList()
         val midX = (plot.left + plot.right) / 2f
@@ -133,7 +129,7 @@ internal class MermaidQuadrantChartSubPipeline : MermaidSubPipeline {
                 out += DrawCommand.DrawText(label, Point(labelRect.left, labelRect.top), pointFont, pointText, maxWidth = labelRect.size.width, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 7)
             }
         }
-        return out
+        return out.entities()
     }
 
     private fun drawLabel(
