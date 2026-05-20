@@ -67,7 +67,7 @@ internal class MermaidPieSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
             prefix = "mermaid",
             model = out.ir,
             laidOut = out.laidOut,

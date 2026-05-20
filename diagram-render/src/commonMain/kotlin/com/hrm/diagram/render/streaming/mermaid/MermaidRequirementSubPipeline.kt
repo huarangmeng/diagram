@@ -112,7 +112,7 @@ internal class MermaidRequirementSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
             prefix = "mermaid",
             model = snapshot.ir,
             laidOut = snapshot.laidOut,

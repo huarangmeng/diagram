@@ -89,10 +89,15 @@ internal class PlantUmlComponentSubPipeline(
         val routedLaid = routeDecoratedEdges(ir, notesLaid)
         val laidOut = withClusterRects(ir, routedLaid, palette, seq)
         val edgeLabelRects = layoutEdgeLabels(ir, laidOut)
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawCommands = render(ir, laidOut, palette, edgeLabelRects),
+            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
+                prefix = "plantuml",
+                model = ir,
+                laidOut = laidOut,
+                commands = render(ir, laidOut, palette, edgeLabelRects),
+            ),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }

@@ -29,6 +29,8 @@ import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlC4Parser
+import com.hrm.diagram.render.graph.GraphIrRenderer
+import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -46,6 +48,23 @@ internal class PlantUmlC4SubPipeline(
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val stereoFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
+    private val renderer = GraphIrRenderer(
+        textMeasurer,
+        GraphRenderStyle(
+            prefix = "plantuml",
+            nodeFont = labelFont,
+            edgeFont = edgeFont,
+            clusterFont = clusterFont,
+            nodeFill = Color(0xFFE3F2FD.toInt()),
+            nodeStroke = Color(0xFF1E88E5.toInt()),
+            nodeText = Color(0xFF0D47A1.toInt()),
+            edgeColor = Color(0xFF546E7A.toInt()),
+            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            customNodeCommands = { node, rect -> nodeCommands(node, rect, parser.nodeLinkSnapshot()[node.id]) },
+            customClusterCommands = { cluster, rect -> clusterCommands(cluster, rect, parser.nodeLinkSnapshot()) },
+            customEdgeCommands = ::edgeCommands,
+        ),
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -68,10 +87,10 @@ internal class PlantUmlC4SubPipeline(
             bounds = computeBounds(base.nodePositions.values + clusterRects.values + edgeLabelRects.values),
             seq = seq,
         )
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawCommands = render(ir, laid),
+            drawEntities = renderer.render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -238,6 +257,11 @@ internal class PlantUmlC4SubPipeline(
 
     private fun drawCluster(cluster: Cluster, rects: Map<NodeId, Rect>, links: Map<NodeId, String>, out: MutableList<DrawCommand>) {
         val rect = rects[cluster.id] ?: return
+        out += clusterCommands(cluster, rect, links)
+    }
+
+    private fun clusterCommands(cluster: Cluster, rect: Rect, links: Map<NodeId, String>): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90A4AE.toInt())
         out += DrawCommand.FillRect(rect, cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FBFF.toInt()), corner = 14f, z = 0)
         out += DrawCommand.StrokeRect(rect, Stroke(width = cluster.style.strokeWidth ?: 1.4f, dash = listOf(8f, 5f)), strokeColor, corner = 14f, z = 1)
@@ -249,9 +273,15 @@ internal class PlantUmlC4SubPipeline(
             out += DrawCommand.Hyperlink(href, rect, z = 9)
             drawLinkBadge(rect, strokeColor, out)
         }
+        return out
     }
 
     private fun drawNode(node: Node, rect: Rect, link: String?, out: MutableList<DrawCommand>) {
+        out += nodeCommands(node, rect, link)
+    }
+
+    private fun nodeCommands(node: Node, rect: Rect, link: String?): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1E88E5.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
@@ -282,6 +312,7 @@ internal class PlantUmlC4SubPipeline(
         val body = lines.drop(1).joinToString("\n")
         out += DrawCommand.DrawText(stereo, Point(rect.left + 14f, rect.top + 10f), stereoFont, strokeColor, maxWidth = rect.size.width - 28f, anchorY = TextAnchorY.Top, z = 6)
         out += DrawCommand.DrawText(body, Point(rect.left + 14f, rect.top + 30f), labelFont, textColor, maxWidth = rect.size.width - 28f, anchorY = TextAnchorY.Top, z = 6)
+        return out
     }
 
     private fun drawDeploymentNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
@@ -401,6 +432,33 @@ internal class PlantUmlC4SubPipeline(
                 out += DrawCommand.DrawText("L", Point(labelRect.right - 8f, labelRect.top + 8f), stereoFont, color, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 5)
             }
         }
+    }
+
+    private fun edgeCommands(
+        edge: Edge,
+        index: Int,
+        points: List<Point>,
+        kind: RouteKind,
+        laid: LaidOutDiagram,
+    ): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
+        val ir = laid.source as? GraphIR ?: return out
+        val route = EdgeRoute(edge.from, edge.to, points, kind)
+        val labelRect = computeEdgeLabelRects(
+            ir = ir,
+            routes = laid.edgeRoutes,
+            nodeRects = laid.nodePositions.values,
+            clusterTitleRects = clusterTitleRects(laid.clusterRects.values),
+        )[index]
+        drawEdge(
+            edge = edge,
+            presentation = parser.edgePresentationSnapshot()[index],
+            link = parser.edgeLinkSnapshot()[index],
+            route = route,
+            labelRect = labelRect,
+            out = out,
+        )
+        return out
     }
 
     private fun openArrowHead(from: Point, to: Point, color: Color): DrawCommand {

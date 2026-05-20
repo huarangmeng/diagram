@@ -29,6 +29,8 @@ import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.mermaid.MermaidArchitectureParser
+import com.hrm.diagram.render.graph.GraphIrRenderer
+import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -50,6 +52,23 @@ internal class MermaidArchitectureSubPipeline(
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val iconFallbackFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
+    private val renderer = GraphIrRenderer(
+        textMeasurer,
+        GraphRenderStyle(
+            prefix = "mermaid",
+            nodeFont = labelFont,
+            edgeFont = edgeLabelFont,
+            clusterFont = groupFont,
+            nodeFill = Color(0xFFE3F2FD.toInt()),
+            nodeStroke = Color(0xFF1E88E5.toInt()),
+            nodeText = Color(0xFF0D47A1.toInt()),
+            edgeColor = Color(0xFF546E7A.toInt()),
+            graphBackground = { _, laid -> Color(0xFFFFFFFF.toInt()).takeIf { laid.bounds.size.width >= 0f } },
+            customNodeCommands = ::nodeCommands,
+            customClusterCommands = ::clusterCommands,
+            edgeEndpointAdjuster = ::adjustAnchors,
+        ),
+    )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
         graphStyles = styles
@@ -83,7 +102,8 @@ internal class MermaidArchitectureSubPipeline(
             computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
         }
         val laidOut = normalizeVisibleArea(baseLaid, clusterRects, seq)
-        val drawCommands = render(ir, laidOut)
+        lastDrawEntities = renderer.render(ir, laidOut)
+        val drawCommands = lastDrawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
         val snapshot = DiagramSnapshot(
             ir = ir,
@@ -93,12 +113,6 @@ internal class MermaidArchitectureSubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
-            prefix = "mermaid",
-            model = snapshot.ir,
-            laidOut = snapshot.laidOut,
-            commands = snapshot.drawCommands,
         )
         return PipelineAdvance(
             snapshot = snapshot,
@@ -226,6 +240,12 @@ internal class MermaidArchitectureSubPipeline(
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {
         val rect = clusterRects[cluster.id] ?: return
+        out += clusterCommands(cluster, rect)
+        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out)
+    }
+
+    private fun clusterCommands(cluster: Cluster, rect: Rect): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FBFF.toInt())
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90A4AE.toInt())
         val stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f, dash = listOf(7f, 5f))
@@ -271,11 +291,16 @@ internal class MermaidArchitectureSubPipeline(
                 z = 5,
             )
         }
-        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out)
+        return out
     }
 
     private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>) {
         val rect = laidOut.nodePositions[node.id] ?: return
+        out += nodeCommands(node, rect)
+    }
+
+    private fun nodeCommands(node: Node, rect: Rect): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1E88E5.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
@@ -284,7 +309,7 @@ internal class MermaidArchitectureSubPipeline(
         if (kind == "junction") {
             out += DrawCommand.FillRect(rect = rect, color = fill, corner = rect.size.width / 2f, z = 4)
             out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = rect.size.width / 2f, z = 5)
-            return
+            return out
         }
 
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 12f, z = 4)
@@ -325,6 +350,19 @@ internal class MermaidArchitectureSubPipeline(
                 z = 7,
             )
         }
+        return out
+    }
+
+    private fun adjustAnchors(
+        edge: com.hrm.diagram.core.ir.Edge,
+        points: List<Point>,
+        laidOut: LaidOutDiagram,
+    ): List<Point> {
+        if (points.size < 2) return points
+        val out = points.toMutableList()
+        anchorFor(edge.from, edge.fromPort, laidOut)?.let { out[0] = it }
+        anchorFor(edge.to, edge.toPort, laidOut)?.let { out[out.lastIndex] = it }
+        return out
     }
 
     private fun drawEdge(

@@ -27,6 +27,8 @@ import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlArchimateParser
+import com.hrm.diagram.render.graph.GraphIrRenderer
+import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import kotlin.math.sqrt
 
@@ -44,6 +46,19 @@ internal class PlantUmlArchimateSubPipeline(
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val relationTypes: List<String>
         get() = parser.relationTypesSnapshot()
+    private val renderer = GraphIrRenderer(
+        textMeasurer,
+        GraphRenderStyle(
+            prefix = "plantuml",
+            nodeFont = titleFont,
+            edgeFont = edgeFont,
+            clusterFont = titleFont,
+            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            customNodeCommands = ::nodeCommands,
+            customClusterCommands = ::clusterCommands,
+            customEdgeCommands = ::edgeCommands,
+        ),
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -70,10 +85,10 @@ internal class PlantUmlArchimateSubPipeline(
             bounds = computeBounds(laid.nodePositions.values + clusterRects.values + edgeLabelRects),
             seq = seq,
         )
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = finalLaid,
-            drawCommands = render(ir, finalLaid),
+            drawEntities = renderer.render(ir, finalLaid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -158,6 +173,12 @@ internal class PlantUmlArchimateSubPipeline(
 
     private fun drawCluster(cluster: Cluster, rects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {
         val rect = rects[cluster.id] ?: return
+        out += clusterCommands(cluster, rect)
+        for (nested in cluster.nestedClusters) drawCluster(nested, rects, out)
+    }
+
+    private fun clusterCommands(cluster: Cluster, rect: Rect): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FAFC.toInt())
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF78909C.toInt())
         out += DrawCommand.FillRect(rect, fill, corner = 16f, z = 0)
@@ -172,10 +193,15 @@ internal class PlantUmlArchimateSubPipeline(
             anchorY = TextAnchorY.Top,
             z = 2,
         )
-        for (nested in cluster.nestedClusters) drawCluster(nested, rects, out)
+        return out
     }
 
     private fun drawNode(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+        out += nodeCommands(node, rect)
+    }
+
+    private fun nodeCommands(node: Node, rect: Rect): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFECEFF1.toInt())
         val stroke = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF455A64.toInt())
         val text = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF263238.toInt())
@@ -215,7 +241,7 @@ internal class PlantUmlArchimateSubPipeline(
                 anchorY = TextAnchorY.Top,
                 z = 6,
             )
-            return
+            return out
         }
         drawArchimateIcon(node, rect, stroke, out)
         out += DrawCommand.DrawText(
@@ -227,6 +253,7 @@ internal class PlantUmlArchimateSubPipeline(
             anchorY = TextAnchorY.Top,
             z = 6,
         )
+        return out
     }
 
     private fun drawEdge(
@@ -280,6 +307,25 @@ internal class PlantUmlArchimateSubPipeline(
                 z = 8,
             )
         }
+    }
+
+    private fun edgeCommands(
+        edge: Edge,
+        edgeIndex: Int,
+        points: List<Point>,
+        kind: RouteKind,
+        laid: LaidOutDiagram,
+    ): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
+        drawEdge(
+            edge = edge,
+            edgeIndex = edgeIndex,
+            route = EdgeRoute(edge.from, edge.to, points, kind),
+            nodeRects = laid.nodePositions.values,
+            clusterTitleRects = clusterTitleRects(laid.clusterRects.values),
+            out = out,
+        )
+        return out
     }
 
     private fun edgeLabelRect(

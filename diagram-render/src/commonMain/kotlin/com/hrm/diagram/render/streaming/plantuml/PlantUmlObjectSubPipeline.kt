@@ -78,10 +78,15 @@ internal class PlantUmlObjectSubPipeline(
             ir,
             baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq),
         )
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawCommands = render(ir, laidOut, palette),
+            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
+                prefix = "plantuml",
+                model = ir,
+                laidOut = laidOut,
+                commands = render(ir, laidOut, palette),
+            ),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }

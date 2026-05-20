@@ -71,10 +71,15 @@ internal class PlantUmlStateSubPipeline(
                 allowGlobalReflow = isFinal,
             ),
         ).copy(seq = seq)
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = laidOut,
-            drawCommands = renderState(ir, laidOut),
+            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
+                prefix = "plantuml",
+                model = ir,
+                laidOut = laidOut,
+                commands = renderState(ir, laidOut),
+            ),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }

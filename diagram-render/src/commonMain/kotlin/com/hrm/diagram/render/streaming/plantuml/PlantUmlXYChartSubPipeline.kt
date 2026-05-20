@@ -46,10 +46,15 @@ internal class PlantUmlXYChartSubPipeline(
             model = ir,
             options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
         ).copy(seq = seq)
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawCommands = render(ir, laid),
+            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
+                prefix = "plantuml",
+                model = ir,
+                laidOut = laid,
+                commands = render(ir, laid),
+            ),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }

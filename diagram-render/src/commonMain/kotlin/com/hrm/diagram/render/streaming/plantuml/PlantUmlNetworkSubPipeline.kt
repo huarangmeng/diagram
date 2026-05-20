@@ -23,6 +23,8 @@ import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.plantuml.PlantUmlNetworkParser
+import com.hrm.diagram.render.graph.GraphIrRenderer
+import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -37,6 +39,23 @@ internal class PlantUmlNetworkSubPipeline(
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val defaultNodeSize = Size(132f, 58f)
+    private val renderer = GraphIrRenderer(
+        textMeasurer,
+        GraphRenderStyle(
+            prefix = "plantuml",
+            nodeFont = nodeFont,
+            edgeFont = edgeFont,
+            clusterFont = clusterFont,
+            nodeFill = Color(0xFFE3F2FD.toInt()),
+            nodeStroke = Color(0xFF1976D2.toInt()),
+            nodeText = Color(0xFF0D47A1.toInt()),
+            edgeColor = Color(0xFF78909C.toInt()),
+            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            customNodeCommands = ::nodeCommands,
+            customClusterCommands = ::clusterCommands,
+            customEdgeCommands = ::edgeCommands,
+        ),
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -51,10 +70,10 @@ internal class PlantUmlNetworkSubPipeline(
             seq = seq,
             incremental = !isFinal,
         )
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawCommands = render(ir, laid),
+            drawEntities = renderer.render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -224,6 +243,12 @@ internal class PlantUmlNetworkSubPipeline(
 
     private fun drawCluster(cluster: Cluster, rects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {
         val rect = rects[cluster.id] ?: return
+        out += clusterCommands(cluster, rect)
+        for (nested in cluster.nestedClusters) drawCluster(nested, rects, out)
+    }
+
+    private fun clusterCommands(cluster: Cluster, rect: Rect): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF6F8FA.toInt())
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF607D8B.toInt())
         out += DrawCommand.FillRect(rect, fill, corner = 14f, z = 0)
@@ -240,10 +265,15 @@ internal class PlantUmlNetworkSubPipeline(
             anchorY = TextAnchorY.Middle,
             z = 3,
         )
-        for (nested in cluster.nestedClusters) drawCluster(nested, rects, out)
+        return out
     }
 
     private fun drawNode(node: Node, rect: Rect, out: MutableList<DrawCommand>) {
+        out += nodeCommands(node, rect)
+    }
+
+    private fun nodeCommands(node: Node, rect: Rect): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1976D2.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
@@ -286,6 +316,7 @@ internal class PlantUmlNetworkSubPipeline(
                 z = 6,
             )
         }
+        return out
     }
 
     private fun drawCylinderNode(rect: Rect, fill: Color, strokeColor: Color, out: MutableList<DrawCommand>) {
@@ -351,11 +382,22 @@ internal class PlantUmlNetworkSubPipeline(
     }
 
     private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge?, route: EdgeRoute, out: MutableList<DrawCommand>) {
-        val pts = route.points
-        if (pts.size < 2) return
+        out += edgeCommands(edge ?: return, 0, route.points, route.kind, laid = null)
+    }
+
+    private fun edgeCommands(
+        edge: com.hrm.diagram.core.ir.Edge,
+        index: Int,
+        points: List<Point>,
+        kind: RouteKind,
+        laid: LaidOutDiagram?,
+    ): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
+        val pts = points
+        if (pts.size < 2) return out
         val ops = ArrayList<PathOp>(pts.size)
         ops += PathOp.MoveTo(pts.first())
-        when (route.kind) {
+        when (kind) {
             RouteKind.Bezier -> {
                 var i = 1
                 while (i + 2 < pts.size) {
@@ -366,9 +408,9 @@ internal class PlantUmlNetworkSubPipeline(
             }
             else -> for (i in 1 until pts.size) ops += PathOp.LineTo(pts[i])
         }
-        val color = edge?.style?.color?.let { Color(it.argb) } ?: Color(0xFF78909C.toInt())
-        out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = edge?.style?.width ?: 1.4f, dash = edge?.style?.dash), color, z = 2)
-        when (edge?.arrow) {
+        val color = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF78909C.toInt())
+        out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = edge.style.width ?: 1.4f, dash = edge.style.dash), color, z = 2)
+        when (edge.arrow) {
             com.hrm.diagram.core.ir.ArrowEnds.ToOnly -> out += openArrowHead(pts[pts.size - 2], pts.last(), color)
             com.hrm.diagram.core.ir.ArrowEnds.FromOnly -> out += openArrowHead(pts[1], pts.first(), color)
             com.hrm.diagram.core.ir.ArrowEnds.Both -> {
@@ -377,12 +419,13 @@ internal class PlantUmlNetworkSubPipeline(
             }
             else -> Unit
         }
-        val label = edge?.label?.let(::labelTextOf).orEmpty()
+        val label = edge.label?.let(::labelTextOf).orEmpty()
         if (label.isNotBlank()) {
             val mid = routeMidpoint(pts)
             out += DrawCommand.FillRect(Rect(Point(mid.x - 42f, mid.y - 10f), Size(84f, 20f)), Color(0xDDFFFFFF.toInt()), corner = 4f, z = 3)
             out += DrawCommand.DrawText(label, mid, edgeFont, Color(0xFF455A64.toInt()), maxWidth = 80f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 4)
         }
+        return out
     }
 
     private fun routeMidpoint(points: List<Point>): Point {

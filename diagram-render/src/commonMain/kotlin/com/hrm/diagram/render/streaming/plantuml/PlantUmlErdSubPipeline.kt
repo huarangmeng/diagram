@@ -96,10 +96,15 @@ internal class PlantUmlErdSubPipeline(
         )
         val adjusted = applyAnchoredNotes(ir, laidOut).copy(seq = seq)
         val drawCommands = renderDraw(ir, adjusted, isFinal)
-        return PlantUmlRenderState.fromCommands(
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = adjusted,
-            drawCommands = drawCommands,
+            drawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
+                prefix = "plantuml",
+                model = ir,
+                laidOut = laidOut,
+                commands = drawCommands,
+            ),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }

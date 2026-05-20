@@ -62,7 +62,7 @@ internal class MermaidPacketSubPipeline(
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
-        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
+        lastDrawEntities = com.hrm.diagram.render.family.FrameEntityRenderer.render(
             prefix = "mermaid",
             model = snap.ir,
             laidOut = snap.laidOut,

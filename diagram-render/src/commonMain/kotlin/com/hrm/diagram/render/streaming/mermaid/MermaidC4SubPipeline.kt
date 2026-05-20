@@ -31,6 +31,10 @@ import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.mermaid.C4EdgePresentation
 import com.hrm.diagram.parser.mermaid.C4LegendEntry
 import com.hrm.diagram.parser.mermaid.MermaidC4Parser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.cache.DrawEntityKey
+import com.hrm.diagram.render.graph.GraphIrRenderer
+import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -53,6 +57,29 @@ internal class MermaidC4SubPipeline(
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val stereotypeFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
+    private val renderer = GraphIrRenderer(
+        textMeasurer,
+        GraphRenderStyle(
+            prefix = "mermaid",
+            nodeFont = labelFont,
+            edgeFont = edgeLabelFont,
+            clusterFont = clusterFont,
+            nodeFill = Color(0xFFE3F2FD.toInt()),
+            nodeStroke = Color(0xFF1E88E5.toInt()),
+            nodeText = Color(0xFF0D47A1.toInt()),
+            edgeColor = Color(0xFF546E7A.toInt()),
+            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            customNodeCommands = { node, rect -> nodeCommands(node, rect, parser.nodeLinkSnapshot()) },
+            customClusterCommands = { cluster, rect -> clusterCommands(cluster, rect, parser.boundaryLinkSnapshot()) },
+            customEdgeCommands = ::edgeCommands,
+            edgeEndpointAdjuster = ::adjustAnchors,
+            extraEntities = { _, laid ->
+                val entries = parser.legendSnapshot()
+                if (entries.isEmpty()) emptyList()
+                else listOf(DrawEntity(DrawEntityKey.decoration("mermaid", "c4", "legend"), legendCommands(laid.bounds, entries)))
+            },
+        ),
+    )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
         graphStyles = styles
@@ -88,15 +115,8 @@ internal class MermaidC4SubPipeline(
         val legendEntries = parser.legendSnapshot()
         val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values, legendEntries)
         val laidOut = baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
-        val drawCommands = render(
-            ir = ir,
-            laidOut = laidOut,
-            edgePresentation = parser.edgePresentationSnapshot(),
-            edgeLinks = parser.edgeLinkSnapshot(),
-            nodeLinks = parser.nodeLinkSnapshot(),
-            boundaryLinks = parser.boundaryLinkSnapshot(),
-            legendEntries = legendEntries,
-        )
+        lastDrawEntities = renderer.render(ir, laidOut)
+        val drawCommands = lastDrawEntities.flatMap { it.commands }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
         val snapshot = DiagramSnapshot(
             ir = ir,
@@ -106,12 +126,6 @@ internal class MermaidC4SubPipeline(
             seq = seq,
             isFinal = isFinal,
             sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = com.hrm.diagram.render.cache.structuredDrawEntities(
-            prefix = "mermaid",
-            model = snapshot.ir,
-            laidOut = snapshot.laidOut,
-            commands = snapshot.drawCommands,
         )
         return PipelineAdvance(
             snapshot = snapshot,
@@ -207,6 +221,12 @@ internal class MermaidC4SubPipeline(
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, boundaryLinks: Map<NodeId, String>, out: MutableList<DrawCommand>) {
         val rect = clusterRects[cluster.id] ?: return
+        out += clusterCommands(cluster, rect, boundaryLinks)
+        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, boundaryLinks, out)
+    }
+
+    private fun clusterCommands(cluster: Cluster, rect: Rect, boundaryLinks: Map<NodeId, String>): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FBFF.toInt())
         val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90A4AE.toInt())
         val stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f, dash = listOf(7f, 5f))
@@ -238,11 +258,16 @@ internal class MermaidC4SubPipeline(
             z = 5,
         )
         boundaryLinks[cluster.id]?.let { out += DrawCommand.Hyperlink(href = it, rect = rect, z = 6) }
-        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, boundaryLinks, out)
+        return out
     }
 
     private fun drawNode(node: Node, laidOut: LaidOutDiagram, nodeLinks: Map<NodeId, String>, out: MutableList<DrawCommand>) {
         val rect = laidOut.nodePositions[node.id] ?: return
+        out += nodeCommands(node, rect, nodeLinks)
+    }
+
+    private fun nodeCommands(node: Node, rect: Rect, nodeLinks: Map<NodeId, String>): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
         val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1E88E5.toInt())
         val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
@@ -283,6 +308,7 @@ internal class MermaidC4SubPipeline(
             z = 8,
         )
         nodeLinks[node.id]?.let { out += DrawCommand.Hyperlink(href = it, rect = rect, z = 9) }
+        return out
     }
 
     private fun drawCylinder(rect: Rect, fill: Color, strokeColor: Color, stroke: Stroke, out: MutableList<DrawCommand>) {
@@ -434,6 +460,91 @@ internal class MermaidC4SubPipeline(
         }
     }
 
+    private fun edgeCommands(
+        edge: com.hrm.diagram.core.ir.Edge,
+        index: Int,
+        points: List<Point>,
+        kind: RouteKind,
+        laidOut: LaidOutDiagram,
+    ): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
+        val pts = points.toMutableList()
+        if (pts.size < 2) return out
+        val ops = ArrayList<PathOp>(pts.size)
+        ops += PathOp.MoveTo(pts[0])
+        when (kind) {
+            RouteKind.Bezier -> {
+                var i = 1
+                while (i + 2 < pts.size) {
+                    ops += PathOp.CubicTo(pts[i], pts[i + 1], pts[i + 2])
+                    i += 3
+                }
+                if (i < pts.size) ops += PathOp.LineTo(pts.last())
+            }
+            else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
+        }
+        val presentation = parser.edgePresentationSnapshot()[index] ?: C4EdgePresentation()
+        val link = parser.edgeLinkSnapshot()[index]
+        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF546E7A.toInt())
+        val stroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
+        out += DrawCommand.StrokePath(path = PathCmd(ops), stroke = stroke, color = edgeColor, z = 3)
+        val tail = pts[pts.size - 2]
+        val head = pts.last()
+        val startTail = pts[1]
+        val startHead = pts[0]
+        when (edge.arrow) {
+            com.hrm.diagram.core.ir.ArrowEnds.None -> Unit
+            com.hrm.diagram.core.ir.ArrowEnds.ToOnly -> out += arrowHead(tail, head, edgeColor)
+            com.hrm.diagram.core.ir.ArrowEnds.FromOnly -> out += arrowHead(startTail, startHead, edgeColor)
+            com.hrm.diagram.core.ir.ArrowEnds.Both -> {
+                out += arrowHead(tail, head, edgeColor)
+                out += arrowHead(startTail, startHead, edgeColor)
+            }
+        }
+        val text = (edge.label as? RichLabel.Plain)?.text
+        if (!text.isNullOrBlank()) {
+            val midPoint = pts[pts.size / 2]
+            val labelPoint = Point(midPoint.x + presentation.offsetX, midPoint.y + presentation.offsetY)
+            val metrics = textMeasurer.measure(text, edgeLabelFont)
+            val bgRect = Rect.ltrb(
+                labelPoint.x - metrics.width / 2f - 4f,
+                labelPoint.y - metrics.height / 2f - 2f,
+                labelPoint.x + metrics.width / 2f + 4f,
+                labelPoint.y + metrics.height / 2f + 2f,
+            )
+            out += DrawCommand.FillRect(rect = bgRect, color = edge.style.labelBg?.let { Color(it.argb) } ?: Color(0xF0FFFFFF.toInt()), corner = 3f, z = 9)
+            out += DrawCommand.DrawText(
+                text = text,
+                origin = labelPoint,
+                font = edgeLabelFont,
+                color = presentation.textColor?.let { Color(it.argb) } ?: Color(0xFF263238.toInt()),
+                anchorX = TextAnchorX.Center,
+                anchorY = TextAnchorY.Middle,
+                z = 10,
+            )
+        }
+        if (!link.isNullOrBlank()) {
+            val left = pts.minOf { it.x } - 8f
+            val top = pts.minOf { it.y } - 8f
+            val right = pts.maxOf { it.x } + 8f
+            val bottom = pts.maxOf { it.y } + 8f
+            out += DrawCommand.Hyperlink(href = link, rect = Rect.ltrb(left, top, right, bottom), z = 11)
+        }
+        return out
+    }
+
+    private fun adjustAnchors(
+        edge: com.hrm.diagram.core.ir.Edge,
+        points: List<Point>,
+        laidOut: LaidOutDiagram,
+    ): List<Point> {
+        if (points.size < 2) return points
+        val out = points.toMutableList()
+        anchorFor(edge.from, edge.fromPort, laidOut)?.let { out[0] = it }
+        anchorFor(edge.to, edge.toPort, laidOut)?.let { out[out.lastIndex] = it }
+        return out
+    }
+
     private fun anchorFor(nodeId: NodeId, portId: PortId?, laidOut: LaidOutDiagram): Point? {
         val raw = portId?.value ?: return null
         val side = when (raw) {
@@ -468,6 +579,11 @@ internal class MermaidC4SubPipeline(
 
     private fun drawLegend(bounds: Rect, entries: List<C4LegendEntry>, out: MutableList<DrawCommand>) {
         if (entries.isEmpty()) return
+        out += legendCommands(bounds, entries)
+    }
+
+    private fun legendCommands(bounds: Rect, entries: List<C4LegendEntry>): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val rect = legendRect(bounds, entries)
         out += DrawCommand.FillRect(rect = rect, color = Color(0xFFFAFAFA.toInt()), corner = 10f, z = 20)
         out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = Color(0xFFB0BEC5.toInt()), corner = 10f, z = 21)
@@ -508,6 +624,7 @@ internal class MermaidC4SubPipeline(
             )
             y += 24f
         }
+        return out
     }
 
     private fun legendRect(bounds: Rect, entries: List<C4LegendEntry>): Rect {

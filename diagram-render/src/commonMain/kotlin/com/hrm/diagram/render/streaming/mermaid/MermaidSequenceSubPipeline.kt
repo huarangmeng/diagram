@@ -25,7 +25,6 @@ import com.hrm.diagram.parser.mermaid.MermaidSequenceParser
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.DrawEntityKey
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import com.hrm.diagram.render.streaming.StructuredDrawEntityProvider
 import kotlin.math.sqrt
 
 /**
@@ -35,11 +34,11 @@ import kotlin.math.sqrt
  */
 internal class MermaidSequenceSubPipeline(
     private val textMeasurer: TextMeasurer,
-) : MermaidSubPipeline, StructuredDrawEntityProvider {
+) : MermaidSubPipeline {
 
     private val parser = MermaidSequenceParser()
     private val layout = SequenceLayouts.forSequence(textMeasurer)
-    override var lastDrawEntities: List<DrawEntity> = emptyList()
+    var lastDrawEntities: List<DrawEntity> = emptyList()
         private set
 
     override fun acceptLines(

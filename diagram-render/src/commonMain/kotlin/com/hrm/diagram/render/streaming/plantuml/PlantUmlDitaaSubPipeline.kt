@@ -24,6 +24,8 @@ import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.plantuml.PlantUmlDitaaParser
+import com.hrm.diagram.render.graph.GraphIrRenderer
+import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import kotlin.math.sqrt
 
@@ -35,6 +37,18 @@ internal class PlantUmlDitaaSubPipeline(
     private val cellWidth = 12f
     private val cellHeight = 18f
     private val margin = 24f
+    private var handwrittenGraph: Boolean = false
+    private val renderer = GraphIrRenderer(
+        textMeasurer,
+        GraphRenderStyle(
+            prefix = "plantuml",
+            nodeFont = labelFont,
+            edgeColor = Color(0xFF6D4C41.toInt()),
+            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            customNodeCommands = ::nodeCommands,
+            customEdgeCommands = ::edgeCommands,
+        ),
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -43,10 +57,11 @@ internal class PlantUmlDitaaSubPipeline(
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val ir = parser.snapshot()
         val laid = layout(ir, previousSnapshot.laidOut, !isFinal).copy(seq = seq)
-        return PlantUmlRenderState.fromCommands(
+        handwrittenGraph = ir.styleHints.extras[PlantUmlDitaaParser.HANDWRITTEN_KEY] == "true"
+        return PlantUmlRenderState(
             ir = ir,
             laidOut = laid,
-            drawCommands = render(ir, laid),
+            drawEntities = renderer.render(ir, laid),
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -103,6 +118,11 @@ internal class PlantUmlDitaaSubPipeline(
     }
 
     private fun drawNode(node: Node, rect: Rect, out: MutableList<DrawCommand>, handwrittenGraph: Boolean) {
+        out += nodeCommands(node, rect)
+    }
+
+    private fun nodeCommands(node: Node, rect: Rect): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
         val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFFFFDE7.toInt())
         val stroke = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF8D6E63.toInt())
         val text = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF3E2723.toInt())
@@ -121,6 +141,7 @@ internal class PlantUmlDitaaSubPipeline(
             anchorY = TextAnchorY.Middle,
             z = 5,
         )
+        return out
     }
 
     private fun drawShape(
@@ -207,17 +228,28 @@ internal class PlantUmlDitaaSubPipeline(
     }
 
     private fun drawEdge(edge: Edge?, route: EdgeRoute, out: MutableList<DrawCommand>, handwritten: Boolean) {
-        val pts = route.points
-        if (pts.size < 2) return
+        out += edgeCommands(edge ?: return, 0, route.points, route.kind, laid = null)
+    }
+
+    private fun edgeCommands(
+        edge: Edge,
+        index: Int,
+        points: List<Point>,
+        kind: RouteKind,
+        laid: LaidOutDiagram?,
+    ): List<DrawCommand> {
+        val out = ArrayList<DrawCommand>()
+        val pts = points
+        if (pts.size < 2) return out
         val ops = ArrayList<PathOp>()
-        val key = "${edge?.from?.value.orEmpty()}->${edge?.to?.value.orEmpty()}"
-        val drawnPoints = if (handwritten) jitteredPoints(key, pts) else pts
+        val key = "${edge.from.value}->${edge.to.value}"
+        val drawnPoints = if (handwrittenGraph) jitteredPoints(key, pts) else pts
         ops += PathOp.MoveTo(drawnPoints.first())
         for (i in 1 until drawnPoints.size) ops += PathOp.LineTo(drawnPoints[i])
-        val color = edge?.style?.color?.let { Color(it.argb) } ?: Color(0xFF6D4C41.toInt())
-        val stroke = Stroke(width = edge?.style?.width ?: 1.5f, dash = if (handwritten) listOf(7f, 2f, 2f, 2f) else edge?.style?.dash)
+        val color = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF6D4C41.toInt())
+        val stroke = Stroke(width = edge.style.width ?: 1.5f, dash = if (handwrittenGraph) listOf(7f, 2f, 2f, 2f) else edge.style.dash)
         out += DrawCommand.StrokePath(PathCmd(ops), stroke, color, z = 1)
-        when (edge?.arrow) {
+        when (edge.arrow) {
             ArrowEnds.ToOnly -> out += openArrowHead(drawnPoints[drawnPoints.size - 2], drawnPoints.last(), color)
             ArrowEnds.FromOnly -> out += openArrowHead(drawnPoints[1], drawnPoints.first(), color)
             ArrowEnds.Both -> {
@@ -226,6 +258,7 @@ internal class PlantUmlDitaaSubPipeline(
             }
             else -> Unit
         }
+        return out
     }
 
     private fun routeEndpoints(from: Rect, to: Rect): Pair<Point, Point> {

@@ -29,18 +29,17 @@ import com.hrm.diagram.parser.mermaid.MermaidClassParser
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.DrawEntityKey
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import com.hrm.diagram.render.streaming.StructuredDrawEntityProvider
 import kotlin.math.sqrt
 
 /** Sub-pipeline for `classDiagram` Mermaid sources. */
 internal class MermaidClassSubPipeline(
     private val textMeasurer: TextMeasurer,
-) : MermaidSubPipeline, StructuredDrawEntityProvider {
+) : MermaidSubPipeline {
 
     private val parser = MermaidClassParser()
     private val layout = ClassDiagramLayout(textMeasurer)
     private var graphStyles: MermaidGraphStyleState? = null
-    override var lastDrawEntities: List<DrawEntity> = emptyList()
+    var lastDrawEntities: List<DrawEntity> = emptyList()
         private set
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
