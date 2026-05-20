@@ -6,6 +6,7 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.RenderStateProvider
 
 internal data class PlantUmlRenderState(
     val ir: DiagramModel,
@@ -14,9 +15,8 @@ internal data class PlantUmlRenderState(
     val drawEntities: List<DrawEntity>,
 )
 
-internal interface PlantUmlSubPipeline {
+internal interface PlantUmlSubPipeline : RenderStateProvider<PlantUmlRenderState> {
     fun acceptLine(line: String): IrPatchBatch
     fun finish(blockClosed: Boolean): IrPatchBatch
-    fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState
-    fun dispose() {}
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState
 }

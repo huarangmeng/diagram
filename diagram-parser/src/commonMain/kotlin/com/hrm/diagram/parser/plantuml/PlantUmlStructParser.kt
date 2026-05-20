@@ -9,6 +9,8 @@ import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Lenient line-buffered parser for PlantUML `@startjson` and `@startyaml` structure diagrams.
@@ -29,33 +31,30 @@ class PlantUmlStructParser(
     }
 
     private val bodyLines: MutableList<String> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
-    private var seq: Long = 0L
+    private val diagnostics = ParserDiagnosticSink()
+    private val seq = ParserSessionSeq()
     private var finalParseDiagnostics: List<Diagnostic> = emptyList()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
-        if (trimmed.startsWith("'") || trimmed.startsWith("//")) return IrPatchBatch(seq, emptyList())
+        if (trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
         bodyLines += line
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
         if (!blockClosed) {
-            val d = Diagnostic(
-                severity = Severity.ERROR,
+            out += diagnostics.error(
                 message = "Missing ${format.endDirective()} closing delimiter",
                 code = "PLANTUML-E013",
             )
-            diagnostics += d
-            out += IrPatch.AddDiagnostic(d)
         }
         val parsed = parseBody(reportErrors = true)
         finalParseDiagnostics = parsed.diagnostics
         for (d in parsed.diagnostics) out += IrPatch.AddDiagnostic(d)
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): StructIR {
@@ -67,7 +66,7 @@ class PlantUmlStructParser(
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics + finalParseDiagnostics
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot() + finalParseDiagnostics
 
     private fun parseBody(reportErrors: Boolean): ParseOutcome {
         val source = bodyLines.joinToString("\n").trim()

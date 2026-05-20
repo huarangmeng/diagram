@@ -1,18 +1,17 @@
 package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.ir.Diagnostic
-import com.hrm.diagram.core.ir.SeriesKind
 import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
 import com.hrm.diagram.render.streaming.SessionPipeline
 import com.hrm.diagram.render.streaming.StreamingDiff
+import com.hrm.diagram.render.streaming.dispatcher.DiagramKindDispatcher
 import com.hrm.diagram.render.streaming.kernel.StreamingFamilyPipelineKernel
 
 /**
@@ -52,10 +51,11 @@ internal class PlantUmlSessionPipeline(
     private var bufferingSkinparamBlock: Boolean = false
     private var bufferingStyleBlock: Boolean = false
     private var ignoredSkinparamBlock: Boolean = false
-    private var subPipeline: PlantUmlSubPipeline? = null
+    private val subPipelineRegistry = PlantUmlSubPipelineRegistry(textMeasurer)
+    private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
+    private val subPipeline: PlantUmlSubPipeline?
+        get() = dispatcher.current
     private var closingDirective: String = "@enduml"
-
-    private enum class DiagramKind { Sequence, Class, State, Component, Usecase, Activity, Object, Deployment, Erd, Mindmap, Wbs, Json, Yaml, Network, Gantt, Timing, Salt, Archimate, C4, Ditaa, Pie, BarChart, LineChart, ScatterChart }
 
     override fun advance(
         previousSnapshot: DiagramSnapshot,
@@ -124,58 +124,14 @@ internal class PlantUmlSessionPipeline(
             if (trimmed.equals("@startuml", ignoreCase = true)) {
                 blockStarted = true
                 closingDirective = "@enduml"
-            } else if (trimmed.equals("@startmindmap", ignoreCase = true)) {
+                return
+            }
+            val explicitStart = subPipelineRegistry.matchStartDirective(trimmed)
+            if (explicitStart != null) {
                 blockStarted = true
-                closingDirective = "@endmindmap"
-                attachSubPipeline(DiagramKind.Mindmap, out)
-            } else if (trimmed.equals("@startwbs", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endwbs"
-                attachSubPipeline(DiagramKind.Wbs, out)
-            } else if (trimmed.equals("@startjson", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endjson"
-                attachSubPipeline(DiagramKind.Json, out)
-            } else if (trimmed.equals("@startyaml", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endyaml"
-                attachSubPipeline(DiagramKind.Yaml, out)
-            } else if (trimmed.equals("@startnwdiag", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endnwdiag"
-                attachSubPipeline(DiagramKind.Network, out)
-            } else if (trimmed.equals("@startgantt", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endgantt"
-                attachSubPipeline(DiagramKind.Gantt, out)
-            } else if (trimmed.equals("@startsalt", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endsalt"
-                attachSubPipeline(DiagramKind.Salt, out)
-            } else if (trimmed.equals("@startditaa", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endditaa"
-                attachSubPipeline(DiagramKind.Ditaa, out)
-            } else if (trimmed.equals("@startpie", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endpie"
-                attachSubPipeline(DiagramKind.Pie, out)
-            } else if (trimmed.equals("@startbar", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endbar"
-                attachSubPipeline(DiagramKind.BarChart, out)
-            } else if (trimmed.equals("@startline", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endline"
-                attachSubPipeline(DiagramKind.LineChart, out)
-            } else if (trimmed.equals("@startscatter", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endscatter"
-                attachSubPipeline(DiagramKind.ScatterChart, out)
-            } else if (trimmed.equals("@startchart", ignoreCase = true)) {
-                blockStarted = true
-                closingDirective = "@endchart"
-                attachSubPipeline(DiagramKind.BarChart, out)
+                closingDirective = explicitStart.closingDirective
+                attachSubPipeline(explicitStart.kind, out)
+                return
             }
             return
         }
@@ -216,19 +172,8 @@ internal class PlantUmlSessionPipeline(
         }
         if (trimmed.startsWith("skinparam", ignoreCase = true)) {
             val chosen = subPipeline
-            if (
-                chosen is PlantUmlSequenceSubPipeline ||
-                chosen is PlantUmlActivitySubPipeline ||
-                chosen is PlantUmlUsecaseSubPipeline ||
-                chosen is PlantUmlStateSubPipeline ||
-                chosen is PlantUmlClassSubPipeline ||
-                chosen is PlantUmlComponentSubPipeline ||
-                chosen is PlantUmlDeploymentSubPipeline ||
-                chosen is PlantUmlObjectSubPipeline ||
-                chosen is PlantUmlPieSubPipeline ||
-                chosen is PlantUmlXYChartSubPipeline ||
-                (chosen is PlantUmlDitaaSubPipeline && trimmed.startsWith("skinparam handwritten", ignoreCase = true))
-            ) {
+            val chosenKind = dispatcher.currentKind
+            if (chosen != null && chosenKind != null && subPipelineRegistry.acceptsActiveSkinparam(chosenKind, trimmed)) {
                 out += chosen.acceptLine(trimmed).patches
             } else if (chosen != null) {
                 out += ignoredSkinparamWarning()
@@ -242,7 +187,8 @@ internal class PlantUmlSessionPipeline(
 
         val chosen = subPipeline
         if (chosen != null) {
-            val payloadLine = if (chosen is PlantUmlStructSubPipeline || chosen is PlantUmlDitaaSubPipeline) line else trimmed
+            val chosenKind = dispatcher.currentKind
+            val payloadLine = if (chosenKind != null && subPipelineRegistry.requiresRawPayload(chosenKind)) line else trimmed
             out += chosen.acceptLine(payloadLine).patches
             return
         }
@@ -256,140 +202,94 @@ internal class PlantUmlSessionPipeline(
 
     private fun materializeDeferredBodyIfNeeded(out: MutableList<IrPatch>) {
         if (subPipeline != null || bufferedBodyLines.isEmpty()) return
-        val kind = detectBufferedKind() ?: DiagramKind.Sequence
+        val kind = detectBufferedKind() ?: PlantUmlDiagramKind.Sequence
         attachSubPipeline(kind, out)
     }
 
-    private fun attachSubPipeline(kind: DiagramKind, out: MutableList<IrPatch>) {
+    private fun attachSubPipeline(kind: PlantUmlDiagramKind, out: MutableList<IrPatch>) {
         if (subPipeline != null) return
-        subPipeline = when (kind) {
-            DiagramKind.Sequence -> PlantUmlSequenceSubPipeline(textMeasurer)
-            DiagramKind.Class -> PlantUmlClassSubPipeline(textMeasurer)
-            DiagramKind.State -> PlantUmlStateSubPipeline(textMeasurer)
-            DiagramKind.Component -> PlantUmlComponentSubPipeline(textMeasurer)
-            DiagramKind.Usecase -> PlantUmlUsecaseSubPipeline(textMeasurer)
-            DiagramKind.Activity -> PlantUmlActivitySubPipeline(textMeasurer)
-            DiagramKind.Object -> PlantUmlObjectSubPipeline(textMeasurer)
-            DiagramKind.Deployment -> PlantUmlDeploymentSubPipeline(textMeasurer)
-            DiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer)
-            DiagramKind.Mindmap -> PlantUmlMindmapSubPipeline(textMeasurer)
-            DiagramKind.Wbs -> PlantUmlWbsSubPipeline(textMeasurer)
-            DiagramKind.Json -> PlantUmlStructSubPipeline(PlantUmlStructParser.Format.JSON, textMeasurer)
-            DiagramKind.Yaml -> PlantUmlStructSubPipeline(PlantUmlStructParser.Format.YAML, textMeasurer)
-            DiagramKind.Network -> PlantUmlNetworkSubPipeline(textMeasurer)
-            DiagramKind.Gantt -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Gantt, textMeasurer)
-            DiagramKind.Timing -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Timing, textMeasurer)
-            DiagramKind.Salt -> PlantUmlSaltSubPipeline(textMeasurer)
-            DiagramKind.Archimate -> PlantUmlArchimateSubPipeline(textMeasurer)
-            DiagramKind.C4 -> PlantUmlC4SubPipeline(textMeasurer)
-            DiagramKind.Ditaa -> PlantUmlDitaaSubPipeline(textMeasurer)
-            DiagramKind.Pie -> PlantUmlPieSubPipeline(textMeasurer)
-            DiagramKind.BarChart -> PlantUmlXYChartSubPipeline(SeriesKind.Bar, textMeasurer)
-            DiagramKind.LineChart -> PlantUmlXYChartSubPipeline(SeriesKind.Line, textMeasurer)
-            DiagramKind.ScatterChart -> PlantUmlXYChartSubPipeline(SeriesKind.Scatter, textMeasurer)
-        }
+        val selected = dispatcher.attach(kind) ?: return
         if (bufferedSkinparamLines.isNotEmpty()) {
-            if (
-                kind == DiagramKind.Sequence ||
-                kind == DiagramKind.Activity ||
-                kind == DiagramKind.Usecase ||
-                kind == DiagramKind.State ||
-                kind == DiagramKind.Class ||
-                kind == DiagramKind.Component ||
-                kind == DiagramKind.Deployment ||
-                kind == DiagramKind.Object ||
-                kind == DiagramKind.Pie ||
-                kind == DiagramKind.BarChart ||
-                kind == DiagramKind.LineChart ||
-                kind == DiagramKind.ScatterChart
-            ) {
-                for (line in bufferedSkinparamLines) {
-                    out += subPipeline!!.acceptLine(line).patches
+            for (line in bufferedSkinparamLines) {
+                if (subPipelineRegistry.acceptsBufferedSkinparamLine(kind, line)) {
+                    out += selected.acceptLine(line).patches
+                } else {
+                    out += ignoredSkinparamWarning()
                 }
-            } else if (kind == DiagramKind.Ditaa) {
-                for (line in bufferedSkinparamLines) {
-                    if (line.startsWith("skinparam handwritten", ignoreCase = true)) {
-                        out += subPipeline!!.acceptLine(line).patches
-                    } else {
-                        out += ignoredSkinparamWarning()
-                    }
-                }
-            } else {
-                repeat(bufferedSkinparamLines.size) { out += ignoredSkinparamWarning() }
             }
             bufferedSkinparamLines.clear()
         }
         val pending = bufferedBodyLines.toList()
         bufferedBodyLines.clear()
         for (line in pending) {
-            out += subPipeline!!.acceptLine(line).patches
+            out += selected.acceptLine(line).patches
         }
     }
 
-    private fun classifyImmediate(line: String): DiagramKind? {
+    private fun classifyImmediate(line: String): PlantUmlDiagramKind? {
         val lower = line.lowercase()
         if (lower == "nwdiag {" || lower == "nwdiag{") {
-            return DiagramKind.Network
+            return PlantUmlDiagramKind.Network
         }
         if (lower == "salt" || lower == "salt {" || lower == "salt{") {
-            return DiagramKind.Salt
+            return PlantUmlDiagramKind.Salt
         }
         if (isWbsCue(line)) {
-            return DiagramKind.Wbs
+            return PlantUmlDiagramKind.Wbs
         }
         if (lower == "pie") {
-            return DiagramKind.Pie
+            return PlantUmlDiagramKind.Pie
         }
         if (lower == "bar") {
-            return DiagramKind.BarChart
+            return PlantUmlDiagramKind.BarChart
         }
         if (lower == "line") {
-            return DiagramKind.LineChart
+            return PlantUmlDiagramKind.LineChart
         }
         if (lower == "scatter") {
-            return DiagramKind.ScatterChart
+            return PlantUmlDiagramKind.ScatterChart
         }
         if (lower == "chart") {
-            return DiagramKind.BarChart
+            return PlantUmlDiagramKind.BarChart
         }
         if (lower.startsWith("bar ") || lower.startsWith("h-axis ") || lower.startsWith("v-axis ")) {
-            return DiagramKind.BarChart
+            return PlantUmlDiagramKind.BarChart
         }
         if (lower.startsWith("line ")) {
-            return DiagramKind.LineChart
+            return PlantUmlDiagramKind.LineChart
         }
         if (lower.startsWith("scatter ")) {
-            return DiagramKind.ScatterChart
+            return PlantUmlDiagramKind.ScatterChart
         }
         if (isC4Cue(line)) {
-            return DiagramKind.C4
+            return PlantUmlDiagramKind.C4
         }
         if (lower.startsWith("archimate ") || Regex("""^Rel(?:_[A-Za-z0-9_]+)?\(""").containsMatchIn(line)) {
-            return DiagramKind.Archimate
+            return PlantUmlDiagramKind.Archimate
         }
         if (lower.startsWith("project starts") || Regex("""^\[[^\]]+\]\s+(starts|lasts|ends|happens)\b""", RegexOption.IGNORE_CASE).containsMatchIn(line)) {
-            return DiagramKind.Gantt
+            return PlantUmlDiagramKind.Gantt
         }
         if (isTimingCue(line)) {
-            return DiagramKind.Timing
+            return PlantUmlDiagramKind.Timing
         }
         if (
             lower.startsWith("object ") ||
             (line.contains(':') && line.contains('=') && !line.startsWith(":") && !line.contains("->") && !line.contains("<-"))
         ) {
-            return DiagramKind.Object
+            return PlantUmlDiagramKind.Object
         }
         if (
             lower.startsWith("entity ") ||
             Regex("""^[A-Za-z0-9_.:-]+\s+[|}{o.\-]+\s+[A-Za-z0-9_.:-]+(?:\s*:\s*.+)?$""").matches(line)
         ) {
-            return DiagramKind.Erd
+            return PlantUmlDiagramKind.Erd
         }
         if (lower.startsWith("artifact ")) {
-            return DiagramKind.Deployment
+            return PlantUmlDiagramKind.Deployment
         }
         if (lower.startsWith("storage ")) {
-            return DiagramKind.Deployment
+            return PlantUmlDiagramKind.Deployment
         }
         if (
             lower == "start" ||
@@ -415,7 +315,7 @@ internal class PlantUmlSessionPipeline(
             (lower.startsWith("note ") && !ANCHORED_NOTE.matches(line) && !ANCHORED_NOTE_BLOCK.matches(line) && !line.contains(" of ")) ||
             isLegacyActivityArrowCue(line)
         ) {
-            return DiagramKind.Activity
+            return PlantUmlDiagramKind.Activity
         }
         if (
             lower.startsWith("usecase ") ||
@@ -429,7 +329,7 @@ internal class PlantUmlSessionPipeline(
                     (line.contains("--") || line.contains("..") || line.contains(".>") || line.contains("<."))
                 )
         ) {
-            return DiagramKind.Usecase
+            return PlantUmlDiagramKind.Usecase
         }
         if (
             lower.startsWith("component ") ||
@@ -448,7 +348,7 @@ internal class PlantUmlSessionPipeline(
             lower.startsWith("portin ") ||
             lower.startsWith("portout ")
         ) {
-            return DiagramKind.Component
+            return PlantUmlDiagramKind.Component
         }
         if (
             lower.startsWith("state ") ||
@@ -457,10 +357,10 @@ internal class PlantUmlSessionPipeline(
             line.contains("[H*]") ||
             line == "--"
         ) {
-            return DiagramKind.State
+            return PlantUmlDiagramKind.State
         }
         if (isWbsCue(line)) {
-            return DiagramKind.Wbs
+            return PlantUmlDiagramKind.Wbs
         }
         if (
             lower.startsWith("class ") ||
@@ -473,7 +373,7 @@ internal class PlantUmlSessionPipeline(
             line.contains("*--") ||
             line.contains("o--")
         ) {
-            return DiagramKind.Class
+            return PlantUmlDiagramKind.Class
         }
         if (
             lower.startsWith("participant ") ||
@@ -506,12 +406,12 @@ internal class PlantUmlSessionPipeline(
             line.contains("->:") ||
             line.contains(" <-")
         ) {
-            return DiagramKind.Sequence
+            return PlantUmlDiagramKind.Sequence
         }
         return null
     }
 
-    private fun shouldDeferImmediate(kind: DiagramKind, line: String): Boolean {
+    private fun shouldDeferImmediate(kind: PlantUmlDiagramKind, line: String): Boolean {
         val lower = line.lowercase()
         val sawAmbiguousContainerCue = bufferedBodyLines.any {
             val candidate = it.lowercase()
@@ -519,18 +419,18 @@ internal class PlantUmlSessionPipeline(
         }
         if (!sawAmbiguousContainerCue) return false
         return when (kind) {
-            DiagramKind.Component ->
+            PlantUmlDiagramKind.Component ->
                 lower.startsWith("database ") ||
                     line.startsWith("[") ||
                     lower.startsWith("queue ") ||
                     lower.startsWith("frame ")
-            DiagramKind.Sequence -> true
-            DiagramKind.Activity -> line == "}"
+            PlantUmlDiagramKind.Sequence -> true
+            PlantUmlDiagramKind.Activity -> line == "}"
             else -> false
         }
     }
 
-    private fun detectBufferedKind(): DiagramKind? {
+    private fun detectBufferedKind(): PlantUmlDiagramKind? {
         var sawStateCue = false
         var sawClassCue = false
         var sawSequenceCue = false
@@ -744,34 +644,34 @@ internal class PlantUmlSessionPipeline(
             }
         }
         return when {
-            sawNetworkCue -> DiagramKind.Network
-            sawSaltCue -> DiagramKind.Salt
-            sawPieCue -> DiagramKind.Pie
-            sawBarCue -> DiagramKind.BarChart
-            sawLineCue -> DiagramKind.LineChart
-            sawScatterCue -> DiagramKind.ScatterChart
-            sawC4Cue -> DiagramKind.C4
-            sawArchimateCue -> DiagramKind.Archimate
-            sawGanttCue -> DiagramKind.Gantt
-            sawTimingCue -> DiagramKind.Timing
-            sawObjectCue -> DiagramKind.Object
-            sawErdCue -> DiagramKind.Erd
-            sawAmbiguousContainerCue && sawBracketArtifactCue && !sawExplicitComponentCue -> DiagramKind.Deployment
-            sawAmbiguousContainerCue && sawActorCue && !sawUsecaseCue && !sawExplicitComponentCue -> DiagramKind.Deployment
-            sawComponentCue -> DiagramKind.Component
-            sawDeploymentCue -> DiagramKind.Deployment
-            sawWbsCue -> DiagramKind.Wbs
-            sawActivityCue -> DiagramKind.Activity
-            sawStateCue -> DiagramKind.State
-            sawClassCue -> DiagramKind.Class
-            sawPackageCue && sawClassCue -> DiagramKind.Class
-            sawPackageCue && sawUsecaseCue -> DiagramKind.Usecase
-            sawActorCue && sawUsecaseCue -> DiagramKind.Usecase
-            sawUsecaseCue -> DiagramKind.Usecase
-            sawSequenceCue -> DiagramKind.Sequence
-            sawActorCue -> DiagramKind.Usecase
-            sawAmbiguousContainerCue -> DiagramKind.Component
-            sawPackageCue -> DiagramKind.Component
+            sawNetworkCue -> PlantUmlDiagramKind.Network
+            sawSaltCue -> PlantUmlDiagramKind.Salt
+            sawPieCue -> PlantUmlDiagramKind.Pie
+            sawBarCue -> PlantUmlDiagramKind.BarChart
+            sawLineCue -> PlantUmlDiagramKind.LineChart
+            sawScatterCue -> PlantUmlDiagramKind.ScatterChart
+            sawC4Cue -> PlantUmlDiagramKind.C4
+            sawArchimateCue -> PlantUmlDiagramKind.Archimate
+            sawGanttCue -> PlantUmlDiagramKind.Gantt
+            sawTimingCue -> PlantUmlDiagramKind.Timing
+            sawObjectCue -> PlantUmlDiagramKind.Object
+            sawErdCue -> PlantUmlDiagramKind.Erd
+            sawAmbiguousContainerCue && sawBracketArtifactCue && !sawExplicitComponentCue -> PlantUmlDiagramKind.Deployment
+            sawAmbiguousContainerCue && sawActorCue && !sawUsecaseCue && !sawExplicitComponentCue -> PlantUmlDiagramKind.Deployment
+            sawComponentCue -> PlantUmlDiagramKind.Component
+            sawDeploymentCue -> PlantUmlDiagramKind.Deployment
+            sawWbsCue -> PlantUmlDiagramKind.Wbs
+            sawActivityCue -> PlantUmlDiagramKind.Activity
+            sawStateCue -> PlantUmlDiagramKind.State
+            sawClassCue -> PlantUmlDiagramKind.Class
+            sawPackageCue && sawClassCue -> PlantUmlDiagramKind.Class
+            sawPackageCue && sawUsecaseCue -> PlantUmlDiagramKind.Usecase
+            sawActorCue && sawUsecaseCue -> PlantUmlDiagramKind.Usecase
+            sawUsecaseCue -> PlantUmlDiagramKind.Usecase
+            sawSequenceCue -> PlantUmlDiagramKind.Sequence
+            sawActorCue -> PlantUmlDiagramKind.Usecase
+            sawAmbiguousContainerCue -> PlantUmlDiagramKind.Component
+            sawPackageCue -> PlantUmlDiagramKind.Component
             else -> null
         }
     }
@@ -836,8 +736,7 @@ internal class PlantUmlSessionPipeline(
         rawPending = ""
         bufferedBodyLines.clear()
         bufferedSkinparamLines.clear()
-        subPipeline?.dispose()
-        subPipeline = null
+        dispatcher.clear()
     }
 
     @Suppress("unused")

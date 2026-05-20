@@ -16,6 +16,7 @@ import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.graph.graphLabelText
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotProvider
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
@@ -120,7 +121,7 @@ internal class MermaidFlowchartSubPipeline(
 }
 
 /** Internal SPI used by the dispatcher to delegate per-line work. */
-internal interface MermaidSubPipeline {
+internal interface MermaidSubPipeline : DrawEntitySnapshotProvider {
     /** Optional hook for Mermaid GraphIR-based styling (flowchart/erDiagram). */
     fun updateGraphStyles(styles: MermaidGraphStyleState) {}
 
@@ -134,9 +135,6 @@ internal interface MermaidSubPipeline {
         isFinal: Boolean,
     ): PipelineAdvance
 
-    fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity>
-
-    fun dispose() {}
 }
 
 /** Helper kept here to avoid duplicating across sub-pipelines. */

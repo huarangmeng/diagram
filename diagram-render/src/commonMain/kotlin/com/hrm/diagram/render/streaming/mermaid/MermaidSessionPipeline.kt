@@ -20,6 +20,8 @@ import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
 import com.hrm.diagram.render.streaming.SessionPipeline
+import com.hrm.diagram.render.streaming.drawEntitiesOrEmpty
+import com.hrm.diagram.render.streaming.dispatcher.DiagramKindDispatcher
 import com.hrm.diagram.render.streaming.kernel.StreamingFamilyPipelineKernel
 
 /**
@@ -40,10 +42,11 @@ internal class MermaidSessionPipeline(
     private var lexState: MermaidLexerState = lexer.initialState()
     private val tokenBuffer: MutableList<Token> = ArrayList()
     private val pendingLines: MutableList<List<Token>> = ArrayList()
-    private var sub: MermaidSubPipeline? = null
-
-    private enum class HeaderHint { Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block, Packet }
-    private var headerHint: HeaderHint? = null
+    private val subPipelineRegistry = MermaidSubPipelineRegistry(textMeasurer)
+    private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
+    private val sub: MermaidSubPipeline?
+        get() = dispatcher.current
+    private var headerHint: MermaidDiagramKind? = null
 
     // --- Style parsing state (Phase 1: themeVariables + classDef) ---
     private var rawPending: String = ""
@@ -103,71 +106,10 @@ internal class MermaidSessionPipeline(
             for (line in all) {
                 val firstSig = line.firstOrNull { it.kind != MermaidTokenKind.COMMENT }
                 if (firstSig == null) continue
-                when (firstSig.kind) {
-                    MermaidTokenKind.SEQUENCE_HEADER -> {
-                        sub = MermaidSequenceSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.CLASS_HEADER -> {
-                        sub = MermaidClassSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.STATE_HEADER -> {
-                        sub = MermaidStateSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.ER_HEADER -> {
-                        sub = MermaidErSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.KEYWORD_HEADER -> {
-                        sub = MermaidFlowchartSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.PIE_HEADER -> {
-                        sub = MermaidPieSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.GAUGE_HEADER -> {
-                        sub = MermaidGaugeSubPipeline(); break
-                    }
-                    MermaidTokenKind.TIMELINE_HEADER -> {
-                        sub = MermaidTimelineSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.GANTT_HEADER -> {
-                        sub = MermaidGanttSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.MINDMAP_HEADER -> {
-                        sub = MermaidMindmapSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.KANBAN_HEADER -> {
-                        sub = MermaidKanbanSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.XYCHART_HEADER -> {
-                        sub = MermaidXYChartSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.QUADRANT_HEADER -> {
-                        sub = MermaidQuadrantChartSubPipeline(); break
-                    }
-                    MermaidTokenKind.JOURNEY_HEADER -> {
-                        sub = MermaidJourneySubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.SANKEY_HEADER -> {
-                        sub = MermaidSankeySubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.GITGRAPH_HEADER -> {
-                        sub = MermaidGitGraphSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.REQUIREMENT_HEADER -> {
-                        sub = MermaidRequirementSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.ARCHITECTURE_HEADER -> {
-                        sub = MermaidArchitectureSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.C4_HEADER -> {
-                        sub = MermaidC4SubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.BLOCK_HEADER -> {
-                        sub = MermaidBlockSubPipeline(textMeasurer); break
-                    }
-                    MermaidTokenKind.PACKET_HEADER -> {
-                        sub = MermaidPacketSubPipeline(textMeasurer); break
-                    }
-                    else -> { /* keep looking */ }
+                val kind = subPipelineRegistry.kindForHeader(firstSig.kind)
+                if (kind != null) {
+                    dispatcher.attach(kind)
+                    break
                 }
             }
             if (sub == null) {
@@ -175,12 +117,12 @@ internal class MermaidSessionPipeline(
                 pendingLines += lines
                 if (isFinal) {
                     // Fallback: route as flowchart so caller still gets a diagnostic.
-                    sub = MermaidFlowchartSubPipeline(textMeasurer)
+                    val fallback = dispatcher.attachDefault() ?: error("Mermaid default sub-pipeline is not registered")
                     val drained = pendingLines.toList()
                     pendingLines.clear()
-                    sub!!.updateStyleExtras(ensureStyleExtrasCached())
+                    fallback.updateStyleExtras(ensureStyleExtrasCached())
                     return wrapWithStyleDiagnosticsAndHints(
-                        sub!!.acceptLines(previousSnapshot, drained, seq, isFinal),
+                        fallback.acceptLines(previousSnapshot, drained, seq, isFinal),
                         pre.newStyleDiagnostics,
                     )
                 }
@@ -312,45 +254,22 @@ internal class MermaidSessionPipeline(
 
             // Capture header hint early so preprocessing can be diagram-type aware even before lexer routing.
             if (headerHint == null) {
-                val t = trimmedLeading.trim()
-                headerHint = when {
-                    t.startsWith("flowchart") || t.startsWith("graph") -> HeaderHint.Flowchart
-                    t.startsWith("sequenceDiagram") -> HeaderHint.Sequence
-                    t.startsWith("classDiagram") -> HeaderHint.Class
-                    t.startsWith("stateDiagram") -> HeaderHint.State
-                    t.startsWith("erDiagram") -> HeaderHint.Er
-                    t.startsWith("pie") -> HeaderHint.Pie
-                    t.startsWith("gauge") -> HeaderHint.Gauge
-                    t.startsWith("timeline") -> HeaderHint.Timeline
-                    t.startsWith("gantt") -> HeaderHint.Gantt
-                    t.startsWith("mindmap") -> HeaderHint.Mindmap
-                    t.startsWith("kanban") -> HeaderHint.Kanban
-                    t.startsWith("xychart") -> HeaderHint.XYChart
-                    t.startsWith("quadrantChart") -> HeaderHint.Quadrant
-                    t.startsWith("journey") -> HeaderHint.Journey
-                    t.startsWith("sankey") -> HeaderHint.Sankey
-                    t.startsWith("gitGraph") -> HeaderHint.GitGraph
-                    t.startsWith("requirementDiagram") -> HeaderHint.Requirement
-                    t.startsWith("architecture-beta") -> HeaderHint.Architecture
-                    t.startsWith("C4Context") || t.startsWith("C4Container") || t.startsWith("C4Component") || t.startsWith("C4Dynamic") || t.startsWith("C4Deployment") -> HeaderHint.C4
-                    t.startsWith("block-beta") -> HeaderHint.Block
-                    else -> null
-                }
+                headerHint = subPipelineRegistry.kindForHeaderText(trimmedLeading.trim())
             }
 
             val allowStyleDirectives =
-                headerHint == HeaderHint.Flowchart ||
-                    headerHint == HeaderHint.Er ||
-                    headerHint == HeaderHint.State ||
-                    headerHint == HeaderHint.Class ||
-                    headerHint == HeaderHint.Requirement ||
-                    headerHint == HeaderHint.Architecture ||
-                    headerHint == HeaderHint.C4 ||
-                    headerHint == HeaderHint.Block
+                headerHint == MermaidDiagramKind.Flowchart ||
+                    headerHint == MermaidDiagramKind.Er ||
+                    headerHint == MermaidDiagramKind.State ||
+                    headerHint == MermaidDiagramKind.Class ||
+                    headerHint == MermaidDiagramKind.Requirement ||
+                    headerHint == MermaidDiagramKind.Architecture ||
+                    headerHint == MermaidDiagramKind.C4 ||
+                    headerHint == MermaidDiagramKind.Block
             val allowClassAssignDirective =
-                headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
+                headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
             val allowTripleColonRewrite =
-                headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
+                headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
 
             if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
                 // Flush pending kept run before the skipped line.
@@ -473,18 +392,18 @@ internal class MermaidSessionPipeline(
             if (tail.isNotEmpty()) {
                 val trimmedLeading = tail.trimStart()
                 val allowStyleDirectives =
-                    headerHint == HeaderHint.Flowchart ||
-                        headerHint == HeaderHint.Er ||
-                        headerHint == HeaderHint.State ||
-                        headerHint == HeaderHint.Class ||
-                        headerHint == HeaderHint.Requirement ||
-                        headerHint == HeaderHint.Architecture ||
-                        headerHint == HeaderHint.C4 ||
-                        headerHint == HeaderHint.Block
+                    headerHint == MermaidDiagramKind.Flowchart ||
+                        headerHint == MermaidDiagramKind.Er ||
+                        headerHint == MermaidDiagramKind.State ||
+                        headerHint == MermaidDiagramKind.Class ||
+                        headerHint == MermaidDiagramKind.Requirement ||
+                        headerHint == MermaidDiagramKind.Architecture ||
+                        headerHint == MermaidDiagramKind.C4 ||
+                        headerHint == MermaidDiagramKind.Block
                 val allowClassAssignDirective =
-                    headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
+                    headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
                 val allowTripleColonRewrite =
-                    headerHint == HeaderHint.Flowchart || headerHint == HeaderHint.Er || headerHint == HeaderHint.State || headerHint == HeaderHint.Requirement || headerHint == HeaderHint.Architecture || headerHint == HeaderHint.C4 || headerHint == HeaderHint.Block
+                    headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
 
                 if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
                     val parsed = MermaidStyleParsers.parseClassDefLine(trimmedLeading.trimEnd())
@@ -587,7 +506,7 @@ internal class MermaidSessionPipeline(
 
     private fun wrapWithStyleDiagnosticsAndHints(advance: PipelineAdvance, newStyleDiags: List<Diagnostic>): PipelineAdvance {
         val styledSnapshot = injectStyleHints(advance.snapshot)
-        val drawEntities = sub?.drawEntitiesFor(styledSnapshot) ?: emptyList()
+        val drawEntities = sub.drawEntitiesOrEmpty(styledSnapshot)
         val diagnostics = if (styleDiagnosticsAll.isEmpty()) {
             styledSnapshot.diagnostics
         } else {
@@ -653,8 +572,7 @@ internal class MermaidSessionPipeline(
         familyKernel.clear()
         tokenBuffer.clear()
         pendingLines.clear()
-        sub?.dispose()
-        sub = null
+        dispatcher.clear()
         rawPending = ""
         frontmatterStripped = false
         styleConfig = null
