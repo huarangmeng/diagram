@@ -83,7 +83,7 @@ internal class MermaidClassSubPipeline(
             seq = seq,
             addedNodes = emptyList(),
             addedEdges = emptyList(),
-            addedDrawCommands = drawCommands,
+            addedDrawCommands = emptyList(),
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )

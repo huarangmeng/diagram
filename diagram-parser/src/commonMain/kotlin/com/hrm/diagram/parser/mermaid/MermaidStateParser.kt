@@ -15,6 +15,8 @@ import com.hrm.diagram.core.ir.StateTransition
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -35,11 +37,11 @@ class MermaidStateParser {
     private val states: LinkedHashMap<NodeId, StateNode> = LinkedHashMap()
     private val transitions: MutableList<StateTransition> = ArrayList()
     private val notes: MutableList<StateNote> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private var direction: Direction? = null
 
     private var headerSeen: Boolean = false
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var initCounter: Int = 0
     private var finalCounter: Int = 0
 
@@ -47,10 +49,10 @@ class MermaidStateParser {
     private val compositeStack: ArrayDeque<NodeId> = ArrayDeque()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
 
         val errs = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errs != null) return errorBatch("Lex error at ${errs.start}: ${errs.text}")
@@ -58,7 +60,7 @@ class MermaidStateParser {
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.STATE_HEADER) {
                 headerSeen = true
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'stateDiagram' header")
         }
@@ -67,7 +69,7 @@ class MermaidStateParser {
         if (toks.size == 1 && toks[0].kind == MermaidTokenKind.RBRACE) {
             if (compositeStack.isEmpty()) return errorBatch("Unmatched '}'")
             compositeStack.removeLast()
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         return parseStatement(toks)
@@ -81,7 +83,7 @@ class MermaidStateParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     // --- statements ---
 
@@ -157,7 +159,7 @@ class MermaidStateParser {
             // Push composite context — body lines until matching '}'.
             compositeStack.addLast(id)
         }
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun stereoToKind(s: String): StateKind? = when (s.lowercase()) {
@@ -214,7 +216,7 @@ class MermaidStateParser {
             event = event, guard = guard, action = action,
             label = if (labelText.isEmpty()) RichLabel.Empty else RichLabel.Plain(labelText),
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private data class EventGuardAction(val event: String?, val guard: String?, val action: String?)
@@ -312,7 +314,7 @@ class MermaidStateParser {
             targetState = target,
             placement = placement,
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseDirection(toks: List<Token>): IrPatchBatch {
@@ -327,7 +329,7 @@ class MermaidStateParser {
             else -> return errorBatch("Unknown direction '${toks[1].text}'")
         }
         direction = d
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun ensureState(id: NodeId, name: String, description: String? = null, kind: StateKind = StateKind.Simple) {
@@ -358,6 +360,6 @@ class MermaidStateParser {
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MMD-S001")
         diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

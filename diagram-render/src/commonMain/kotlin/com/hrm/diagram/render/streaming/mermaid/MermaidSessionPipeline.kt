@@ -49,6 +49,7 @@ internal class MermaidSessionPipeline(
     private var headerHint: MermaidDiagramKind? = null
 
     private val styleState = MermaidLanguageStyleState()
+    private val stylePreprocessor = MermaidStylePreprocessor(styleState)
 
     override fun advance(
         previousSnapshot: DiagramSnapshot,
@@ -245,19 +246,9 @@ internal class MermaidSessionPipeline(
                 headerHint = subPipelineRegistry.kindForHeaderText(trimmedLeading.trim())
             }
 
-            val allowStyleDirectives =
-                headerHint == MermaidDiagramKind.Flowchart ||
-                    headerHint == MermaidDiagramKind.Er ||
-                    headerHint == MermaidDiagramKind.State ||
-                    headerHint == MermaidDiagramKind.Class ||
-                    headerHint == MermaidDiagramKind.Requirement ||
-                    headerHint == MermaidDiagramKind.Architecture ||
-                    headerHint == MermaidDiagramKind.C4 ||
-                    headerHint == MermaidDiagramKind.Block
-            val allowClassAssignDirective =
-                headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
-            val allowTripleColonRewrite =
-                headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
+            val allowStyleDirectives = stylePreprocessor.supportsStyleDirectives(headerHint)
+            val allowClassAssignDirective = stylePreprocessor.supportsClassAssignDirective(headerHint)
+            val allowTripleColonRewrite = stylePreprocessor.supportsTripleColonRewrite(headerHint)
 
             if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
                 // Flush pending kept run before the skipped line.
@@ -379,19 +370,9 @@ internal class MermaidSessionPipeline(
         if (isFinal) {
             if (tail.isNotEmpty()) {
                 val trimmedLeading = tail.trimStart()
-                val allowStyleDirectives =
-                    headerHint == MermaidDiagramKind.Flowchart ||
-                        headerHint == MermaidDiagramKind.Er ||
-                        headerHint == MermaidDiagramKind.State ||
-                        headerHint == MermaidDiagramKind.Class ||
-                        headerHint == MermaidDiagramKind.Requirement ||
-                        headerHint == MermaidDiagramKind.Architecture ||
-                        headerHint == MermaidDiagramKind.C4 ||
-                        headerHint == MermaidDiagramKind.Block
-                val allowClassAssignDirective =
-                    headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
-                val allowTripleColonRewrite =
-                    headerHint == MermaidDiagramKind.Flowchart || headerHint == MermaidDiagramKind.Er || headerHint == MermaidDiagramKind.State || headerHint == MermaidDiagramKind.Requirement || headerHint == MermaidDiagramKind.Architecture || headerHint == MermaidDiagramKind.C4 || headerHint == MermaidDiagramKind.Block
+                val allowStyleDirectives = stylePreprocessor.supportsStyleDirectives(headerHint)
+                val allowClassAssignDirective = stylePreprocessor.supportsClassAssignDirective(headerHint)
+                val allowTripleColonRewrite = stylePreprocessor.supportsTripleColonRewrite(headerHint)
 
                 if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
                     val parsed = MermaidStyleParsers.parseClassDefLine(trimmedLeading.trimEnd())

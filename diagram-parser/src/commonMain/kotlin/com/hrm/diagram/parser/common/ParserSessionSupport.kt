@@ -19,6 +19,9 @@ internal class ParserSessionSeq {
 
     fun diagnosticBatch(diagnostic: IrPatch.AddDiagnostic): IrPatchBatch =
         IrPatchBatch(value, listOf(diagnostic))
+
+    fun diagnosticBatch(diagnostics: List<IrPatch.AddDiagnostic>): IrPatchBatch =
+        IrPatchBatch(value, diagnostics)
 }
 
 /** Shared diagnostic accumulator that also emits matching IrPatch entries. */
@@ -27,9 +30,15 @@ internal class ParserDiagnosticSink {
 
     fun snapshot(): List<Diagnostic> = diagnostics.toList()
 
+    fun last(): Diagnostic = diagnostics.last()
+
     fun add(diagnostic: Diagnostic): IrPatch.AddDiagnostic {
         diagnostics += diagnostic
         return IrPatch.AddDiagnostic(diagnostic)
+    }
+
+    operator fun plusAssign(diagnostic: Diagnostic) {
+        add(diagnostic)
     }
 
     fun error(message: String, code: String): IrPatch.AddDiagnostic =
@@ -37,4 +46,10 @@ internal class ParserDiagnosticSink {
 
     fun warning(message: String, code: String): IrPatch.AddDiagnostic =
         add(Diagnostic(severity = Severity.WARNING, message = message, code = code))
+
+    fun errorBatch(seq: ParserSessionSeq, message: String, code: String): IrPatchBatch =
+        seq.diagnosticBatch(error(message, code))
+
+    fun warningBatch(seq: ParserSessionSeq, message: String, code: String): IrPatchBatch =
+        seq.diagnosticBatch(warning(message, code))
 }

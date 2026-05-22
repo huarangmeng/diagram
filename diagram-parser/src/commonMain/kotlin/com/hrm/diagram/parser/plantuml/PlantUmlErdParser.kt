@@ -18,6 +18,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the Phase-4 PlantUML `erd` MVP.
@@ -66,43 +68,43 @@ class PlantUmlErdParser {
     private val knownNodes: MutableSet<NodeId> = LinkedHashSet()
     private val nodes: MutableList<Node> = ArrayList()
     private val edges: MutableList<Edge> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
 
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var currentEntity: NodeId? = null
     private var direction: Direction? = null
     private var noteSeq: Long = 0
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         currentEntity?.let { entity ->
             if (trimmed == "}") {
                 currentEntity = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return parseAttributeLine(entity, trimmed)
         }
 
         if (trimmed.equals("left to right direction", ignoreCase = true)) {
             direction = Direction.LR
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (trimmed.equals("right to left direction", ignoreCase = true)) {
             direction = Direction.RL
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (trimmed.equals("top to bottom direction", ignoreCase = true)) {
             direction = Direction.TB
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (trimmed.equals("bottom to top direction", ignoreCase = true)) {
             direction = Direction.BT
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         if (trimmed.startsWith("entity ", ignoreCase = true)) {
@@ -120,25 +122,13 @@ class PlantUmlErdParser {
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
         if (currentEntity != null) {
-            out += addDiagnostic(
-                Diagnostic(
-                    severity = Severity.ERROR,
-                    message = "Unclosed entity block before end of PlantUML block",
-                    code = "PLANTUML-E010",
-                ),
-            )
+            out += diagnostics.error("Unclosed entity block before end of PlantUML block", "PLANTUML-E010")
             currentEntity = null
         }
         if (!blockClosed) {
-            out += addDiagnostic(
-                Diagnostic(
-                    severity = Severity.ERROR,
-                    message = "Missing '@enduml' terminator",
-                    code = "PLANTUML-E001",
-                ),
-            )
+            out += diagnostics.error("Missing '@enduml' terminator", "PLANTUML-E001")
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -148,7 +138,7 @@ class PlantUmlErdParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseEntityDecl(line: String): IrPatchBatch {
         var body = line.removePrefix("entity").trim()
@@ -166,7 +156,7 @@ class PlantUmlErdParser {
                     patches += batch.patches
                 }
             }
-            return IrPatchBatch(seq, patches)
+            return IrPatchBatch(seq.value, patches)
         }
         val opens = body.endsWith("{")
         if (opens) body = body.removeSuffix("{").trim()
@@ -174,7 +164,7 @@ class PlantUmlErdParser {
         val entityId = NodeId(spec.id)
         registerEntity(entityId, spec.label, patches)
         if (opens) currentEntity = entityId
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     private fun parseAttributeLine(entity: NodeId, line: String): IrPatchBatch {
@@ -208,7 +198,7 @@ class PlantUmlErdParser {
         val type = parsed.second
         val patches = ArrayList<IrPatch>()
         registerAttribute(entity, type, name, flags.distinct(), patches)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     private fun parseRelationshipLine(line: String): IrPatchBatch {
@@ -238,7 +228,7 @@ class PlantUmlErdParser {
         )
         edges += edge
         patches += IrPatch.AddEdge(edge)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     private fun parseRelationshipOperator(op: String): RelationshipOperator? {
@@ -268,7 +258,7 @@ class PlantUmlErdParser {
         val patches = ArrayList<IrPatch>()
         registerEntity(target, target.value, patches)
         registerNote(target, placement, text, patches)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     private fun registerEntity(id: NodeId, label: String, out: MutableList<IrPatch>) {
@@ -476,12 +466,7 @@ class PlantUmlErdParser {
         )
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E010"))))
-
-    private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
-        diagnostics += diagnostic
-        return IrPatch.AddDiagnostic(diagnostic)
-    }
+        diagnostics.errorBatch(seq, message, "PLANTUML-E010")
 
     private data class AliasSpec(val id: String, val label: String)
     private data class RelationshipOperator(val left: String, val right: String, val line: String)

@@ -21,6 +21,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the Phase-4 PlantUML `component` MVP.
@@ -105,7 +107,7 @@ class PlantUmlComponentParser {
         val lines: MutableList<String> = ArrayList(),
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val clusters: LinkedHashMap<NodeId, ClusterDef> = LinkedHashMap()
@@ -252,38 +254,38 @@ class PlantUmlComponentParser {
             "arrowcolor" to STYLE_EDGE_COLOR_KEY,
         ),
         warnUnsupported = ::warnUnsupportedSkinparam,
-        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+        emptyBatch = { seq.emptyBatch() },
     )
 
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var direction: Direction = Direction.LR
     private var pendingNote: PendingNote? = null
     private var noteSeq: Long = 0
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         pendingNote?.let { note ->
             if (trimmed.equals("end note", ignoreCase = true)) {
                 return flushPendingNote(note)
             }
             note.lines += trimmed
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         skinparamSupport.pendingScope?.let { scope ->
             if (trimmed == "}") {
                 skinparamSupport.pendingScope = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return skinparamSupport.acceptScopedEntry(scope, trimmed)
         }
         if (trimmed == "}") {
             if (clusterStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML component body")
             clusterStack.removeLast()
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         val patches = ArrayList<IrPatch>()
@@ -311,7 +313,7 @@ class PlantUmlComponentParser {
             trimmed.startsWith("note ", ignoreCase = true) -> parseNote(trimmed, patches)
             else -> return errorBatch("Unsupported PlantUML component statement: $trimmed")
         }
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
@@ -355,7 +357,7 @@ class PlantUmlComponentParser {
                 ),
             )
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -366,7 +368,7 @@ class PlantUmlComponentParser {
         styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseShorthandInterface(line: String, out: MutableList<IrPatch>) {
         val body = line.removePrefix("()").trim()
@@ -553,7 +555,7 @@ class PlantUmlComponentParser {
             addStandaloneNote(text, patches)
         }
         pendingNote = null
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     private fun addAnchoredNote(target: NodeId, placement: String, text: String, out: MutableList<IrPatch>) {
@@ -752,7 +754,7 @@ class PlantUmlComponentParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E005"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E005"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
         diagnostics += diagnostic
@@ -760,6 +762,6 @@ class PlantUmlComponentParser {
     }
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
 }

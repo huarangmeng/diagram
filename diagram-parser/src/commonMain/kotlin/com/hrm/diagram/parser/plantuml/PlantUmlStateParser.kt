@@ -16,6 +16,8 @@ import com.hrm.diagram.core.ir.StateTransition
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the Phase-4 PlantUML `state` MVP.
@@ -67,11 +69,11 @@ class PlantUmlStateParser {
     private val states: LinkedHashMap<NodeId, StateNode> = LinkedHashMap()
     private val transitions: MutableList<StateTransition> = ArrayList()
     private val notes: MutableList<StateNote> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val compositeStack: ArrayDeque<CompositeFrame> = ArrayDeque()
     private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
 
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var initCounter: Int = 0
     private var finalCounter: Int = 0
     private var historyCounter: Int = 0
@@ -82,10 +84,10 @@ class PlantUmlStateParser {
     private var pendingSkinparamScope: String? = null
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         pendingNote?.let { note ->
@@ -94,15 +96,15 @@ class PlantUmlStateParser {
                 val text = note.lines.joinToString("\n").trim()
                 if (text.isEmpty()) return errorBatch("Empty PlantUML state note block")
                 notes += StateNote(text = RichLabel.Plain(text), targetState = note.targetState, placement = note.placement)
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             note.lines += trimmed
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         pendingSkinparamScope?.let { scope ->
             if (trimmed == "}") {
                 pendingSkinparamScope = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return applySkinparamEntry(scope, trimmed)
         }
@@ -110,7 +112,7 @@ class PlantUmlStateParser {
         if (trimmed == "}") {
             if (compositeStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML state body")
             compositeStack.removeLast()
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (trimmed == "--") {
             return openParallelRegion()
@@ -170,7 +172,7 @@ class PlantUmlStateParser {
                 ),
             )
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): StateIR = StateIR(
@@ -181,7 +183,7 @@ class PlantUmlStateParser {
         styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseStateDecl(line: String): IrPatchBatch {
         var body = line.removePrefix("state").trim()
@@ -225,7 +227,7 @@ class PlantUmlStateParser {
         val effectiveKind = if (opensBody) StateKind.Composite else declaredKind ?: StateKind.Simple
         ensureState(id, name = name, description = description, kind = effectiveKind)
         if (opensBody) compositeStack.addLast(CompositeFrame(stateId = id))
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun stereoToKind(stereo: String?): StateKind? = when (stereo?.lowercase()) {
@@ -268,7 +270,7 @@ class PlantUmlStateParser {
             action = parsed.action,
             label = if (labelText.isEmpty()) RichLabel.Empty else RichLabel.Plain(labelText),
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private data class ParsedEndpoint(val id: NodeId, val kind: StateKind)
@@ -329,7 +331,7 @@ class PlantUmlStateParser {
             val target = NodeId(blockAnchored.groupValues[2])
             ensureState(target, target.value)
             pendingNote = PendingNote(targetState = target, placement = placement)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         val anchored = Regex(
             "^note\\s+(left|right|top|bottom)\\s+of\\s+([A-Za-z0-9_.:-]+)\\s*:\\s*(.+)$",
@@ -349,7 +351,7 @@ class PlantUmlStateParser {
                 targetState = target,
                 placement = placement,
             )
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         val free = Regex("^note\\s+\"([^\"]+)\"$", RegexOption.IGNORE_CASE).matchEntire(line)
@@ -357,11 +359,11 @@ class PlantUmlStateParser {
         if (free != null) {
             val text = free.groupValues.last().trim()
             notes += StateNote(text = RichLabel.Plain(text), placement = NotePlacement.Standalone)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (line.equals("note", ignoreCase = true)) {
             pendingNote = PendingNote(targetState = null, placement = NotePlacement.Standalone)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         return errorBatch("Invalid PlantUML state note syntax: $line")
@@ -382,7 +384,7 @@ class PlantUmlStateParser {
         val next = createSyntheticRegion(frame.stateId)
         frame.regions += next
         frame.activeContainer = next
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun createSyntheticRegion(parent: NodeId): NodeId {
@@ -399,7 +401,7 @@ class PlantUmlStateParser {
         val normalized = body.substringBefore(' ', body).substringBefore('{').trim().lowercase()
         if (body.endsWith("{") && normalized in SUPPORTED_SKINPARAM_SCOPES) {
             pendingSkinparamScope = normalized
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (normalized in SUPPORTED_SKINPARAM_SCOPES && body.length > normalized.length) {
             return applySkinparamEntry(normalized, body.substring(normalized.length).trim())
@@ -463,15 +465,15 @@ class PlantUmlStateParser {
     private fun storeSkinparam(key: String, value: String): IrPatchBatch {
         if (value.isBlank()) return warnUnsupportedSkinparam("skinparam $key")
         styleExtras[key] = value
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun parseDirection(dir: Direction): IrPatchBatch {
         direction = dir
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun ensureState(
@@ -503,7 +505,7 @@ class PlantUmlStateParser {
     private fun currentContainer(): NodeId? = compositeStack.lastOrNull()?.activeContainer
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E004"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E004"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
         diagnostics += diagnostic

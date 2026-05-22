@@ -74,7 +74,7 @@ internal class MermaidXYChartSubPipeline(
             sourceLanguage = previousSnapshot.sourceLanguage,
         )
         lastDrawEntities = drawEntities
-        val patch = SessionPatch(seq = seq, addedNodes = emptyList(), addedEdges = emptyList(), addedDrawCommands = draw, newDiagnostics = newDiagnostics, isFinal = isFinal)
+        val patch = SessionPatch(seq = seq, addedNodes = emptyList(), addedEdges = emptyList(), addedDrawCommands = emptyList(), newDiagnostics = newDiagnostics, isFinal = isFinal)
         return PipelineAdvance(snapshot = snap, patch = patch)
     }
 

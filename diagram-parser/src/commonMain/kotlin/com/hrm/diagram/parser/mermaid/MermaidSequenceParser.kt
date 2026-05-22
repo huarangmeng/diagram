@@ -15,6 +15,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -41,18 +43,18 @@ class MermaidSequenceParser {
     private val messages: MutableList<SequenceMessage> = ArrayList()
     private val fragments: MutableList<SequenceFragment> = ArrayList()
     private val fragmentStack: ArrayDeque<FragmentBuilder> = ArrayDeque()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
 
     private var headerSeen: Boolean = false
     private var autonumberStart: Int? = null
     private var autonumberStep: Int = 1
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
 
         val errs = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errs != null) {
@@ -62,7 +64,7 @@ class MermaidSequenceParser {
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.SEQUENCE_HEADER) {
                 headerSeen = true
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'sequenceDiagram' header")
         }
@@ -85,7 +87,7 @@ class MermaidSequenceParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     // --- internals ---
 
@@ -131,7 +133,7 @@ class MermaidSequenceParser {
         val existing = participantOrder[id]
         val resolvedLabel = if (label.isEmpty && existing != null) existing.label else label
         participantOrder[id] = Participant(id = id, label = resolvedLabel, kind = kind)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseNote(toks: List<Token>): IrPatchBatch {
@@ -149,7 +151,7 @@ class MermaidSequenceParser {
                 ensureParticipant(pid)
                 val label = parseTrailingLabel(toks, 4)
                 addMessage(SequenceMessage(from = pid, to = pid, kind = MessageKind.Note, label = label))
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             MermaidTokenKind.OVER_KW -> {
                 if (toks.size < 3 || toks[2].kind != MermaidTokenKind.IDENT) {
@@ -169,7 +171,7 @@ class MermaidSequenceParser {
                 }
                 val label = parseTrailingLabel(toks, idx)
                 addMessage(SequenceMessage(from = a, to = b, kind = MessageKind.Note, label = label))
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             else -> errorBatch("Expected 'left', 'right', or 'over' after 'note'")
         }
@@ -191,7 +193,7 @@ class MermaidSequenceParser {
                 label = RichLabel.Empty,
             ),
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseMessage(toks: List<Token>): IrPatchBatch {
@@ -227,7 +229,7 @@ class MermaidSequenceParser {
                 deactivate = deactivate,
             ),
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseTrailingLabel(toks: List<Token>, startIdx: Int): RichLabel {
@@ -257,7 +259,7 @@ class MermaidSequenceParser {
             val s = toks[2].text.toString().toIntOrNull()
             if (s != null) autonumberStep = s
         }
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun restAsTitle(toks: List<Token>, fromIdx: Int): String? {
@@ -273,20 +275,20 @@ class MermaidSequenceParser {
 
     private fun pushFragment(kind: FragmentKind, title: String?): IrPatchBatch {
         fragmentStack.addLast(FragmentBuilder(kind, title))
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun addBranch(): IrPatchBatch {
         val top = fragmentStack.lastOrNull() ?: return errorBatch("'else'/'and'/'option' outside any fragment")
         top.newBranch()
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun popFragment(): IrPatchBatch {
         val top = fragmentStack.removeLastOrNull()
             ?: return errorBatch("'end' without matching fragment")
         fragments += top.build()
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun ensureParticipant(id: NodeId) {
@@ -303,7 +305,7 @@ class MermaidSequenceParser {
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MMD-S001")
         diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 
     private fun arrowKindFor(kind: Int): MessageKind? = when (kind) {

@@ -1,6 +1,5 @@
 package com.hrm.diagram.render.family
 
-import com.hrm.diagram.core.ir.ActivityBlock
 import com.hrm.diagram.core.ir.ActivityIR
 import com.hrm.diagram.core.ir.ClassIR
 import com.hrm.diagram.core.ir.DiagramModel
@@ -15,10 +14,8 @@ import com.hrm.diagram.core.ir.SankeyIR
 import com.hrm.diagram.core.ir.SequenceIR
 import com.hrm.diagram.core.ir.StateIR
 import com.hrm.diagram.core.ir.StructIR
-import com.hrm.diagram.core.ir.StructNode
 import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.ir.TreeIR
-import com.hrm.diagram.core.ir.WireBox
 import com.hrm.diagram.core.ir.WireframeIR
 import com.hrm.diagram.core.ir.XYChartIR
 import com.hrm.diagram.render.cache.DrawEntityKey
@@ -32,61 +29,23 @@ internal object FamilyEntityKeyRegistry {
         val keys = ArrayList<String>()
         when (model) {
             null -> keys += DrawEntityKey.decoration(p, "empty", "frame")
-            is GraphIR -> {
-                flattenClusters(model.clusters).forEach { keys += DrawEntityKey.cluster(p, it.id) }
-                model.edges.forEachIndexed { index, edge -> keys += DrawEntityKey.edge(p, edge.from, edge.to, index) }
-                model.nodes.forEach { keys += DrawEntityKey.node(p, it.id) }
-            }
-            is SequenceIR -> {
-                model.participants.forEach { keys += "$p.sequence.participant.${stableSegment(it.id.value)}" }
-                model.messages.forEachIndexed { index, message -> keys += "$p.sequence.message.$index.${stableSegment(message.from.value)}-${stableSegment(message.to.value)}" }
-                model.fragments.forEachIndexed { index, fragment -> keys += "$p.sequence.fragment.$index.${stableSegment(fragment.kind.name)}" }
-            }
+            is GraphIR -> keys += GraphEntityKeys.keys(p, model)
+            is SequenceIR -> keys += SequenceEntityKeys.keys(p, model)
             is TimeSeriesIR -> keys += TimeSeriesEntityKeys.keys(p, model)
             is TreeIR -> keys += TreeEntityKeys.keys(p, model)
-            is JourneyIR -> model.stages.forEachIndexed { stageIndex, stage ->
-                keys += "$p.journey.stage.$stageIndex"
-                stage.steps.forEachIndexed { stepIndex, step ->
-                    keys += "$p.journey.step.$stageIndex.$stepIndex"
-                    step.actors.forEachIndexed { actorIndex, _ -> keys += "$p.journey.actor.$stageIndex.$stepIndex.$actorIndex" }
-                }
-            }
+            is JourneyIR -> keys += MiscFamilyEntityKeys.journeyKeys(p, model)
             is PieIR -> keys += PieEntityKeys.keys(p, model)
             is GaugeIR -> keys += ChartEntityKeys.gaugeKeys(p, model)
-            is KanbanIR -> model.columns.forEach { column ->
-                keys += "$p.kanban.column.${stableSegment(column.id.value)}"
-                column.cards.forEach { card -> keys += "$p.kanban.card.${stableSegment(card.id.value)}" }
-            }
+            is KanbanIR -> keys += MiscFamilyEntityKeys.kanbanKeys(p, model)
             is XYChartIR -> keys += ChartEntityKeys.xyKeys(p, model)
             is QuadrantChartIR -> keys += ChartEntityKeys.quadrantKeys(p, model)
-            is SankeyIR -> {
-                model.nodes.forEach { node -> keys += "$p.sankey.node.${stableSegment(node.id.value)}" }
-                model.flows.forEachIndexed { index, flow -> keys += "$p.sankey.flow.$index.${stableSegment(flow.from.value)}-${stableSegment(flow.to.value)}" }
-            }
-            is GitGraphIR -> {
-                model.branches.forEach { branch -> keys += "$p.git.branch.${stableSegment(branch)}" }
-                model.commits.forEach { commit ->
-                    keys += "$p.git.commit.${stableSegment(commit.id.value)}"
-                    commit.parents.forEach { parent -> keys += "$p.git.edge.${stableSegment(parent.value)}-${stableSegment(commit.id.value)}" }
-                }
-            }
-            is ActivityIR -> model.blocks.forEachIndexed { index, block -> addActivityBlockKeys(keys, p, "activity.$index", block) }
-            is WireframeIR -> addWireBoxKeys(keys, p, "wireframe.root", model.root)
-            is StructIR -> addStructKeys(keys, p, "struct.root", model.root)
-            is StateIR -> {
-                model.states.forEach { state -> keys += "$p.state.node.${stableSegment(state.id.value)}" }
-                model.transitions.forEachIndexed { index, transition -> keys += "$p.state.transition.$index.${stableSegment(transition.from.value)}-${stableSegment(transition.to.value)}" }
-                model.notes.forEachIndexed { index, note -> keys += "$p.state.note.$index.${stableSegment(note.targetState?.value.orEmpty())}" }
-            }
-            is ClassIR -> {
-                model.namespaces.forEach { namespace -> keys += "$p.class.namespace.${stableSegment(namespace.id)}" }
-                model.classes.forEach { klass ->
-                    keys += "$p.class.node.${stableSegment(klass.id.value)}"
-                    klass.members.forEachIndexed { index, member -> keys += "$p.class.member.${stableSegment(klass.id.value)}.$index.${stableSegment(member.name)}" }
-                }
-                model.relations.forEachIndexed { index, relation -> keys += "$p.class.relation.$index.${stableSegment(relation.from.value)}-${stableSegment(relation.to.value)}" }
-                model.notes.forEachIndexed { index, note -> keys += "$p.class.note.$index.${stableSegment(note.targetClass?.value.orEmpty())}" }
-            }
+            is SankeyIR -> keys += MiscFamilyEntityKeys.sankeyKeys(p, model)
+            is GitGraphIR -> keys += MiscFamilyEntityKeys.gitGraphKeys(p, model)
+            is ActivityIR -> keys += StructuralEntityKeys.activityKeys(p, model)
+            is WireframeIR -> keys += StructuralEntityKeys.wireframeKeys(p, model)
+            is StructIR -> keys += StructuralEntityKeys.structKeys(p, model)
+            is StateIR -> keys += ClassStateEntityKeys.stateKeys(p, model)
+            is ClassIR -> keys += ClassStateEntityKeys.classKeys(p, model)
         }
         return keys.distinct()
     }
@@ -112,42 +71,4 @@ internal object FamilyEntityKeyRegistry {
             is StateIR -> "state"
             is ClassIR -> "class"
         }
-
-    private fun flattenClusters(clusters: List<com.hrm.diagram.core.ir.Cluster>): List<com.hrm.diagram.core.ir.Cluster> =
-        clusters.flatMap { cluster -> listOf(cluster) + flattenClusters(cluster.nestedClusters) }
-
-    private fun addActivityBlockKeys(keys: MutableList<String>, prefix: String, path: String, block: ActivityBlock) {
-        keys += "$prefix.${stableSegment(path)}.${stableSegment(block::class.simpleName.orEmpty())}"
-        when (block) {
-            is ActivityBlock.IfElse -> {
-                block.thenBranch.forEachIndexed { index, child -> addActivityBlockKeys(keys, prefix, "$path.then.$index", child) }
-                block.elseBranch.forEachIndexed { index, child -> addActivityBlockKeys(keys, prefix, "$path.else.$index", child) }
-            }
-            is ActivityBlock.While -> block.body.forEachIndexed { index, child -> addActivityBlockKeys(keys, prefix, "$path.body.$index", child) }
-            is ActivityBlock.ForkJoin -> block.branches.forEachIndexed { branchIndex, branch ->
-                branch.forEachIndexed { index, child -> addActivityBlockKeys(keys, prefix, "$path.branch.$branchIndex.$index", child) }
-            }
-            is ActivityBlock.Action, is ActivityBlock.Note -> Unit
-        }
-    }
-
-    private fun addWireBoxKeys(keys: MutableList<String>, prefix: String, path: String, box: WireBox) {
-        keys += "$prefix.${stableSegment(path)}.${stableSegment(box::class.simpleName.orEmpty())}"
-        when (box) {
-            is WireBox.Plain -> box.children.forEachIndexed { index, child -> addWireBoxKeys(keys, prefix, "$path.child.$index", child) }
-            is WireBox.TabbedGroup -> box.tabs.forEachIndexed { index, child -> addWireBoxKeys(keys, prefix, "$path.tab.$index", child) }
-            is WireBox.Button, is WireBox.Image, is WireBox.Input -> Unit
-        }
-    }
-
-    private fun addStructKeys(keys: MutableList<String>, prefix: String, path: String, node: StructNode) {
-        val keySegment = stableSegment(node.key ?: path)
-        keys += "$prefix.${stableSegment(path)}.$keySegment"
-        when (node) {
-            is StructNode.ObjectNode -> node.entries.forEachIndexed { index, child -> addStructKeys(keys, prefix, "$path.object.$index.${child.key.orEmpty()}", child) }
-            is StructNode.ArrayNode -> node.items.forEachIndexed { index, child -> addStructKeys(keys, prefix, "$path.array.$index.${child.key.orEmpty()}", child) }
-            is StructNode.Scalar -> Unit
-        }
-    }
-
 }

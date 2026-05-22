@@ -72,7 +72,7 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
             seq = seq,
             addedNodes = emptyList(),
             addedEdges = emptyList(),
-            addedDrawCommands = draw,
+            addedDrawCommands = emptyList(),
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )

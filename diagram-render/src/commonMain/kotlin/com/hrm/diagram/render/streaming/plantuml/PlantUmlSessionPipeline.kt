@@ -50,6 +50,7 @@ internal class PlantUmlSessionPipeline(
     private val styleState = PlantUmlLanguageStyleState()
     private val subPipelineRegistry = PlantUmlSubPipelineRegistry(textMeasurer)
     private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
+    private val styleRouter = PlantUmlStyleBlockRouter(styleState, subPipelineRegistry)
     private val subPipeline: PlantUmlSubPipeline?
         get() = dispatcher.current
     private var closingDirective: String = "@enduml"
@@ -138,41 +139,7 @@ internal class PlantUmlSessionPipeline(
             blockClosed = true
             return
         }
-        if (styleState.continueBufferedSkinparam(trimmed)) return
-        if (styleState.continueIgnoredSkinparam(trimmed)) return
-        if (styleState.bufferingStyleBlock) {
-            val chosen = subPipeline
-            if (chosen != null) {
-                out += chosen.acceptLine(trimmed).patches
-            } else {
-                bufferedBodyLines += trimmed
-            }
-            if (trimmed.equals("</style>", ignoreCase = true)) styleState.bufferingStyleBlock = false
-            return
-        }
-        if (trimmed.equals("<style>", ignoreCase = true) || trimmed.startsWith("<style ", ignoreCase = true)) {
-            styleState.bufferingStyleBlock = true
-            val chosen = subPipeline
-            if (chosen != null) {
-                out += chosen.acceptLine(trimmed).patches
-            } else {
-                bufferedBodyLines += trimmed
-            }
-            return
-        }
-        if (trimmed.startsWith("skinparam", ignoreCase = true)) {
-            val chosen = subPipeline
-            val chosenKind = dispatcher.currentKind
-            if (chosen != null && chosenKind != null && subPipelineRegistry.acceptsActiveSkinparam(chosenKind, trimmed)) {
-                out += chosen.acceptLine(trimmed).patches
-            } else if (chosen != null) {
-                out += ignoredSkinparamWarning()
-                if (trimmed.endsWith("{")) styleState.ignoredSkinparamBlock = true
-            } else {
-                styleState.appendBufferedSkinparam(trimmed)
-            }
-            return
-        }
+        if (styleRouter.route(trimmed, dispatcher.currentKind, subPipeline, bufferedBodyLines, out, ::ignoredSkinparamWarning)) return
 
         val chosen = subPipeline
         if (chosen != null) {

@@ -10,6 +10,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the Phase-4 PlantUML `activity` MVP.
@@ -136,12 +138,12 @@ class PlantUmlActivityParser {
     }
 
     private val rootBlocks: MutableList<ActivityBlock> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val frames: ArrayDeque<Frame> = ArrayDeque<Frame>().apply { addLast(Frame.Root(rootBlocks)) }
     private val partitionStack: ArrayDeque<PartitionFrame> = ArrayDeque()
     private val knownRefs: MutableSet<String> = LinkedHashSet()
 
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var hasStart: Boolean = false
     private var hasStop: Boolean = false
     private var currentLane: String? = null
@@ -149,10 +151,10 @@ class PlantUmlActivityParser {
     private var pendingSkinparamBlock: Boolean = false
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         pendingNote?.let { note ->
@@ -161,12 +163,12 @@ class PlantUmlActivityParser {
                 return addBlock(ActivityBlock.Note(RichLabel.Plain(note.lines.joinToString("\n").trim())))
             }
             note.lines += trimmed
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (pendingSkinparamBlock) {
             if (trimmed == "}") {
                 pendingSkinparamBlock = false
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return applySkinparamEntry(trimmed)
         }
@@ -175,11 +177,11 @@ class PlantUmlActivityParser {
             trimmed.startsWith("skinparam", ignoreCase = true) -> applySkinparam(trimmed)
             trimmed.equals("start", ignoreCase = true) -> {
                 hasStart = true
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             trimmed.equals("stop", ignoreCase = true) || trimmed.equals("end", ignoreCase = true) -> {
                 hasStop = true
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             trimmed == "}" -> closePartition()
             trimmed.startsWith("partition ", ignoreCase = true) -> openPartition(trimmed)
@@ -241,7 +243,7 @@ class PlantUmlActivityParser {
             out += addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported or unclosed 'skinparam activity' block ignored", "PLANTUML-W001"))
             pendingSkinparamBlock = false
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): ActivityIR = ActivityIR(
@@ -256,7 +258,7 @@ class PlantUmlActivityParser {
         ),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun currentTarget(): MutableList<ActivityBlock> = frames.last().target
     private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
@@ -271,7 +273,7 @@ class PlantUmlActivityParser {
         }
         autoRegisterRefs(block)
         currentTarget() += block
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun addNote(line: String): IrPatchBatch {
@@ -280,7 +282,7 @@ class PlantUmlActivityParser {
         }
         parseMultilineNotePlacement(line)?.let { placement ->
             pendingNote = PendingNote(placement = placement)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         val text = when {
             line.startsWith("note:", ignoreCase = true) -> line.substringAfter(':').trim()
@@ -309,7 +311,7 @@ class PlantUmlActivityParser {
         val cond = extractParenCondition(line.removePrefix("if").trim())
             ?: return errorBatch("Invalid PlantUML activity if syntax: $line")
         frames.addLast(Frame.IfFrame(branches = mutableListOf(IfBranch(cond = RichLabel.Plain(cond)))))
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun openLegacyIf(line: String, sourceRef: String? = null, edgeLabel: String? = null): IrPatchBatch {
@@ -321,7 +323,7 @@ class PlantUmlActivityParser {
                 incomingEdgeLabel = edgeLabel,
             ),
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun switchElse(): IrPatchBatch {
@@ -329,7 +331,7 @@ class PlantUmlActivityParser {
         if (frame.branches.last().cond == null) return errorBatch("Duplicate 'else' in PlantUML activity if block")
         frame.branches += IfBranch(cond = null)
         frame.activeIndex = frame.branches.lastIndex
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun switchElseIf(line: String): IrPatchBatch {
@@ -339,7 +341,7 @@ class PlantUmlActivityParser {
             ?: return errorBatch("Invalid PlantUML activity elseif syntax: $line")
         frame.branches += IfBranch(cond = RichLabel.Plain(cond))
         frame.activeIndex = frame.branches.lastIndex
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun closeIf(): IrPatchBatch {
@@ -347,25 +349,25 @@ class PlantUmlActivityParser {
         frame.incomingSourceRef?.let { currentTarget() += ActivityBlock.Note(RichLabel.Plain(EDGE_SOURCE_PREFIX + it)) }
         frame.incomingEdgeLabel?.let { currentTarget() += ActivityBlock.Note(RichLabel.Plain(EDGE_LABEL_PREFIX + it)) }
         currentTarget() += buildIfElse(frame.branches)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun openWhile(line: String): IrPatchBatch {
         val cond = Regex("^while\\s*\\((.*?)\\)", RegexOption.IGNORE_CASE).find(line)?.groupValues?.getOrNull(1)?.trim()
             ?: return errorBatch("Invalid PlantUML activity while syntax: $line")
         frames.addLast(Frame.WhileFrame(cond = RichLabel.Plain(cond)))
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun closeWhile(): IrPatchBatch {
         val frame = frames.removeLastOrNull() as? Frame.WhileFrame ?: return errorBatch("'endwhile' without matching 'while'")
         currentTarget() += ActivityBlock.While(cond = frame.cond, body = frame.body.toList())
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun openRepeat(): IrPatchBatch {
         frames.addLast(Frame.RepeatFrame())
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun closeRepeat(line: String): IrPatchBatch {
@@ -373,30 +375,30 @@ class PlantUmlActivityParser {
         val cond = extractParenCondition(line.removePrefix("repeat while").trim())
             ?: return errorBatch("Invalid PlantUML activity repeat syntax: $line")
         currentTarget() += ActivityBlock.While(cond = RichLabel.Plain(REPEAT_PREFIX + cond), body = frame.body.toList())
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun openFork(): IrPatchBatch {
         frames.addLast(Frame.ForkFrame())
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun nextForkBranch(): IrPatchBatch {
         val frame = frames.lastOrNull() as? Frame.ForkFrame ?: return errorBatch("'fork again' without matching 'fork'")
         frame.branches.add(mutableListOf())
         frame.activeIndex = frame.branches.lastIndex
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun closeFork(): IrPatchBatch {
         val frame = frames.removeLastOrNull() as? Frame.ForkFrame ?: return errorBatch("'end fork' without matching 'fork'")
         currentTarget() += ActivityBlock.ForkJoin(branches = frame.branches.map { it.toList() })
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun switchSwimlane(line: String): IrPatchBatch {
         currentLane = line.removePrefix("|").removeSuffix("|").trim().ifEmpty { null }
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun openPartition(line: String): IrPatchBatch {
@@ -407,14 +409,14 @@ class PlantUmlActivityParser {
         val color = partition.second
         partitionStack.addLast(PartitionFrame(name = name, color = color))
         currentLane = name
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun closePartition(): IrPatchBatch {
         if (partitionStack.isEmpty()) return errorBatch("'}' without matching 'partition'")
         partitionStack.removeLast()
         currentLane = partitionStack.lastOrNull()?.name
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun isSwimlane(line: String): Boolean =
@@ -439,7 +441,7 @@ class PlantUmlActivityParser {
                 edgeLabel?.let { currentTarget() += ActivityBlock.Note(RichLabel.Plain(EDGE_LABEL_PREFIX + it)) }
                 sourceRef?.let { currentTarget() += ActivityBlock.Note(RichLabel.Plain(EDGE_STOP_PREFIX + it)) }
                 hasStop = true
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             LegacyTarget.Kind.If -> {
                 openLegacyIf(target, sourceRef = sourceRef, edgeLabel = edgeLabel)
@@ -447,7 +449,7 @@ class PlantUmlActivityParser {
             LegacyTarget.Kind.ExistingRef -> {
                 edgeLabel?.let { currentTarget() += ActivityBlock.Note(RichLabel.Plain(EDGE_LABEL_PREFIX + it)) }
                 currentTarget() += ActivityBlock.Note(RichLabel.Plain(EDGE_TARGET_PREFIX + targetSpec.refKey!!))
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             LegacyTarget.Kind.Action -> {
                 edgeLabel?.let { currentTarget() += ActivityBlock.Note(RichLabel.Plain(EDGE_LABEL_PREFIX + it)) }
@@ -641,7 +643,7 @@ class PlantUmlActivityParser {
         val body = line.substringAfter(" ", "").trim()
         if (body.equals("activity {", ignoreCase = true)) {
             pendingSkinparamBlock = true
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (body.startsWith("activity ", ignoreCase = true)) {
             return applySkinparamEntry(body.removePrefix("activity").trim())
@@ -732,11 +734,11 @@ class PlantUmlActivityParser {
     private fun storeSkinparam(key: String, value: String): IrPatchBatch {
         if (value.isBlank()) return warnUnsupportedSkinparam("skinparam $key")
         styleExtras[key] = value
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun extractParenCondition(body: String): String? =
         Regex("^\\s*\\((.*?)\\)").find(body)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
@@ -772,7 +774,7 @@ class PlantUmlActivityParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E007"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E007"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
         diagnostics += diagnostic

@@ -14,7 +14,7 @@ class DiagramSessionTest {
 
     @Test
     fun source_accumulates_across_appends() {
-        val s = DiagramSession.create(SourceLanguage.MERMAID)
+        val s = DiagramSession.create(SourceLanguage.MERMAID, pipeline = NoopSessionPipeline())
         s.append("flowchart TD\n")
         s.append("A --> B\n")
         assertEquals("flowchart TD\nA --> B\n", s.source.toString())
@@ -22,7 +22,7 @@ class DiagramSessionTest {
 
     @Test
     fun seq_strictly_increases_each_advance() {
-        val s = DiagramSession.create(SourceLanguage.MERMAID)
+        val s = DiagramSession.create(SourceLanguage.MERMAID, pipeline = NoopSessionPipeline())
         assertEquals(0L, s.state.value.seq)
         s.append("a"); assertEquals(1L, s.state.value.seq)
         s.append("b"); assertEquals(2L, s.state.value.seq)
@@ -31,7 +31,7 @@ class DiagramSessionTest {
 
     @Test
     fun finish_marks_snapshot_final() {
-        val s = DiagramSession.create(SourceLanguage.MERMAID)
+        val s = DiagramSession.create(SourceLanguage.MERMAID, pipeline = NoopSessionPipeline())
         assertEquals(false, s.state.value.isFinal)
         s.finish()
         assertTrue(s.state.value.isFinal)
@@ -39,7 +39,7 @@ class DiagramSessionTest {
 
     @Test
     fun close_blocks_further_writes() {
-        val s = DiagramSession.create(SourceLanguage.MERMAID)
+        val s = DiagramSession.create(SourceLanguage.MERMAID, pipeline = NoopSessionPipeline())
         s.append("hi")
         s.close()
         assertFailsWith<IllegalStateException> { s.append("x") }
@@ -79,8 +79,8 @@ class DiagramSessionTest {
     }
 
     @Test
-    fun stub_pipeline_keeps_snapshot_empty_but_versioned() {
-        val s = DiagramSession.create(SourceLanguage.MERMAID)
+    fun noop_pipeline_keeps_snapshot_empty_but_versioned() {
+        val s = DiagramSession.create(SourceLanguage.MERMAID, pipeline = NoopSessionPipeline())
         s.append("anything")
         val snap = s.state.value
         assertEquals(1L, snap.seq)

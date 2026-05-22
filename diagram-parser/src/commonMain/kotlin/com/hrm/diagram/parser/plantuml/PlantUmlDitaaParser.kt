@@ -18,6 +18,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for a minimal PlantUML ditaa subset.
@@ -68,26 +70,24 @@ class PlantUmlDitaaParser {
     )
 
     private val lines: MutableList<String> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private var handwritten = false
-    private var seq: Long = 0L
+    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.startsWith("skinparam handwritten", ignoreCase = true)) {
             handwritten = trimmed.substringAfter("handwritten", "").trim().equals("true", ignoreCase = true)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         lines += line.trimEnd()
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
-        if (blockClosed) return IrPatchBatch(seq, emptyList())
-        val d = Diagnostic(Severity.ERROR, "Missing @endditaa closing delimiter", "PLANTUML-E020")
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        if (blockClosed) return seq.emptyBatch()
+        return diagnostics.errorBatch(seq, "Missing @endditaa closing delimiter", "PLANTUML-E020")
     }
 
     fun snapshot(): GraphIR {
@@ -124,7 +124,7 @@ class PlantUmlDitaaParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun detectBoxes(): List<Box> {
         val out = ArrayList<Box>()

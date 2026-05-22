@@ -13,6 +13,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -47,8 +49,8 @@ class MermaidFlowchartParser {
     /** Accumulated IR view (rebuilt from patches on each [snapshot] call for tests / consumers). */
     private val nodes: MutableList<Node> = ArrayList()
     private val edges: MutableList<Edge> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
-    private var seq: Long = 0
+    private val diagnostics = ParserDiagnosticSink()
+    private val seq = ParserSessionSeq()
 
     /**
      * Feed one logical line of tokens (already terminated; no NEWLINE/COMMENT/ERROR included
@@ -59,15 +61,15 @@ class MermaidFlowchartParser {
      * the splitter, ERROR tokens are surfaced as diagnostics.
      */
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         // Drop pure-comment lines silently; they are body content but contribute no IR.
-        if (line.all { it.kind == MermaidTokenKind.COMMENT }) return IrPatchBatch(seq, emptyList())
+        if (line.all { it.kind == MermaidTokenKind.COMMENT }) return seq.emptyBatch()
         val patches = ArrayList<IrPatch>()
 
         if (!headerSeen) {
             parseHeader(line, patches)
-            return IrPatchBatch(seq, patches)
+            return IrPatchBatch(seq.value, patches)
         }
 
         // Body line.
@@ -90,7 +92,7 @@ class MermaidFlowchartParser {
                 patches += IrPatch.AddDiagnostic(diag)
             }
         }
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     /** Build a fresh [GraphIR] from accumulated state. */
@@ -101,7 +103,7 @@ class MermaidFlowchartParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     // --- internals ---
 

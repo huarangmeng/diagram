@@ -18,29 +18,26 @@ import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.EdgeRoute
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlArchimateParser
+import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
 
 internal class PlantUmlArchimateSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlArchimateParser()
-    private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(150f, 70f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(150f, 70f) },
-    )
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val stereotypeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -59,6 +56,40 @@ internal class PlantUmlArchimateSubPipeline(
             customEdgeCommands = ::edgeCommands,
         ),
     )
+    private val measurePolicy = GraphMeasurePolicy(
+        textMeasurer = textMeasurer,
+        defaultSize = Size(150f, 70f),
+        maxWidth = NODE_LABEL_MAX_WIDTH,
+        minWidth = NODE_MIN_WIDTH,
+        minHeight = 48f,
+        labelOf = ::labelTextOf,
+        fontOf = { titleFont },
+        customSizeOf = ::measureNodeSize,
+    )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.PLANTUML,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(150f, 70f), measurePolicy),
+        layoutOptions = { _, isFinal ->
+            LayoutOptions(
+                nodeSpacing = ARCHIMATE_NODE_SPACING,
+                rankSpacing = ARCHIMATE_RANK_SPACING,
+                incremental = !isFinal,
+                allowGlobalReflow = isFinal,
+            )
+        },
+        postLayout = { ir, laid ->
+            val clusterRects = LinkedHashMap<NodeId, Rect>()
+            for (cluster in ir.clusters) computeClusterRect(cluster, laid.nodePositions, clusterRects)
+            val edgeLabelRects = edgeLabelRects(ir, laid.edgeRoutes, laid.nodePositions.values, clusterTitleRects(clusterRects.values))
+            laid.copy(
+                clusterRects = clusterRects,
+                bounds = computeBounds(laid.nodePositions.values + clusterRects.values + edgeLabelRects),
+            )
+        },
+        renderEntities = { ir, laid -> renderer.render(ir, laid).also { lastDrawEntities = it } },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -66,49 +97,40 @@ internal class PlantUmlArchimateSubPipeline(
 
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val ir = parser.snapshot()
-        measureNodes(ir)
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(
-                nodeSpacing = ARCHIMATE_NODE_SPACING,
-                rankSpacing = ARCHIMATE_RANK_SPACING,
-                incremental = !isFinal,
-                allowGlobalReflow = isFinal,
-            ),
-        )
-        val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in ir.clusters) computeClusterRect(cluster, laid.nodePositions, clusterRects)
-        val edgeLabelRects = edgeLabelRects(ir, laid.edgeRoutes, laid.nodePositions.values, clusterTitleRects(clusterRects.values))
-        val finalLaid = laid.copy(
-            clusterRects = clusterRects,
-            bounds = computeBounds(laid.nodePositions.values + clusterRects.values + edgeLabelRects),
+        val advance = kernel.advance(
+            previousSnapshot = previousSnapshot,
             seq = seq,
+            isFinal = isFinal,
+            ir = ir,
+            diagnostics = parser.diagnosticsSnapshot(),
         )
         return PlantUmlRenderState(
             ir = ir,
-            laidOut = finalLaid,
-            drawEntities = renderer.render(ir, finalLaid),
+            laidOut = requireNotNull(advance.snapshot.laidOut),
+            drawEntities = lastDrawEntities,
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
-    private fun measureNodes(ir: GraphIR) {
-        for (node in ir.nodes) {
-            val label = labelTextOf(node)
-            val stereotype = node.payload[PlantUmlArchimateParser.STEREOTYPE_KEY].orEmpty()
-            val stereotypeText = stereotypeTextOf(stereotype)
-            val labelMetrics = textMeasurer.measure(label, titleFont, maxWidth = NODE_LABEL_MAX_WIDTH)
-            val stereotypeMetrics = textMeasurer.measure(stereotypeText, stereotypeFont, maxWidth = NODE_STEREOTYPE_MAX_WIDTH)
-            nodeSizes[node.id] = Size(
-                width = maxOf(
-                    labelMetrics.width + NODE_TEXT_LEFT_PADDING + NODE_TEXT_RIGHT_PADDING,
-                    stereotypeMetrics.width + NODE_TEXT_LEFT_PADDING + NODE_ICON_RESERVED_WIDTH,
-                    NODE_MIN_WIDTH,
-                ),
-                height = NODE_HEADER_TOP_PADDING + stereotypeMetrics.height + NODE_STEREOTYPE_LABEL_GAP + labelMetrics.height + NODE_BOTTOM_PADDING,
-            )
-        }
+    override fun dispose() {
+        kernel.clear()
+        lastDrawEntities = emptyList()
+    }
+
+    private fun measureNodeSize(node: Node): Size {
+        val label = labelTextOf(node)
+        val stereotype = node.payload[PlantUmlArchimateParser.STEREOTYPE_KEY].orEmpty()
+        val stereotypeText = stereotypeTextOf(stereotype)
+        val labelMetrics = textMeasurer.measure(label, titleFont, maxWidth = NODE_LABEL_MAX_WIDTH)
+        val stereotypeMetrics = textMeasurer.measure(stereotypeText, stereotypeFont, maxWidth = NODE_STEREOTYPE_MAX_WIDTH)
+        return Size(
+            width = maxOf(
+                labelMetrics.width + NODE_TEXT_LEFT_PADDING + NODE_TEXT_RIGHT_PADDING,
+                stereotypeMetrics.width + NODE_TEXT_LEFT_PADDING + NODE_ICON_RESERVED_WIDTH,
+                NODE_MIN_WIDTH,
+            ),
+            height = NODE_HEADER_TOP_PADDING + stereotypeMetrics.height + NODE_STEREOTYPE_LABEL_GAP + labelMetrics.height + NODE_BOTTOM_PADDING,
+        )
     }
 
     private fun computeClusterRect(cluster: Cluster, nodePositions: Map<NodeId, Rect>, out: MutableMap<NodeId, Rect>): Rect? {

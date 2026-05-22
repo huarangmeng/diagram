@@ -22,6 +22,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 data class C4EdgePresentation(
@@ -132,7 +134,7 @@ class MermaidC4Parser {
         val legendText: String? = null,
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val baseEdges: MutableList<Edge> = ArrayList()
     private val boundaries: LinkedHashMap<NodeId, BoundaryDef> = LinkedHashMap()
@@ -154,13 +156,13 @@ class MermaidC4Parser {
     private var headerSeen = false
     private var diagramKind = "C4Context"
     private var title: String? = null
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}")
 
@@ -170,13 +172,13 @@ class MermaidC4Parser {
                 headerSeen = true
                 diagramKind = first.text.toString()
                 layoutExtras["c4.diagramKind"] = diagramKind
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected C4 header")
         }
 
         val text = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (text.isBlank()) return IrPatchBatch(seq, emptyList())
+        if (text.isBlank()) return seq.emptyBatch()
 
         val patches = ArrayList<IrPatch>()
         when {
@@ -186,7 +188,7 @@ class MermaidC4Parser {
             else -> parseStatement(text, patches)
         }
         flushPendingEdges(patches)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     fun snapshot(): GraphIR {
@@ -203,7 +205,7 @@ class MermaidC4Parser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     fun edgePresentationSnapshot(): Map<Int, C4EdgePresentation> = latestEdgePresentation
 
@@ -913,7 +915,7 @@ class MermaidC4Parser {
     private fun errorBatch(message: String): IrPatchBatch {
         val diagnostic = Diagnostic(Severity.ERROR, message, "MERMAID-E213")
         diagnostics += diagnostic
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(diagnostic)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(diagnostic)))
     }
 
     private data class ParsedRel(

@@ -19,6 +19,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 data class BlockCellPlacement(
@@ -80,7 +82,7 @@ class MermaidBlockParser {
         val extras: Map<String, String> = emptyMap(),
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val placements: LinkedHashMap<NodeId, BlockCellPlacement> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
@@ -88,16 +90,16 @@ class MermaidBlockParser {
     private val blockStack: MutableList<OpenBlock> = ArrayList()
     private val pendingEdges: MutableList<PendingEdge> = ArrayList()
     private var headerSeen = false
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var autoBlockSeq = 0
     private var autoNodeSeq = 0
     private var title: String? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}")
 
@@ -106,13 +108,13 @@ class MermaidBlockParser {
             if (first.kind == MermaidTokenKind.BLOCK_HEADER) {
                 headerSeen = true
                 ensureRootBlock()
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'block-beta' header")
         }
 
         val text = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (text.isBlank()) return IrPatchBatch(seq, emptyList())
+        if (text.isBlank()) return seq.emptyBatch()
 
         val patches = ArrayList<IrPatch>()
         when {
@@ -124,7 +126,7 @@ class MermaidBlockParser {
             else -> parseRow(text, patches)
         }
         flushPendingEdges(patches)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     fun snapshot(): GraphIR =
@@ -137,7 +139,7 @@ class MermaidBlockParser {
             styleHints = StyleHints(direction = Direction.LR, extras = buildExtras()),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     fun placementSnapshot(): Map<NodeId, BlockCellPlacement> = placements.toMap()
 
@@ -511,6 +513,6 @@ class MermaidBlockParser {
     private fun errorBatch(message: String): IrPatchBatch {
         val diagnostic = Diagnostic(Severity.ERROR, message, "MERMAID-E214")
         diagnostics += diagnostic
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(diagnostic)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(diagnostic)))
     }
 }

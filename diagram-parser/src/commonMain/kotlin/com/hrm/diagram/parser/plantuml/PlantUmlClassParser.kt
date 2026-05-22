@@ -19,6 +19,8 @@ import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.ir.Visibility
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Line-driven PlantUML `class` parser for the Phase-4 MVP.
@@ -83,7 +85,7 @@ class PlantUmlClassParser {
     private val classOrder: LinkedHashMap<NodeId, ClassNode> = LinkedHashMap()
     private val relations: MutableList<ClassRelation> = ArrayList()
     private val notes: MutableList<ClassNote> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val namespaces: LinkedHashMap<String, NamespaceDef> = LinkedHashMap()
     private val namespaceMembers: LinkedHashMap<String, LinkedHashSet<NodeId>> = LinkedHashMap()
     private val namespaceStack: ArrayDeque<String> = ArrayDeque()
@@ -133,18 +135,18 @@ class PlantUmlClassParser {
             "arrowcolor" to STYLE_EDGE_COLOR_KEY,
         ),
         warnUnsupported = ::warnUnsupportedSkinparam,
-        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+        emptyBatch = { seq.emptyBatch() },
     )
 
-    private var seq: Long = 0L
+    private val seq = ParserSessionSeq()
     private var currentBodyClass: NodeId? = null
     private var pendingNote: PendingNote? = null
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         pendingNote?.let { note ->
@@ -155,15 +157,15 @@ class PlantUmlClassParser {
                     placement = note.placement,
                 )
                 pendingNote = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             note.lines += trimmed
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         skinparamSupport.pendingScope?.let { scope ->
             if (trimmed == "}") {
                 skinparamSupport.pendingScope = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return skinparamSupport.acceptScopedEntry(scope, trimmed)
         }
@@ -172,7 +174,7 @@ class PlantUmlClassParser {
         if (current != null) {
             if (trimmed == "}") {
                 currentBodyClass = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return parseMemberInto(current, trimmed)
         }
@@ -243,7 +245,7 @@ class PlantUmlClassParser {
                 ),
             )
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): ClassIR = ClassIR(
@@ -261,7 +263,7 @@ class PlantUmlClassParser {
         styleHints = StyleHints(extras = styleExtras),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseClassDecl(line: String, keyword: String, stereotype: String?): IrPatchBatch {
         var body = line.substring(keyword.length).trim()
@@ -275,7 +277,7 @@ class PlantUmlClassParser {
         val id = NodeId(spec.id)
         ensureClass(id, name = spec.label, generics = spec.generics, stereotype = stereotype)
         if (opensBody) currentBodyClass = id
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseRelation(line: String): IrPatchBatch {
@@ -309,7 +311,7 @@ class PlantUmlClassParser {
             toCardinality = toCard,
             label = label,
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseNote(line: String): IrPatchBatch {
@@ -326,7 +328,7 @@ class PlantUmlClassParser {
                 targetClass = target,
                 placement = placement,
             )
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         val standaloneQuoted = Regex("^note\\s+\"([^\"]+)\"$", RegexOption.IGNORE_CASE).matchEntire(line)
@@ -336,7 +338,7 @@ class PlantUmlClassParser {
                 targetClass = null,
                 placement = NotePlacement.Standalone,
             )
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         val blockAnchored = Regex(
@@ -351,12 +353,12 @@ class PlantUmlClassParser {
                 targetClass = target,
                 placement = placement,
             )
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         if (line.equals("note", ignoreCase = true)) {
             pendingNote = PendingNote(targetClass = null, placement = NotePlacement.Standalone)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         return errorBatch("Invalid class note syntax: $line")
@@ -400,10 +402,10 @@ class PlantUmlClassParser {
         if (working.startsWith("<<") && working.endsWith(">>")) {
             val stereotype = working.removePrefix("<<").removeSuffix(">>").trim()
             updateClass(classId) { it.copy(stereotype = stereotype) }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
-        if (working.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (working.isEmpty()) return seq.emptyBatch()
         var visibility = Visibility.PACKAGE
         when (working.first()) {
             '+' -> {
@@ -474,7 +476,7 @@ class PlantUmlClassParser {
             )
         }
         addMember(classId, member)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseParams(text: String): List<ClassParam> {
@@ -530,13 +532,13 @@ class PlantUmlClassParser {
         namespaces[spec.id] = spec
         namespaceMembers.getOrPut(spec.id) { LinkedHashSet() }
         if (opens) namespaceStack.addLast(spec.id)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun closeNamespace(): IrPatchBatch {
         if (namespaceStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML class body")
         namespaceStack.removeLast()
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseAliasSpec(body: String): AliasSpec? {
@@ -611,7 +613,7 @@ class PlantUmlClassParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E003"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E003"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
         diagnostics += diagnostic
@@ -624,5 +626,5 @@ class PlantUmlClassParser {
     )
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 }

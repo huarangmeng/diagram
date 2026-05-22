@@ -43,14 +43,20 @@ internal object FrameEntityRenderer {
             commandIndex += commands.size
         }
 
-        fun entities(): List<DrawEntity> =
-            buckets.map { (key, groupedCommands) -> DrawEntity(key, groupedCommands) }
+        fun entities(): List<DrawEntity> {
+            val entities = ArrayList<DrawEntity>(keys.size + buckets.size)
+            keys.forEach { key -> entities += DrawEntity(key, buckets[key].orEmpty()) }
+            buckets.forEach { (key, groupedCommands) ->
+                if (key !in keys) entities += DrawEntity(key, groupedCommands)
+            }
+            return entities
+        }
 
         override val size: Int
             get() = commandIndex
 
         override fun add(index: Int, element: DrawCommand) {
-            val key = anchors.bestKeyFor(element) ?: keys[commandIndex % keys.size]
+            val key = anchors.bestKeyFor(element) ?: keys.first()
             buckets.getOrPut(key) { ArrayList() } += element
             commandIndex += 1
         }
@@ -73,7 +79,7 @@ internal object FrameEntityRenderer {
 
     private fun entityAnchors(prefix: String, laidOut: LaidOutDiagram?): List<EntityAnchor> {
         if (laidOut == null) return emptyList()
-        val p = normalizedPrefix(prefix)
+        val p = normalizedEntityPrefix(prefix)
         val anchors = ArrayList<EntityAnchor>()
         laidOut.clusterRects.forEach { (id, rect) ->
             anchors += EntityAnchor(DrawEntityKey.cluster(p, id), rect, priority = 0)
@@ -107,7 +113,7 @@ internal object FrameEntityRenderer {
         when (command) {
             is DrawCommand.FillRect -> command.rect
             is DrawCommand.StrokeRect -> command.rect
-            is DrawCommand.DrawText -> command.measuredBounds ?: textFallbackBounds(command)
+            is DrawCommand.DrawText -> command.measuredBounds
             is DrawCommand.DrawIcon -> command.rect
             is DrawCommand.Hyperlink -> command.rect
             is DrawCommand.FillPath -> command.path.ops.points().pointBoundsOrNull()
@@ -127,16 +133,6 @@ internal object FrameEntityRenderer {
                 com.hrm.diagram.core.draw.PathOp.Close -> emptyList()
             }
         }
-
-    private fun textFallbackBounds(command: DrawCommand.DrawText): Rect {
-        val width = (command.maxWidth ?: 0f).coerceAtLeast(0f)
-        return Rect.ltrb(
-            command.origin.x - width / 2f,
-            command.origin.y - command.font.sizeSp,
-            command.origin.x + width / 2f,
-            command.origin.y + command.font.sizeSp,
-        )
-    }
 
     private fun List<Point>.pointBoundsOrNull(): Rect? =
         if (isEmpty()) null else bounds()
@@ -176,19 +172,4 @@ internal object FrameEntityRenderer {
         return if (width > 0f && height > 0f) width * height else 0f
     }
 
-    private fun normalizedPrefix(value: String): String = stableSegment(value).ifBlank { "diagram" }
-
-    private fun stableSegment(value: String): String =
-        value
-            .trim()
-            .lowercase()
-            .map { ch ->
-                when {
-                    ch.isLetterOrDigit() -> ch
-                    ch == '.' || ch == '-' || ch == '_' -> ch
-                    else -> '_'
-                }
-            }
-            .joinToString("")
-            .trim('.', '-', '_')
 }

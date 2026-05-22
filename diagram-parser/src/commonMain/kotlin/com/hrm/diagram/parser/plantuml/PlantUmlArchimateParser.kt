@@ -20,6 +20,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the PlantUML ArchiMate slice.
@@ -63,23 +65,23 @@ class PlantUmlArchimateParser {
         val parent: NodeId?,
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val relationTypes: MutableList<String> = ArrayList()
     private val groups: LinkedHashMap<NodeId, GroupDef> = LinkedHashMap()
     private val groupStack: MutableList<NodeId> = ArrayList()
-    private var seq: Long = 0L
+    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return IrPatchBatch(seq, emptyList())
-        if (trimmed.startsWith("!")) return IrPatchBatch(seq, emptyList())
+        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
+        if (trimmed.startsWith("!")) return seq.emptyBatch()
         if (trimmed == "}") {
             if (groupStack.isEmpty()) return errorBatch("Unexpected '}' in PlantUML archimate diagram")
             groupStack.removeAt(groupStack.lastIndex)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         GROUP.matchEntire(trimmed)?.let { m ->
@@ -87,7 +89,7 @@ class PlantUmlArchimateParser {
             val id = NodeId(m.groupValues[3].ifBlank { "arch_group_${PlantUmlTemporalSupport.slug(label)}" })
             groups[id] = GroupDef(id = id, label = label, parent = groupStack.lastOrNull())
             groupStack += id
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         ELEMENT.matchEntire(trimmed)?.let {
@@ -111,7 +113,7 @@ class PlantUmlArchimateParser {
                     groupStack.lastOrNull()?.let { put(PARENT_KEY, it.value) }
                 },
             )
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         REL.matchEntire(trimmed)?.let { m ->
@@ -122,12 +124,12 @@ class PlantUmlArchimateParser {
                 relationType = normalizeRelationType(m.groupValues[1].ifBlank { "association" }),
                 dashed = false,
             )
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         EDGE.matchEntire(trimmed)?.let { m ->
             addEdge(m.groupValues[1], m.groupValues[3], m.groupValues[4].ifBlank { null }, relationType = "directed", dashed = m.groupValues[2].contains('.'))
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         return errorBatch("Invalid PlantUML archimate line: $trimmed")
@@ -146,7 +148,7 @@ class PlantUmlArchimateParser {
             diagnostics += d
             out += IrPatch.AddDiagnostic(d)
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): GraphIR =
@@ -158,7 +160,7 @@ class PlantUmlArchimateParser {
             styleHints = StyleHints(extras = mapOf("plantuml.graph.kind" to "archimate")),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     fun relationTypesSnapshot(): List<String> = relationTypes.toList()
 
@@ -244,7 +246,7 @@ class PlantUmlArchimateParser {
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "PLANTUML-E018")
         diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 
     private fun normalizeElementType(raw: String): String {

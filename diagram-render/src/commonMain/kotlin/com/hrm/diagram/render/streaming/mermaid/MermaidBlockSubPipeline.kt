@@ -93,7 +93,7 @@ internal class MermaidBlockSubPipeline(
                 seq = seq,
                 addedNodes = addedNodeIds,
                 addedEdges = newPatches.filterIsInstance<IrPatch.AddEdge>().map { it.edge },
-                addedDrawCommands = drawCommands,
+                addedDrawCommands = emptyList(),
                 newDiagnostics = newDiagnostics,
                 isFinal = isFinal,
             ),

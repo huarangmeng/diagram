@@ -22,6 +22,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -59,33 +61,33 @@ class MermaidArchitectureParser {
         val arrow: ArrowEnds,
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val groups: LinkedHashMap<NodeId, GroupDef> = LinkedHashMap()
     private val pendingEdges: MutableList<PendingEdge> = ArrayList()
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var headerSeen = false
     private var direction: Direction = Direction.LR
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.ARCHITECTURE_HEADER) {
                 headerSeen = true
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'architecture-beta' header")
         }
 
         val text = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (text.isBlank()) return IrPatchBatch(seq, emptyList())
+        if (text.isBlank()) return seq.emptyBatch()
 
         val patches = ArrayList<IrPatch>()
         when {
@@ -95,7 +97,7 @@ class MermaidArchitectureParser {
             else -> parseEdge(text, patches)
         }
         flushPendingEdges(patches)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -106,7 +108,7 @@ class MermaidArchitectureParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseGroup(spec: String, out: MutableList<IrPatch>) {
         val parsed = parseNamedIconLabel(spec) ?: run {
@@ -370,6 +372,6 @@ class MermaidArchitectureParser {
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E212")
         diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

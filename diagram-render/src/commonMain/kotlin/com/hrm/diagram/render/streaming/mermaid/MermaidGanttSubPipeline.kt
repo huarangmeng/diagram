@@ -82,7 +82,7 @@ internal class MermaidGanttSubPipeline(
             seq = seq,
             addedNodes = emptyList(),
             addedEdges = emptyList(),
-            addedDrawCommands = draw,
+            addedDrawCommands = emptyList(),
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )

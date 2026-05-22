@@ -70,7 +70,7 @@ internal class MermaidMindmapSubPipeline(
             seq = seq,
             addedNodes = emptyList(),
             addedEdges = emptyList(),
-            addedDrawCommands = draw,
+            addedDrawCommands = emptyList(),
             newDiagnostics = newDiagnostics,
             isFinal = isFinal,
         )

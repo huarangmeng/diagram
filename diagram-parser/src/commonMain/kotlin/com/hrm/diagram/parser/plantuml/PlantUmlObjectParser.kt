@@ -21,6 +21,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the Phase-4 PlantUML `object` MVP.
@@ -90,7 +92,7 @@ class PlantUmlObjectParser {
         val nested: MutableList<ClusterBuilder> = ArrayList(),
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val rootClusters: MutableList<ClusterBuilder> = ArrayList()
@@ -177,21 +179,21 @@ class PlantUmlObjectParser {
             "arrowcolor" to STYLE_EDGE_COLOR_KEY,
         ),
         warnUnsupported = ::warnUnsupportedSkinparam,
-        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+        emptyBatch = { seq.emptyBatch() },
     )
 
     private var currentObject: NodeId? = null
     private var pendingNote: PendingNote? = null
     private var noteSeq: Int = 0
     private var clusterSeq: Int = 0
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var direction: Direction = Direction.LR
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         pendingNote?.let { note ->
             if (trimmed.equals("end note", ignoreCase = true) || trimmed.equals("endnote", ignoreCase = true)) {
@@ -199,19 +201,19 @@ class PlantUmlObjectParser {
                 return flushPendingNote(note)
             }
             note.lines += trimmed
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         skinparamSupport.pendingScope?.let { scope ->
             if (trimmed == "}") {
                 skinparamSupport.pendingScope = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return skinparamSupport.acceptScopedEntry(scope, trimmed)
         }
         currentObject?.let { current ->
             if (trimmed == "}") {
                 currentObject = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return parseMemberInto(current, trimmed)
         }
@@ -220,19 +222,19 @@ class PlantUmlObjectParser {
             trimmed.startsWith("skinparam", ignoreCase = true) -> skinparamSupport.acceptDirective(trimmed)
             trimmed.equals("left to right direction", ignoreCase = true) -> {
                 direction = Direction.LR
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             trimmed.equals("right to left direction", ignoreCase = true) -> {
                 direction = Direction.RL
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             trimmed.equals("top to bottom direction", ignoreCase = true) -> {
                 direction = Direction.TB
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             trimmed.equals("bottom to top direction", ignoreCase = true) -> {
                 direction = Direction.BT
-                IrPatchBatch(seq, emptyList())
+                IrPatchBatch(seq.value, emptyList())
             }
             trimmed.startsWith("package ", ignoreCase = true) -> parseClusterDecl(trimmed, "package")
             trimmed.startsWith("namespace ", ignoreCase = true) -> parseClusterDecl(trimmed, "namespace")
@@ -298,7 +300,7 @@ class PlantUmlObjectParser {
                 ),
             )
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -309,7 +311,7 @@ class PlantUmlObjectParser {
         styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseObjectDecl(line: String, keyword: String = "object", kind: String = "object"): IrPatchBatch {
         var body = line.removePrefix(keyword).trim()
@@ -318,7 +320,7 @@ class PlantUmlObjectParser {
         val spec = parseAliasSpec(body) ?: return errorBatch("Invalid PlantUML object declaration: $line")
         ensureNode(spec.id, spec.label, kind = kind)
         if (opens) currentObject = NodeId(spec.id)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseDottedMember(line: String): IrPatchBatch {
@@ -344,7 +346,7 @@ class PlantUmlObjectParser {
                 MEMBERS_KEY to members.joinToString("\n"),
             ),
         )
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseRelation(line: String): IrPatchBatch {
@@ -379,10 +381,10 @@ class PlantUmlObjectParser {
             ),
         )
         if (edges.any { it.from == edge.from && it.to == edge.to && it.kind == edge.kind && it.arrow == edge.arrow && it.label == edge.label }) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         edges += edge
-        return IrPatchBatch(seq, listOf(IrPatch.AddEdge(edge)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddEdge(edge)))
     }
 
     private fun parseClusterDecl(line: String, keyword: String): IrPatchBatch {
@@ -394,13 +396,13 @@ class PlantUmlObjectParser {
         val builder = ClusterBuilder(id = id, kind = keyword, title = title)
         clusterStack.lastOrNull()?.nested?.add(builder) ?: rootClusters.add(builder)
         clusterStack.addLast(builder)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun closeCluster(): IrPatchBatch {
         if (clusterStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML object body")
         clusterStack.removeLast()
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun parseNote(line: String): IrPatchBatch {
@@ -421,13 +423,13 @@ class PlantUmlObjectParser {
             val target = NodeId(anchoredBlock.groupValues[2])
             ensureNode(target.value, target.value, kind = "object")
             pendingNote = PendingNote(target = target, placement = anchoredBlock.groupValues[1].lowercase())
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         val standaloneQuoted = Regex("^note\\s+\"([^\"]+)\"$", RegexOption.IGNORE_CASE).matchEntire(line)
         if (standaloneQuoted != null) return addStandaloneNote(standaloneQuoted.groupValues[1])
         if (line.equals("note", ignoreCase = true)) {
             pendingNote = PendingNote(target = null, placement = "standalone")
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         return errorBatch("Invalid PlantUML object note syntax: $line")
     }
@@ -466,7 +468,7 @@ class PlantUmlObjectParser {
             ),
         )
         edges += edge
-        return IrPatchBatch(seq, listOf(IrPatch.AddNode(node), IrPatch.AddEdge(edge)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddNode(node), IrPatch.AddEdge(edge)))
     }
 
     private fun addStandaloneNote(text: String): IrPatchBatch {
@@ -483,7 +485,7 @@ class PlantUmlObjectParser {
         )
         nodes[noteId] = node
         clusterStack.lastOrNull()?.children?.add(noteId)
-        return IrPatchBatch(seq, listOf(IrPatch.AddNode(node)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddNode(node)))
     }
 
     private fun ensureNode(idText: String, label: String, kind: String) {
@@ -556,7 +558,7 @@ class PlantUmlObjectParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E008"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E008"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
         diagnostics += diagnostic
@@ -564,7 +566,7 @@ class PlantUmlObjectParser {
     }
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun ClusterBuilder.build(): Cluster = Cluster(
         id = id,

@@ -21,6 +21,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the Phase-4 PlantUML `usecase` MVP.
@@ -110,13 +112,13 @@ class PlantUmlUsecaseParser {
         val lines: MutableList<String> = ArrayList(),
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val clusters: LinkedHashMap<NodeId, ClusterDef> = LinkedHashMap()
     private val clusterStack: ArrayDeque<NodeId> = ArrayDeque()
 
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
     private var direction: Direction = Direction.LR
     private var pendingNote: PendingNote? = null
     private var pendingSkinparamScope: String? = null
@@ -124,29 +126,29 @@ class PlantUmlUsecaseParser {
     private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         pendingNote?.let { note ->
             if (trimmed.equals("end note", ignoreCase = true)) {
                 return flushPendingNote(note)
             }
             note.lines += trimmed
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         pendingSkinparamScope?.let { scope ->
             if (trimmed == "}") {
                 pendingSkinparamScope = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return applySkinparamEntry(scope, trimmed)
         }
         if (trimmed == "}") {
             if (clusterStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML usecase body")
             clusterStack.removeLast()
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         val patches = ArrayList<IrPatch>()
@@ -167,7 +169,7 @@ class PlantUmlUsecaseParser {
             findRelationOperator(trimmed) != null -> parseEdge(trimmed, patches)
             else -> return errorBatch("Unsupported PlantUML usecase statement: $trimmed")
         }
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
@@ -211,7 +213,7 @@ class PlantUmlUsecaseParser {
                 ),
             )
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -222,7 +224,7 @@ class PlantUmlUsecaseParser {
         styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseActorDecl(line: String, out: MutableList<IrPatch>, business: Boolean) {
         val body = if (line.startsWith("actor/", ignoreCase = true)) line.removePrefix("actor/").trim() else line.removePrefix("actor").trim()
@@ -365,7 +367,7 @@ class PlantUmlUsecaseParser {
         val normalized = body.substringBefore(' ', body).substringBefore('{').trim().lowercase()
         if (body.endsWith("{") && normalized in SUPPORTED_SKINPARAM_SCOPES) {
             pendingSkinparamScope = normalized
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (normalized in SUPPORTED_SKINPARAM_SCOPES && body.length > normalized.length) {
             return applySkinparamEntry(normalized, body.substring(normalized.length).trim())
@@ -470,11 +472,11 @@ class PlantUmlUsecaseParser {
     private fun storeSkinparam(key: String, value: String): IrPatchBatch {
         if (value.isBlank()) return warnUnsupportedSkinparam("skinparam $key")
         styleExtras[key] = value
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun parseEndpoint(raw: String): EndpointSpec? {
         parseParenUsecaseSpec(raw)?.let { return EndpointSpec(NodeId(it.id), USECASE_KIND) }
@@ -551,7 +553,7 @@ class PlantUmlUsecaseParser {
             addStandaloneNote(text, out)
         }
         pendingNote = null
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     private fun addAnchoredNote(target: NodeId, placement: String, text: String, out: MutableList<IrPatch>) {
@@ -753,7 +755,7 @@ class PlantUmlUsecaseParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E006"))))
+        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E006"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
         diagnostics += diagnostic

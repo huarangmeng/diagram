@@ -16,6 +16,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -48,17 +50,17 @@ class MermaidErParser {
 
     private val nodes: MutableList<Node> = ArrayList()
     private val edges: MutableList<Edge> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
-    private var seq: Long = 0
+    private val diagnostics = ParserDiagnosticSink()
+    private val seq = ParserSessionSeq()
 
     private var currentEntity: NodeId? = null
     private var direction: Direction? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
 
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}", code = "MERMAID-E001")
@@ -66,7 +68,7 @@ class MermaidErParser {
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.ER_HEADER) {
                 headerSeen = true
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'erDiagram' header", code = "MERMAID-E001")
         }
@@ -76,7 +78,7 @@ class MermaidErParser {
         if (entity != null) {
             if (toks.size == 1 && toks[0].kind == MermaidTokenKind.RBRACE) {
                 currentEntity = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return parseAttributeLine(entity, toks)
         }
@@ -86,19 +88,19 @@ class MermaidErParser {
             (toks[1].kind == MermaidTokenKind.DIRECTION || toks[1].kind == MermaidTokenKind.IDENT)
         ) {
             direction = parseDirection(toks[1].text.toString())
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (toks.first().kind == MermaidTokenKind.IDENT && toks.size >= 2 && toks[1].kind == MermaidTokenKind.LBRACE) {
             val id = NodeId(toks.first().text.toString())
             val patches = ArrayList<IrPatch>()
             registerEntity(id, patches)
             currentEntity = id
-            return IrPatchBatch(seq, patches)
+            return IrPatchBatch(seq.value, patches)
         }
         if (toks.size == 1 && toks[0].kind == MermaidTokenKind.IDENT) {
             val patches = ArrayList<IrPatch>()
             registerEntity(NodeId(toks[0].text.toString()), patches)
-            return IrPatchBatch(seq, patches)
+            return IrPatchBatch(seq.value, patches)
         }
 
         // Relationship: `A <rel> B [: label]`
@@ -112,7 +114,7 @@ class MermaidErParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     // --- internals ---
 
@@ -185,7 +187,7 @@ class MermaidErParser {
         val flags = toks.drop(2).filter { it.kind == MermaidTokenKind.IDENT }.map { it.text.toString() }
         val patches = ArrayList<IrPatch>()
         registerAttribute(entity, type, name, flags, patches)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
     private fun parseRelationshipLine(toks: List<Token>): IrPatchBatch {
@@ -222,14 +224,11 @@ class MermaidErParser {
         )
         edges += e
         patches += IrPatch.AddEdge(e)
-        return IrPatchBatch(seq, patches)
+        return IrPatchBatch(seq.value, patches)
     }
 
-    private fun errorBatch(message: String, code: String): IrPatchBatch {
-        val d = Diagnostic(Severity.ERROR, message, code)
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
-    }
+    private fun errorBatch(message: String, code: String): IrPatchBatch =
+        diagnostics.errorBatch(seq, message, code)
 
     private fun parseDirection(raw: String): Direction? {
         return when (raw.trim().uppercase()) {

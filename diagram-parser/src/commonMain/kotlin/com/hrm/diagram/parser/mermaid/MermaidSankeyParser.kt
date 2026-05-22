@@ -11,6 +11,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -21,8 +23,8 @@ import com.hrm.diagram.core.streaming.Token
  * - flow rows: `source,target,value`
  */
 class MermaidSankeyParser {
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
-    private var seq: Long = 0
+    private val diagnostics = ParserDiagnosticSink()
+    private val seq = ParserSessionSeq()
     private var headerSeen = false
     private var title: String? = null
     private val nodeOrder: MutableList<NodeId> = ArrayList()
@@ -30,17 +32,17 @@ class MermaidSankeyParser {
     private val flows: MutableList<SankeyFlow> = ArrayList()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.SANKEY_HEADER) {
                 headerSeen = true
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'sankey' header")
         }
@@ -48,25 +50,25 @@ class MermaidSankeyParser {
         val s = toks.joinToString(" ") { it.text.toString() }.trim()
         if (s.startsWith("title ")) {
             title = stripQuotes(s.removePrefix("title ").trim()).ifBlank { title }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         val parts = splitCsv(s)
         if (parts.size != 3) {
             diagnostics += Diagnostic(Severity.ERROR, "Invalid sankey flow syntax", "MERMAID-E209")
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         val fromLabel = stripQuotes(parts[0].trim())
         val toLabel = stripQuotes(parts[1].trim())
         val value = parts[2].trim().toDoubleOrNull()
         if (fromLabel.isBlank() || toLabel.isBlank() || value == null) {
             diagnostics += Diagnostic(Severity.ERROR, "Invalid sankey flow syntax", "MERMAID-E209")
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         val from = ensureNode(fromLabel)
         val to = ensureNode(toLabel)
         flows += SankeyFlow(from = from, to = to, value = value)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     fun snapshot(): SankeyIR =
@@ -83,7 +85,7 @@ class MermaidSankeyParser {
             styleHints = StyleHints(),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun ensureNode(label: String): NodeId {
         val existing = nodeLabels.entries.firstOrNull { it.value == label }?.key
@@ -129,6 +131,6 @@ class MermaidSankeyParser {
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E209")
         diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

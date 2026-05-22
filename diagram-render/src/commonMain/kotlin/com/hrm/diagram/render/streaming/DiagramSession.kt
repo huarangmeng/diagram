@@ -96,14 +96,15 @@ class DiagramSession internal constructor(
 
     companion object {
         /**
-         * Convenience factory: build a session with a stub pipeline (no real parsing yet).
-         * Phase 1+ replaces the stub via the registered language pipelines under `:diagram-render`.
+     * Convenience factory for callers that explicitly provide a streaming pipeline.
+     * Public facade construction should normally go through `Diagram.session(...)`, which selects
+     * the registered Mermaid / PlantUML / DOT pipeline for the requested language.
          */
         fun create(
             language: SourceLanguage,
             theme: DiagramTheme = DiagramTheme.Default,
             layoutOptions: LayoutOptions = LayoutOptions(),
-            pipeline: SessionPipeline = StubSessionPipeline(),
+            pipeline: SessionPipeline,
         ): DiagramSession = DiagramSession(language, theme, layoutOptions, pipeline)
     }
 }
@@ -177,9 +178,8 @@ data class PipelineAdvance(
 )
 
 /**
- * SPI that glues lexer → parser → layout → render. Each language registers an implementation
- * (Phase 1+); the [StubSessionPipeline] is used until then so the session API and Compose UI
- * can be wired before parsers exist.
+ * SPI that glues lexer → parser → layout → render. Production sessions are selected by the
+ * facade; tests can still inject a small no-op or capture pipeline through [DiagramSession.create].
  *
  * Implementations MUST honour the streaming contract from `docs/streaming.md` §3:
  * - Append-only IR patches (no removals across `advance` calls).
@@ -199,11 +199,10 @@ interface SessionPipeline {
 }
 
 /**
- * No-op pipeline: bumps `seq`, accumulates the source, and emits an empty patch. Useful for:
- * - Wiring the Compose `StreamingDiagramView` before any real parser exists.
+ * No-op pipeline: bumps `seq` and emits an empty patch. Useful for:
  * - Unit-testing the [DiagramSession] state machine in isolation.
  */
-class StubSessionPipeline : SessionPipeline {
+class NoopSessionPipeline : SessionPipeline {
     override fun advance(
         previousSnapshot: DiagramSnapshot,
         chunk: CharSequence,
@@ -218,6 +217,12 @@ class StubSessionPipeline : SessionPipeline {
         )
     }
 }
+
+@Deprecated(
+    message = "Use NoopSessionPipeline for tests; production code should use Diagram.session(...).",
+    replaceWith = ReplaceWith("NoopSessionPipeline()"),
+)
+typealias StubSessionPipeline = NoopSessionPipeline
 
 /** Suppress unused import. */
 @Suppress("unused") private val unusedIrPatch: IrPatch? = null

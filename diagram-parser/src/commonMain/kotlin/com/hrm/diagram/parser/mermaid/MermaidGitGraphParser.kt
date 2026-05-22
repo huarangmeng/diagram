@@ -11,6 +11,8 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -25,8 +27,8 @@ import com.hrm.diagram.core.streaming.Token
  * - `cherry-pick id: ...`
  */
 class MermaidGitGraphParser {
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
-    private var seq: Long = 0
+    private val diagnostics = ParserDiagnosticSink()
+    private val seq = ParserSessionSeq()
     private var headerSeen = false
     private var title: String? = null
     private var autoCommit = 0
@@ -37,26 +39,26 @@ class MermaidGitGraphParser {
     private val commits: MutableList<GitCommit> = ArrayList()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.GITGRAPH_HEADER) {
                 headerSeen = true
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'gitGraph' header")
         }
 
         val s = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (s.isBlank()) return IrPatchBatch(seq, emptyList())
+        if (s.isBlank()) return seq.emptyBatch()
         if (s.startsWith("title ")) {
             title = stripQuotes(s.removePrefix("title ").trim()).ifBlank { title }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         when {
             s.startsWith("branch ") -> parseBranch(s.removePrefix("branch ").trim())
@@ -67,7 +69,7 @@ class MermaidGitGraphParser {
             s.startsWith("cherry-pick ") -> parseCherryPick(s.removePrefix("cherry-pick ").trim())
             else -> diagnostics += Diagnostic(Severity.WARNING, "Unsupported gitGraph line ignored: $s", "MERMAID-W012")
         }
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     fun snapshot(): GitGraphIR =
@@ -79,7 +81,7 @@ class MermaidGitGraphParser {
             styleHints = StyleHints(),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun parseBranch(spec: String) {
         val attrs = parseAttrs(spec)
@@ -220,6 +222,6 @@ class MermaidGitGraphParser {
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E210")
         diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

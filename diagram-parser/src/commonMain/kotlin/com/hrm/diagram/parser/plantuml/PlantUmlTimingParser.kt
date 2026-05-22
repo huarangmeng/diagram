@@ -13,6 +13,8 @@ import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.ir.TimeTrack
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import kotlin.math.max
 import kotlin.math.min
 
@@ -74,7 +76,7 @@ class PlantUmlTimingParser {
         private val CONSTRAINT = Regex("""^(@\S+)\s+<[-.]+>\s+(@\S+)(?:\s*:\s*(.+))?$""")
     }
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val tracks: LinkedHashMap<String, Track> = LinkedHashMap()
     private val openSegments: MutableMap<String, Segment> = LinkedHashMap()
     private val segments: MutableList<Segment> = ArrayList()
@@ -83,22 +85,22 @@ class PlantUmlTimingParser {
     private var scaleMs: Long? = null
     private var scaleLabel: String? = null
     private var hideTimeAxis: Boolean = false
-    private var seq = 0L
+    private val seq = ParserSessionSeq()
     private var markerSeq = 0
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return IrPatchBatch(seq, emptyList())
+        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
         parseConstraint(trimmed)?.let {
             markers += it
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (HIDE_TIME_AXIS.matches(trimmed)) {
             hideTimeAxis = true
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
-        if (parseScale(trimmed)) return IrPatchBatch(seq, emptyList())
+        if (parseScale(trimmed)) return seq.emptyBatch()
         if (trimmed.startsWith("@")) {
             val markerToken = trimmed.substringBefore(' ')
             val next = parseTimeMarker(markerToken) ?: return errorBatch("Invalid PlantUML timing time marker: $trimmed")
@@ -106,14 +108,14 @@ class PlantUmlTimingParser {
             val tail = trimmed.substringAfter(' ', "").trim()
             if (tail.startsWith(":")) {
                 markers += timeLabelMarker(tail.removePrefix(":").trim().ifBlank { markerToken.removePrefix("@") })
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             if (tail.isNotEmpty()) return acceptLine(tail)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         parseDeclaration(trimmed)?.let {
             tracks[it.id] = it
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         parseState(trimmed)?.let { parsed ->
             val trackId = parsed.trackId
@@ -123,11 +125,11 @@ class PlantUmlTimingParser {
                 segments += it
             }
             openSegments[trackId] = Segment(trackId, parsed.state, currentTimeMs, displayText = parsed.displayText, boundaryStyle = parsed.boundaryStyle)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         parseMessage(trimmed)?.let {
             markers += it
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         return errorBatch("Invalid PlantUML timing line: $trimmed")
     }
@@ -135,11 +137,9 @@ class PlantUmlTimingParser {
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
         if (!blockClosed) {
-            val d = Diagnostic(Severity.ERROR, "Missing @enduml closing delimiter for timing diagram", "PLANTUML-E016")
-            diagnostics += d
-            out += IrPatch.AddDiagnostic(d)
+            out += diagnostics.error("Missing @enduml closing delimiter for timing diagram", "PLANTUML-E016")
         }
-        return IrPatchBatch(seq, out)
+        return IrPatchBatch(seq.value, out)
     }
 
     fun snapshot(): TimeSeriesIR {
@@ -209,7 +209,7 @@ class PlantUmlTimingParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun advanceTime(next: Long) {
         if (next < currentTimeMs) return
@@ -402,9 +402,6 @@ class PlantUmlTimingParser {
         )
     }
 
-    private fun errorBatch(message: String): IrPatchBatch {
-        val d = Diagnostic(Severity.ERROR, message, "PLANTUML-E016")
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
-    }
+    private fun errorBatch(message: String): IrPatchBatch =
+        diagnostics.errorBatch(seq, message, "PLANTUML-E016")
 }

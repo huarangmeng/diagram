@@ -9,6 +9,8 @@ import com.hrm.diagram.core.ir.WireBox
 import com.hrm.diagram.core.ir.WireframeIR
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for the minimal PlantUML Salt wireframe slice.
@@ -42,44 +44,44 @@ class PlantUmlSaltParser {
     private data class MutableTreeNode(val label: String, val children: MutableList<MutableTreeNode> = ArrayList())
 
     private val children: MutableList<WireBox> = ArrayList()
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private var frameTitle: String? = null
     private var frameChildren: MutableList<WireBox>? = null
     private var treeTitle: String? = null
     private var treeItems: MutableList<TreeItem>? = null
     private var tabItems: MutableList<WireBox>? = null
     private val tableRows: MutableList<List<String>> = ArrayList()
-    private var seq: Long = 0L
+    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
             flushTableRows()
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
-        if (acceptOpenBlockLine(trimmed)) return IrPatchBatch(seq, emptyList())
-        if (acceptNestedBlockLine(trimmed)) return IrPatchBatch(seq, emptyList())
+        if (acceptOpenBlockLine(trimmed)) return seq.emptyBatch()
+        if (acceptNestedBlockLine(trimmed)) return seq.emptyBatch()
         if (isWrapperLine(trimmed)) {
             flushTableRows()
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
-        if (acceptTableRow(trimmed)) return IrPatchBatch(seq, emptyList())
+        if (acceptTableRow(trimmed)) return seq.emptyBatch()
         flushTableRows()
         children += parseWidget(trimmed)
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
-        if (blockClosed) return IrPatchBatch(seq, emptyList())
+        if (blockClosed) return seq.emptyBatch()
         val d = Diagnostic(
             severity = Severity.ERROR,
             message = "Missing @endsalt closing delimiter",
             code = "PLANTUML-E017",
         )
         diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 
     fun snapshot(): WireframeIR =
@@ -91,7 +93,7 @@ class PlantUmlSaltParser {
             sourceLanguage = SourceLanguage.PLANTUML,
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 
     private fun isWrapperLine(line: String): Boolean {
         val lower = line.lowercase()

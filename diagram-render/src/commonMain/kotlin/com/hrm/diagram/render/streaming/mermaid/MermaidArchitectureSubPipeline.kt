@@ -19,21 +19,18 @@ import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.PortId
 import com.hrm.diagram.core.ir.PortSide
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
-import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.mermaid.MermaidArchitectureParser
+import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
+import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
 
 internal class MermaidArchitectureSubPipeline(
@@ -42,12 +39,7 @@ internal class MermaidArchitectureSubPipeline(
     private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
 
     private val parser = MermaidArchitectureParser()
-    private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private var graphStyles: MermaidGraphStyleState? = null
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(172f, 72f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(172f, 72f) },
-    )
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -69,6 +61,30 @@ internal class MermaidArchitectureSubPipeline(
             edgeEndpointAdjuster = ::adjustAnchors,
         ),
     )
+    private val measurePolicy = GraphMeasurePolicy(
+        textMeasurer = textMeasurer,
+        defaultSize = Size(172f, 72f),
+        maxWidth = 160f,
+        minWidth = 128f,
+        minHeight = 54f,
+        labelOf = ::labelTextOf,
+        fontOf = { labelFont },
+        customSizeOf = ::measureNodeSize,
+    )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.MERMAID,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(172f, 72f), measurePolicy),
+        postLayout = { ir, laid ->
+            val clusterRects = LinkedHashMap<NodeId, Rect>()
+            for (cluster in ir.clusters) {
+                computeClusterRect(cluster, laid.nodePositions, clusterRects)
+            }
+            normalizeVisibleArea(laid, clusterRects, laid.seq)
+        },
+        renderEntities = { ir, laid -> renderer.render(ir, laid).also { lastDrawEntities = it } },
+    )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
         graphStyles = styles
@@ -80,73 +96,37 @@ internal class MermaidArchitectureSubPipeline(
         seq: Long,
         isFinal: Boolean,
     ): PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        val addedNodeIds = ArrayList<NodeId>()
         for (line in lines) {
-            val batch = parser.acceptLine(line)
-            for (patch in batch.patches) {
-                newPatches += patch
-                if (patch is IrPatch.AddNode) addedNodeIds += patch.node.id
-            }
+            parser.acceptLine(line)
         }
         val ir0 = parser.snapshot()
         val ir = graphStyles?.applyTo(ir0) ?: ir0
-        measureNodes(ir)
-        val baseLaid = layout.layout(
-            previousSnapshot.laidOut,
-            ir,
-            LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in ir.clusters) {
-            computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
-        }
-        val laidOut = normalizeVisibleArea(baseLaid, clusterRects, seq)
-        lastDrawEntities = renderer.render(ir, laidOut)
-        val drawCommands = lastDrawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-        val snapshot = DiagramSnapshot(
-            ir = ir,
-            laidOut = laidOut,
-            drawCommands = drawCommands,
-            diagnostics = parser.diagnosticsSnapshot(),
+        return kernel.advance(
+            previousSnapshot = previousSnapshot,
             seq = seq,
             isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        return PipelineAdvance(
-            snapshot = snapshot,
-            patch = SessionPatch(
-                seq = seq,
-                addedNodes = addedNodeIds,
-                addedEdges = newPatches.filterIsInstance<IrPatch.AddEdge>().map { it.edge },
-                addedDrawCommands = drawCommands,
-                newDiagnostics = newDiagnostics,
-                isFinal = isFinal,
-            ),
-            irBatch = IrPatchBatch(seq, newPatches),
+            ir = ir,
+            diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
     override fun dispose() {
-        nodeSizes.clear()
+        kernel.clear()
+        lastDrawEntities = emptyList()
     }
 
-    private fun measureNodes(ir: GraphIR) {
-        for (node in ir.nodes) {
-            val kind = node.payload[MermaidArchitectureParser.KIND_KEY]
-            when (kind) {
-                "junction" -> nodeSizes[node.id] = Size(18f, 18f)
-                else -> {
-                    val label = labelTextOf(node)
-                    val metrics = textMeasurer.measure(label, labelFont, maxWidth = 160f)
-                    val hasIcon = node.payload[MermaidArchitectureParser.ICON_KEY] != null
-                    val left = if (hasIcon) 56f else 18f
-                    nodeSizes[node.id] = Size(
-                        width = (metrics.width + left + 18f).coerceAtLeast(128f),
-                        height = (metrics.height + 26f).coerceAtLeast(54f),
-                    )
-                }
+    private fun measureNodeSize(node: Node): Size {
+        val kind = node.payload[MermaidArchitectureParser.KIND_KEY]
+        return when (kind) {
+            "junction" -> Size(18f, 18f)
+            else -> {
+                val metrics = textMeasurer.measure(labelTextOf(node), labelFont, maxWidth = 160f)
+                val hasIcon = node.payload[MermaidArchitectureParser.ICON_KEY] != null
+                val left = if (hasIcon) 56f else 18f
+                Size(
+                    width = (metrics.width + left + 18f).coerceAtLeast(128f),
+                    height = (metrics.height + 26f).coerceAtLeast(54f),
+                )
             }
         }
     }
