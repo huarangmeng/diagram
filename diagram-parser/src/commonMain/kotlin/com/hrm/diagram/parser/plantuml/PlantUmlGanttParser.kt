@@ -1,18 +1,17 @@
 package com.hrm.diagram.parser.plantuml
 
 import com.hrm.diagram.core.DiagramApi
-import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.ir.TimeItem
 import com.hrm.diagram.core.ir.TimeRange
 import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.ir.TimeTrack
-import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 import kotlin.math.max
 import kotlin.math.min
 
@@ -63,7 +62,7 @@ class PlantUmlGanttParser {
         val depends: MutableList<String> = ArrayList(),
     )
 
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val tasks: LinkedHashMap<String, Task> = LinkedHashMap()
     private val sectionOrder: MutableList<String> = arrayListOf("default")
     private val resourceOrder: MutableList<String> = ArrayList()
@@ -72,31 +71,31 @@ class PlantUmlGanttParser {
     private var currentSection = "default"
     private var projectStartMs: Long = 0L
     private var title: String? = null
-    private var seq: Long = 0
+    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return IrPatchBatch(seq, emptyList())
-        if (trimmed.equals("@startgantt", ignoreCase = true) || trimmed.equals("@endgantt", ignoreCase = true)) return IrPatchBatch(seq, emptyList())
+        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
+        if (trimmed.equals("@startgantt", ignoreCase = true) || trimmed.equals("@endgantt", ignoreCase = true)) return seq.emptyBatch()
         if (trimmed.startsWith("title ", ignoreCase = true)) {
             title = trimmed.substringAfter(' ').trim().ifBlank { title }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (trimmed.startsWith("Project starts", ignoreCase = true)) {
             PlantUmlTemporalSupport.parseDate(trimmed.substringAfter("starts").trim())?.let { projectStartMs = it }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         parseClosedLine(trimmed)?.let { return it }
         parseNote(trimmed)?.let { return it }
         if (trimmed.startsWith("--") && trimmed.endsWith("--")) {
             currentSection = trimmed.trim('-').trim().ifBlank { "section" }
             if (currentSection !in sectionOrder) sectionOrder += currentSection
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         parseDependency(trimmed)?.let { (from, to) ->
             task(to).depends += from
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         val taskName = bracketName(trimmed) ?: return errorBatch("Invalid PlantUML gantt line: $trimmed")
         val task = task(taskName)
@@ -146,14 +145,12 @@ class PlantUmlGanttParser {
             rest.isBlank() -> Unit
             else -> return errorBatch("Unsupported PlantUML gantt task operation: $trimmed")
         }
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
-        if (blockClosed) return IrPatchBatch(seq, emptyList())
-        val d = Diagnostic(Severity.ERROR, "Missing @endgantt closing delimiter", "PLANTUML-E015")
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        if (blockClosed) return seq.emptyBatch()
+        return errorBatch("Missing @endgantt closing delimiter")
     }
 
     fun snapshot(): TimeSeriesIR {
@@ -213,7 +210,7 @@ class PlantUmlGanttParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
 
     private fun task(name: String): Task {
         val id = PlantUmlTemporalSupport.slug(name)
@@ -230,7 +227,7 @@ class PlantUmlGanttParser {
         val taskName = m.groupValues[1].trim()
         val text = m.groupValues[2].trim()
         if (taskName.isNotEmpty() && text.isNotEmpty()) task(taskName).note = text
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     private fun bracketName(line: String): String? {
@@ -251,14 +248,14 @@ class PlantUmlGanttParser {
     private fun parseClosedLine(line: String): IrPatchBatch? {
         WEEKDAY_CLOSED.matchEntire(line)?.let { m ->
             weekdayIndex(m.groupValues[1])?.let { closedWeekdays += it }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         DATE_CLOSED.matchEntire(line)?.let { m ->
             val start = PlantUmlTemporalSupport.parseDate(m.groupValues[1]) ?: return errorBatch("Invalid PlantUML gantt closed date: $line")
             val endRaw = m.groupValues.getOrNull(2).orEmpty()
             val end = if (endRaw.isNotBlank()) PlantUmlTemporalSupport.parseDate(endRaw) ?: return errorBatch("Invalid PlantUML gantt closed date: $line") else start
             closedRanges += TimeRange(min(start, end), max(start, end) + PlantUmlTemporalSupport.MS_PER_DAY)
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         return null
     }
@@ -313,9 +310,7 @@ class PlantUmlGanttParser {
         }
 
     private fun errorBatch(message: String): IrPatchBatch {
-        val d = Diagnostic(Severity.ERROR, message, "PLANTUML-E015")
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return seq.diagnosticBatch(diagnostics.error(message, "PLANTUML-E015"))
     }
 
     private fun String.removePrefixIgnoreCase(prefix: String): String =

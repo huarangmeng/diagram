@@ -19,6 +19,7 @@ internal class GraphMeasurePolicy(
     private val labelOf: (Node) -> String = { graphLabelText(it.label).ifBlank { it.id.value } },
     private val fontOf: (Node) -> FontSpec,
     private val paddingOf: (Node) -> Pair<Float, Float> = ::defaultPadding,
+    private val customSizeOf: (Node) -> Size? = { null },
 ) {
     private val sizes: MutableMap<NodeId, Size> = LinkedHashMap()
     private val metrics: MutableMap<NodeId, TextMetrics> = LinkedHashMap()
@@ -30,6 +31,11 @@ internal class GraphMeasurePolicy(
     fun measure(ir: GraphIR, remeasure: Boolean) {
         for (node in ir.nodes) {
             if (!remeasure && node.id in sizes) continue
+            val customSize = customSizeOf(node)
+            if (customSize != null) {
+                sizes[node.id] = customSize
+                continue
+            }
             val raw = textMeasurer.measure(labelOf(node), fontOf(node), maxWidth = maxWidth)
             val (padX, padY) = paddingOf(node)
             val width = (raw.width + padX * 2f).coerceAtLeast(minWidth)

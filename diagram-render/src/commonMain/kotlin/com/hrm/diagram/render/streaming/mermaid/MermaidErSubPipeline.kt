@@ -18,20 +18,17 @@ import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
-import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.core.text.TextMetrics
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.mermaid.MermaidErParser
+import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
+import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
 
 /** Sub-pipeline for Mermaid `erDiagram` sources (Phase 1 subset). */
@@ -46,15 +43,35 @@ internal class MermaidErSubPipeline(
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val flagFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
     private val relationFont = FontSpec(family = "sans-serif", sizeSp = 11f)
-    private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val nodeMetrics: MutableMap<NodeId, TextMetrics> = HashMap()
     private val attrBadge: MutableMap<NodeId, BadgeLayout?> = HashMap()
     private val relBadge: MutableMap<Int, RelationshipBadgeLayout?> = HashMap()
     private val entityEmbedded: MutableMap<NodeId, EntityEmbeddedLayout?> = HashMap()
     private var graphStyles: MermaidGraphStyleState? = null
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(140f, 56f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(140f, 56f) },
+    private var currentAttrEdgesByEntity: Map<NodeId, List<Node>> = emptyMap()
+    private var currentIsFinal: Boolean = false
+    private val measurePolicy = GraphMeasurePolicy(
+        textMeasurer = textMeasurer,
+        defaultSize = Size(140f, 56f),
+        maxWidth = 260f,
+        minWidth = 104f,
+        minHeight = 48f,
+        labelOf = ::labelTextOf,
+        fontOf = ::fontForNode,
+        customSizeOf = { node ->
+            val (size, metrics) = measureNode(node, isFinal = currentIsFinal, attrs = currentAttrEdgesByEntity[node.id].orEmpty())
+            nodeMetrics[node.id] = metrics
+            size
+        },
+    )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.MERMAID,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(140f, 56f), measurePolicy),
+        renderEntities = { graph, laid ->
+            renderDraw(graph, laid, isFinal = currentIsFinal).also { lastDrawEntities = it }
+        },
     )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
@@ -67,19 +84,14 @@ internal class MermaidErSubPipeline(
         seq: Long,
         isFinal: Boolean,
     ): PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        val addedNodeIds = ArrayList<NodeId>()
         for (lineToks in lines) {
-            val batch: IrPatchBatch = parser.acceptLine(lineToks)
-            for (p in batch.patches) {
-                newPatches += p
-                if (p is IrPatch.AddNode) addedNodeIds += p.node.id
-            }
+            parser.acceptLine(lineToks)
         }
 
         val ir0: GraphIR = parser.snapshot()
         val ir: GraphIR = graphStyles?.applyTo(ir0) ?: ir0
         val needRemeasure = isFinal
+        currentIsFinal = isFinal
 
         // Precompute attribute groupings for embedded rendering.
         val attrById: Map<NodeId, Node> = ir.nodes
@@ -92,6 +104,7 @@ internal class MermaidErSubPipeline(
             .filter { it.value.label == null } // attribute helper edges
             .mapNotNull { (_, e) -> attrById[e.to]?.let { e.from to it } }
             .groupBy({ it.first }, { it.second })
+        currentAttrEdgesByEntity = attrEdgesByEntity
 
         // Precompute badge layouts (layout-stage measurement) so render never measures.
         // - Attribute flag badge (PK/FK/UK)
@@ -116,53 +129,24 @@ internal class MermaidErSubPipeline(
             if (!needRemeasure && idx in relBadge) continue
             relBadge[idx] = relationshipBadgeLayoutOf(e)
         }
-        for (n in ir.nodes) {
-            if (!needRemeasure && n.id in nodeSizes) continue
-            val (size, metrics) = measureNode(n, isFinal = isFinal, attrs = attrEdgesByEntity[n.id].orEmpty())
-            nodeSizes[n.id] = size
-            nodeMetrics[n.id] = metrics
-        }
-        val opts = LayoutOptions(
-            direction = ir.styleHints.direction,
-            incremental = !isFinal,
-            allowGlobalReflow = isFinal,
-        )
-        val laidOut: LaidOutDiagram = layout.layout(previousSnapshot.laidOut, ir, opts).copy(seq = seq)
-        val drawEntities = renderDraw(ir, laidOut, isFinal = isFinal)
-        val drawCommands = drawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-
-        val snapshot = DiagramSnapshot(
+        return kernel.advance(
+            previousSnapshot = previousSnapshot,
+            seq = seq,
+            isFinal = isFinal,
             ir = ir,
-            laidOut = laidOut,
-            drawCommands = drawCommands,
             diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        val patch = SessionPatch(
-            seq = seq,
-            addedNodes = addedNodeIds,
-            addedEdges = newPatches.filterIsInstance<IrPatch.AddEdge>().map { it.edge },
-            addedDrawCommands = drawCommands,
-            newDiagnostics = newDiagnostics,
-            isFinal = isFinal,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(
-            snapshot = snapshot,
-            patch = patch,
-            irBatch = IrPatchBatch(seq, newPatches),
         )
     }
 
     override fun dispose() {
-        nodeSizes.clear()
         nodeMetrics.clear()
         attrBadge.clear()
         relBadge.clear()
         entityEmbedded.clear()
+        currentAttrEdgesByEntity = emptyMap()
+        currentIsFinal = false
+        kernel.clear()
+        lastDrawEntities = emptyList()
     }
 
     private fun labelTextOf(n: Node): String =

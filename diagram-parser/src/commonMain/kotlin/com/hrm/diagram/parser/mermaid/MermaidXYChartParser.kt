@@ -2,18 +2,17 @@ package com.hrm.diagram.parser.mermaid
 
 import com.hrm.diagram.core.ir.Axis
 import com.hrm.diagram.core.ir.AxisKind
-import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.Direction
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.Series
 import com.hrm.diagram.core.ir.SeriesKind
-import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.ir.XYChartIR
-import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for Mermaid `xychart` / `xychart-beta`.
@@ -30,8 +29,8 @@ import com.hrm.diagram.core.streaming.Token
  * - numeric x-axis => xs are evenly interpolated across declared min..max
  */
 class MermaidXYChartParser {
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
-    private var seq: Long = 0
+    private val diagnostics = ParserDiagnosticSink()
+    private val seq = ParserSessionSeq()
     private var headerSeen = false
 
     private var title: String? = null
@@ -50,21 +49,21 @@ class MermaidXYChartParser {
     private val series: MutableList<Pair<SeriesKind, List<Double>>> = ArrayList()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq++
-        if (line.isEmpty()) return IrPatchBatch(seq, emptyList())
+        seq.next()
+        if (line.isEmpty()) return seq.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return IrPatchBatch(seq, emptyList())
+        if (toks.isEmpty()) return seq.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
-            val first = toks.firstOrNull() ?: return IrPatchBatch(seq, emptyList())
+            val first = toks.firstOrNull() ?: return seq.emptyBatch()
             if (first.kind == MermaidTokenKind.XYCHART_HEADER) {
                 headerSeen = true
                 if (toks.any { it.kind == MermaidTokenKind.IDENT && it.text.toString() == "horizontal" }) {
                     orientation = "horizontal"
                 }
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return errorBatch("Expected 'xychart' header")
         }
@@ -80,9 +79,9 @@ class MermaidXYChartParser {
             s.startsWith("line ") -> parseSeries(SeriesKind.Line, s.removePrefix("line ").trim())
             s.startsWith("scatter ") -> parseSeries(SeriesKind.Scatter, s.removePrefix("scatter ").trim())
             s.startsWith("area ") -> parseSeries(SeriesKind.Area, s.removePrefix("area ").trim())
-            else -> diagnostics += Diagnostic(Severity.WARNING, "Unsupported xyChart line ignored: $s", "MERMAID-W012")
+            else -> diagnostics.warning("Unsupported xyChart line ignored: $s", "MERMAID-W012")
         }
-        return IrPatchBatch(seq, emptyList())
+        return seq.emptyBatch()
     }
 
     fun snapshot(): XYChartIR {
@@ -125,7 +124,7 @@ class MermaidXYChartParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
 
     private fun parseXAxis(spec: String) {
         // categorical: "title" [a,b,c]  OR [a,b,c]
@@ -154,7 +153,7 @@ class MermaidXYChartParser {
             }
             return
         }
-        diagnostics += Diagnostic(Severity.WARNING, "Unsupported x-axis spec ignored: $spec", "MERMAID-W012")
+        diagnostics.warning("Unsupported x-axis spec ignored: $spec", "MERMAID-W012")
     }
 
     private fun parseYAxis(spec: String) {
@@ -178,7 +177,7 @@ class MermaidXYChartParser {
 
     private fun parseSeries(kind: SeriesKind, spec: String) {
         if (!spec.startsWith("[") || !spec.endsWith("]")) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid ${kind.name.lowercase()} series syntax", "MERMAID-E206")
+            diagnostics.error("Invalid ${kind.name.lowercase()} series syntax", "MERMAID-E206")
             return
         }
         val values = parseNumbers(spec)
@@ -244,8 +243,6 @@ class MermaidXYChartParser {
             .trim()
 
     private fun errorBatch(message: String): IrPatchBatch {
-        val d = Diagnostic(Severity.ERROR, message, "MERMAID-E206")
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return seq.diagnosticBatch(diagnostics.error(message, "MERMAID-E206"))
     }
 }

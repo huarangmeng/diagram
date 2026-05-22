@@ -47,10 +47,7 @@ internal class PlantUmlSessionPipeline(
     private var blockStarted: Boolean = false
     private var blockClosed: Boolean = false
     private val bufferedBodyLines: MutableList<String> = ArrayList()
-    private val bufferedSkinparamLines: MutableList<String> = ArrayList()
-    private var bufferingSkinparamBlock: Boolean = false
-    private var bufferingStyleBlock: Boolean = false
-    private var ignoredSkinparamBlock: Boolean = false
+    private val styleState = PlantUmlLanguageStyleState()
     private val subPipelineRegistry = PlantUmlSubPipelineRegistry(textMeasurer)
     private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
     private val subPipeline: PlantUmlSubPipeline?
@@ -141,27 +138,20 @@ internal class PlantUmlSessionPipeline(
             blockClosed = true
             return
         }
-        if (bufferingSkinparamBlock) {
-            bufferedSkinparamLines += trimmed
-            if (trimmed == "}") bufferingSkinparamBlock = false
-            return
-        }
-        if (ignoredSkinparamBlock) {
-            if (trimmed == "}") ignoredSkinparamBlock = false
-            return
-        }
-        if (bufferingStyleBlock) {
+        if (styleState.continueBufferedSkinparam(trimmed)) return
+        if (styleState.continueIgnoredSkinparam(trimmed)) return
+        if (styleState.bufferingStyleBlock) {
             val chosen = subPipeline
             if (chosen != null) {
                 out += chosen.acceptLine(trimmed).patches
             } else {
                 bufferedBodyLines += trimmed
             }
-            if (trimmed.equals("</style>", ignoreCase = true)) bufferingStyleBlock = false
+            if (trimmed.equals("</style>", ignoreCase = true)) styleState.bufferingStyleBlock = false
             return
         }
         if (trimmed.equals("<style>", ignoreCase = true) || trimmed.startsWith("<style ", ignoreCase = true)) {
-            bufferingStyleBlock = true
+            styleState.bufferingStyleBlock = true
             val chosen = subPipeline
             if (chosen != null) {
                 out += chosen.acceptLine(trimmed).patches
@@ -177,10 +167,9 @@ internal class PlantUmlSessionPipeline(
                 out += chosen.acceptLine(trimmed).patches
             } else if (chosen != null) {
                 out += ignoredSkinparamWarning()
-                if (trimmed.endsWith("{")) ignoredSkinparamBlock = true
+                if (trimmed.endsWith("{")) styleState.ignoredSkinparamBlock = true
             } else {
-                bufferedSkinparamLines += trimmed
-                if (trimmed.endsWith("{")) bufferingSkinparamBlock = true
+                styleState.appendBufferedSkinparam(trimmed)
             }
             return
         }
@@ -209,15 +198,15 @@ internal class PlantUmlSessionPipeline(
     private fun attachSubPipeline(kind: PlantUmlDiagramKind, out: MutableList<IrPatch>) {
         if (subPipeline != null) return
         val selected = dispatcher.attach(kind) ?: return
-        if (bufferedSkinparamLines.isNotEmpty()) {
-            for (line in bufferedSkinparamLines) {
+        if (styleState.bufferedSkinparamLines.isNotEmpty()) {
+            for (line in styleState.bufferedSkinparamLines) {
                 if (subPipelineRegistry.acceptsBufferedSkinparamLine(kind, line)) {
                     out += selected.acceptLine(line).patches
                 } else {
                     out += ignoredSkinparamWarning()
                 }
             }
-            bufferedSkinparamLines.clear()
+            styleState.bufferedSkinparamLines.clear()
         }
         val pending = bufferedBodyLines.toList()
         bufferedBodyLines.clear()
@@ -735,7 +724,7 @@ internal class PlantUmlSessionPipeline(
         diagnosticsAll.clear()
         rawPending = ""
         bufferedBodyLines.clear()
-        bufferedSkinparamLines.clear()
+        styleState.reset()
         dispatcher.clear()
     }
 

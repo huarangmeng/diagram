@@ -25,6 +25,14 @@ internal class MermaidGraphStyleState {
     /** Mermaid linkStyle index is 1-based and follows edge definition order. */
     var linkByIndex: Map<Int, MermaidStyleDecl> = emptyMap()
 
+    fun clear() {
+        classDefs = emptyMap()
+        nodeClassBindings = emptyMap()
+        nodeInline = emptyMap()
+        linkDefault = null
+        linkByIndex = emptyMap()
+    }
+
     fun applyTo(ir: GraphIR): GraphIR {
         if (classDefs.isEmpty() && nodeClassBindings.isEmpty() && nodeInline.isEmpty() && linkDefault == null && linkByIndex.isEmpty()) {
             return ir
@@ -99,4 +107,3 @@ internal class MermaidGraphStyleState {
         )
     }
 }
-

@@ -19,15 +19,15 @@ import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlDeploymentParser
+import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -51,14 +51,39 @@ internal class PlantUmlDeploymentSubPipeline(
     )
 
     private val parser = PlantUmlDeploymentParser()
-    private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(176f, 76f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(176f, 76f) },
-    )
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+    private var currentPalette: DeploymentPalette = DeploymentPalette(emptyMap(), null)
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+    private val measurePolicy = GraphMeasurePolicy(
+        textMeasurer = textMeasurer,
+        defaultSize = Size(176f, 76f),
+        maxWidth = 180f,
+        minWidth = 124f,
+        minHeight = 56f,
+        labelOf = ::labelTextOf,
+        fontOf = { node -> scopedFont(currentPalette.scopes[node.payload[PlantUmlDeploymentParser.KIND_KEY]], labelFont) },
+        customSizeOf = { node -> measureNodeSize(node, currentPalette) },
+    )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.PLANTUML,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(176f, 76f), measurePolicy),
+        postLayout = { ir, laid ->
+            val clusterRects = LinkedHashMap<NodeId, Rect>()
+            for (cluster in ir.clusters) computeClusterRect(cluster, laid.nodePositions, clusterRects, currentPalette)
+            applyAnchoredNotes(
+                ir,
+                laid.copy(
+                    clusterRects = clusterRects,
+                    bounds = computeBounds(laid.nodePositions.values + clusterRects.values),
+                ),
+            )
+        },
+        renderEntities = { ir, laid -> render(ir, laid, currentPalette).also { lastDrawEntities = it } },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -67,46 +92,40 @@ internal class PlantUmlDeploymentSubPipeline(
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val rawIr = parser.snapshot()
         val palette = paletteOf(rawIr)
+        currentPalette = palette
         val ir = applyPalette(rawIr, palette)
-        measureNodes(ir, palette)
-        val baseLaid = layout.layout(
-            previousSnapshot.laidOut,
-            ir,
-            LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in ir.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects, palette)
-        val laidOutWithClusters = baseLaid.copy(
-            clusterRects = clusterRects,
-            bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values),
+        val advance = kernel.advance(
+            previousSnapshot = previousSnapshot,
             seq = seq,
+            isFinal = isFinal,
+            ir = ir,
+            diagnostics = parser.diagnosticsSnapshot(),
         )
-        val laidOut = applyAnchoredNotes(ir, laidOutWithClusters)
         return PlantUmlRenderState(
             ir = ir,
-            laidOut = laidOut,
-            drawEntities = render(ir, laidOut, palette),
+            laidOut = requireNotNull(advance.snapshot.laidOut),
+            drawEntities = lastDrawEntities,
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
     override fun dispose() {
-        nodeSizes.clear()
+        currentPalette = DeploymentPalette(emptyMap(), null)
+        lastDrawEntities = emptyList()
+        kernel.clear()
     }
 
-    private fun measureNodes(ir: GraphIR, palette: DeploymentPalette) {
-        for (node in ir.nodes) {
-            val label = labelTextOf(node)
-            val kind = node.payload[PlantUmlDeploymentParser.KIND_KEY]
-            val metrics = textMeasurer.measure(label, scopedFont(palette.scopes[kind], labelFont), maxWidth = 180f)
-            nodeSizes[node.id] = when (kind) {
-                "actor" -> Size((metrics.width + 36f).coerceAtLeast(120f), (metrics.height + 68f).coerceAtLeast(92f))
-                "database" -> Size((metrics.width + 42f).coerceAtLeast(136f), (metrics.height + 34f).coerceAtLeast(64f))
-                "storage" -> Size((metrics.width + 42f).coerceAtLeast(136f), (metrics.height + 34f).coerceAtLeast(64f))
-                "cloud" -> Size((metrics.width + 48f).coerceAtLeast(152f), (metrics.height + 34f).coerceAtLeast(72f))
-                "artifact", "queue", "note" -> Size((metrics.width + 34f).coerceAtLeast(124f), (metrics.height + 28f).coerceAtLeast(56f))
-                else -> Size((metrics.width + 36f).coerceAtLeast(140f), (metrics.height + 28f).coerceAtLeast(60f))
-            }
+    private fun measureNodeSize(node: Node, palette: DeploymentPalette): Size {
+        val label = labelTextOf(node)
+        val kind = node.payload[PlantUmlDeploymentParser.KIND_KEY]
+        val metrics = textMeasurer.measure(label, scopedFont(palette.scopes[kind], labelFont), maxWidth = 180f)
+        return when (kind) {
+            "actor" -> Size((metrics.width + 36f).coerceAtLeast(120f), (metrics.height + 68f).coerceAtLeast(92f))
+            "database" -> Size((metrics.width + 42f).coerceAtLeast(136f), (metrics.height + 34f).coerceAtLeast(64f))
+            "storage" -> Size((metrics.width + 42f).coerceAtLeast(136f), (metrics.height + 34f).coerceAtLeast(64f))
+            "cloud" -> Size((metrics.width + 48f).coerceAtLeast(152f), (metrics.height + 34f).coerceAtLeast(72f))
+            "artifact", "queue", "note" -> Size((metrics.width + 34f).coerceAtLeast(124f), (metrics.height + 28f).coerceAtLeast(56f))
+            else -> Size((metrics.width + 36f).coerceAtLeast(140f), (metrics.height + 28f).coerceAtLeast(60f))
         }
     }
 

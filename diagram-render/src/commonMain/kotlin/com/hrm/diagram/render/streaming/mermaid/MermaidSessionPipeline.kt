@@ -48,19 +48,7 @@ internal class MermaidSessionPipeline(
         get() = dispatcher.current
     private var headerHint: MermaidDiagramKind? = null
 
-    // --- Style parsing state (Phase 1: themeVariables + classDef) ---
-    private var rawPending: String = ""
-    private var rawPendingAbsoluteOffset: Int = 0
-    private var frontmatterStripped: Boolean = false
-    private var styleConfig: MermaidStyleConfig? = null
-    private val styleClasses: LinkedHashMap<String, MermaidStyleDecl> = LinkedHashMap()
-    private val nodeClassBindings: LinkedHashMap<NodeId, MutableList<String>> = LinkedHashMap()
-    private val nodeInlineStyles: LinkedHashMap<NodeId, MermaidStyleDecl> = LinkedHashMap()
-    private var linkStyleDefault: MermaidStyleDecl? = null
-    private val linkStyleByIndex: LinkedHashMap<Int, MermaidStyleDecl> = LinkedHashMap()
-    private val styleDiagnosticsAll: MutableList<Diagnostic> = ArrayList()
-    private var cachedStyleExtras: Map<String, String> = emptyMap()
-    private val graphStyleState: MermaidGraphStyleState = MermaidGraphStyleState()
+    private val styleState = MermaidLanguageStyleState()
 
     override fun advance(
         previousSnapshot: DiagramSnapshot,
@@ -70,7 +58,7 @@ internal class MermaidSessionPipeline(
         isFinal: Boolean,
     ): PipelineAdvance {
         val pre = preprocessForStyle(chunk, absoluteOffset, isFinal)
-        styleDiagnosticsAll += pre.newStyleDiagnostics
+        styleState.diagnosticsAll += pre.newStyleDiagnostics
 
         if (pre.lexerFeeds.isEmpty()) {
             // Still need to advance lexer state on EOS so pending is flushed deterministically.
@@ -141,12 +129,12 @@ internal class MermaidSessionPipeline(
         } else lines
 
         // Make the latest style state available to graph-based sub-pipelines.
-        graphStyleState.classDefs = styleClasses.toMap()
-        graphStyleState.nodeClassBindings = nodeClassBindings.mapValues { it.value.toList() }
-        graphStyleState.nodeInline = nodeInlineStyles.toMap()
-        graphStyleState.linkDefault = linkStyleDefault
-        graphStyleState.linkByIndex = linkStyleByIndex.toMap()
-        sub!!.updateGraphStyles(graphStyleState)
+        styleState.graphStyleState.classDefs = styleState.styleClasses.toMap()
+        styleState.graphStyleState.nodeClassBindings = styleState.nodeClassBindings.mapValues { it.value.toList() }
+        styleState.graphStyleState.nodeInline = styleState.nodeInlineStyles.toMap()
+        styleState.graphStyleState.linkDefault = styleState.linkStyleDefault
+        styleState.graphStyleState.linkByIndex = styleState.linkStyleByIndex.toMap()
+        sub!!.updateGraphStyles(styleState.graphStyleState)
         sub!!.updateStyleExtras(ensureStyleExtrasCached())
 
         return wrapWithStyleDiagnosticsAndHints(
@@ -206,36 +194,36 @@ internal class MermaidSessionPipeline(
     private fun preprocessForStyle(chunk: CharSequence, absoluteOffset: Int, isFinal: Boolean): StylePreprocessResult {
         // Merge with previous raw pending (line buffering) similar to the lexer.
         val buf = buildString {
-            append(rawPending)
+            append(styleState.rawPending)
             append(chunk)
         }
-        val baseOffset = absoluteOffset - rawPending.length
-        rawPendingAbsoluteOffset = baseOffset
-        rawPending = ""
+        val baseOffset = absoluteOffset - styleState.rawPending.length
+        styleState.rawPendingAbsoluteOffset = baseOffset
+        styleState.rawPending = ""
 
         val newDiags = ArrayList<Diagnostic>()
         var startIdx = 0
 
         // Frontmatter stripping: only once, only if it appears at the very beginning.
-        if (!frontmatterStripped && baseOffset == 0) {
+        if (!styleState.frontmatterStripped && baseOffset == 0) {
             val fm = tryStripFrontmatter(buf)
             if (fm != null) {
-                frontmatterStripped = true
+                styleState.frontmatterStripped = true
                 startIdx = fm.endIdxExclusive
                 // Always strip frontmatter from lexer input; if it contains theme config, parse it.
                 val r = MermaidStyleParsers.parseFrontmatterThemeConfig(fm.text)
                 if (r != null) {
-                    styleConfig = r.config
+                    styleState.styleConfig = r.config
                     newDiags += r.diagnostics
-                    cachedStyleExtras = emptyMap()
+                    styleState.cachedStyleExtras = emptyMap()
                 }
             } else if (buf.startsWith("---") && !isFinal) {
                 // Potential frontmatter split across chunks; keep buffering until closed.
-                rawPending = buf
+                styleState.rawPending = buf
                 return StylePreprocessResult(emptyList(), emptyList())
             } else {
                 // No frontmatter.
-                frontmatterStripped = true
+                styleState.frontmatterStripped = true
             }
         }
 
@@ -283,9 +271,9 @@ internal class MermaidSessionPipeline(
                 }
                 val parsed = MermaidStyleParsers.parseClassDefLine(trimmedLeading.trimEnd())
                 if (parsed != null) {
-                    for (cls in parsed.classes) styleClasses[cls.name] = cls.decl
+                    for (cls in parsed.classes) styleState.styleClasses[cls.name] = cls.decl
                     newDiags += parsed.diagnostics
-                    cachedStyleExtras = emptyMap()
+                    styleState.cachedStyleExtras = emptyMap()
                 }
                 // This line is skipped from lexer input.
                 runStart = null
@@ -303,11 +291,11 @@ internal class MermaidSessionPipeline(
                 if (parsed != null) {
                     for (rawId in parsed.nodeIds) {
                         val id = NodeId(rawId)
-                        val list = nodeClassBindings.getOrPut(id) { ArrayList() }
+                        val list = styleState.nodeClassBindings.getOrPut(id) { ArrayList() }
                         list.addAll(parsed.classNames)
                     }
                     newDiags += parsed.diagnostics
-                    cachedStyleExtras = emptyMap()
+                    styleState.cachedStyleExtras = emptyMap()
                 }
                 // This line is skipped from lexer input.
                 runStart = null
@@ -323,10 +311,10 @@ internal class MermaidSessionPipeline(
                 val parsed = MermaidStyleParsers.parseNodeStyleLine(trimmedLeading.trimEnd())
                 if (parsed != null) {
                     for (rawId in parsed.nodeIds) {
-                        nodeInlineStyles[NodeId(rawId)] = parsed.decl
+                        styleState.nodeInlineStyles[NodeId(rawId)] = parsed.decl
                     }
                     newDiags += parsed.diagnostics
-                    cachedStyleExtras = emptyMap()
+                    styleState.cachedStyleExtras = emptyMap()
                 }
                 // This line is skipped from lexer input.
                 runStart = null
@@ -342,12 +330,12 @@ internal class MermaidSessionPipeline(
                 val parsed = MermaidStyleParsers.parseLinkStyleLine(trimmedLeading.trimEnd())
                 if (parsed != null) {
                     if (parsed.isDefault) {
-                        linkStyleDefault = parsed.decl
+                        styleState.linkStyleDefault = parsed.decl
                     } else {
-                        for (idx in parsed.indexes) linkStyleByIndex[idx] = parsed.decl
+                        for (idx in parsed.indexes) styleState.linkStyleByIndex[idx] = parsed.decl
                     }
                     newDiags += parsed.diagnostics
-                    cachedStyleExtras = emptyMap()
+                    styleState.cachedStyleExtras = emptyMap()
                 }
                 // This line is skipped from lexer input.
                 runStart = null
@@ -365,7 +353,7 @@ internal class MermaidSessionPipeline(
                         runStart = null
                     }
                     for ((id, classes) in r.bindings) {
-                        val list = nodeClassBindings.getOrPut(id) { ArrayList() }
+                        val list = styleState.nodeClassBindings.getOrPut(id) { ArrayList() }
                         list.addAll(classes)
                     }
                     feeds += LexerFeed(
@@ -374,7 +362,7 @@ internal class MermaidSessionPipeline(
                         endAbsoluteOffset = baseOffset + lineEndExclusive,
                     )
                     newDiags += r.diagnostics
-                    cachedStyleExtras = emptyMap()
+                    styleState.cachedStyleExtras = emptyMap()
                     runStart = lineEndExclusive
                 } else {
                     if (runStart == null) runStart = lineStart
@@ -408,9 +396,9 @@ internal class MermaidSessionPipeline(
                 if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
                     val parsed = MermaidStyleParsers.parseClassDefLine(trimmedLeading.trimEnd())
                     if (parsed != null) {
-                        for (cls in parsed.classes) styleClasses[cls.name] = cls.decl
+                        for (cls in parsed.classes) styleState.styleClasses[cls.name] = cls.decl
                         newDiags += parsed.diagnostics
-                        cachedStyleExtras = emptyMap()
+                        styleState.cachedStyleExtras = emptyMap()
                     }
                     // Do not feed to lexer.
                 } else if (allowClassAssignDirective && trimmedLeading.startsWith("class ")) {
@@ -418,35 +406,35 @@ internal class MermaidSessionPipeline(
                     if (parsed != null) {
                         for (rawId in parsed.nodeIds) {
                             val id = NodeId(rawId)
-                            val list = nodeClassBindings.getOrPut(id) { ArrayList() }
+                            val list = styleState.nodeClassBindings.getOrPut(id) { ArrayList() }
                             list.addAll(parsed.classNames)
                         }
                         newDiags += parsed.diagnostics
-                        cachedStyleExtras = emptyMap()
+                        styleState.cachedStyleExtras = emptyMap()
                     }
                 } else if (allowStyleDirectives && trimmedLeading.startsWith("style ")) {
                     val parsed = MermaidStyleParsers.parseNodeStyleLine(trimmedLeading.trimEnd())
                     if (parsed != null) {
-                        for (rawId in parsed.nodeIds) nodeInlineStyles[NodeId(rawId)] = parsed.decl
+                        for (rawId in parsed.nodeIds) styleState.nodeInlineStyles[NodeId(rawId)] = parsed.decl
                         newDiags += parsed.diagnostics
-                        cachedStyleExtras = emptyMap()
+                        styleState.cachedStyleExtras = emptyMap()
                     }
                 } else if (allowStyleDirectives && trimmedLeading.startsWith("linkStyle ")) {
                     val parsed = MermaidStyleParsers.parseLinkStyleLine(trimmedLeading.trimEnd())
                     if (parsed != null) {
                         if (parsed.isDefault) {
-                            linkStyleDefault = parsed.decl
+                            styleState.linkStyleDefault = parsed.decl
                         } else {
-                            for (idx in parsed.indexes) linkStyleByIndex[idx] = parsed.decl
+                            for (idx in parsed.indexes) styleState.linkStyleByIndex[idx] = parsed.decl
                         }
                         newDiags += parsed.diagnostics
-                        cachedStyleExtras = emptyMap()
+                        styleState.cachedStyleExtras = emptyMap()
                     }
                 } else if (allowTripleColonRewrite && trimmedLeading.contains(":::")) {
                     val r = extractTripleColonClasses(tail)
                     if (r != null) {
                         for ((id, classes) in r.bindings) {
-                            val list = nodeClassBindings.getOrPut(id) { ArrayList() }
+                            val list = styleState.nodeClassBindings.getOrPut(id) { ArrayList() }
                             list.addAll(classes)
                         }
                         // Feed the rewritten tail directly, keeping same absolute offsets for this tail range.
@@ -456,7 +444,7 @@ internal class MermaidSessionPipeline(
                             endAbsoluteOffset = baseOffset + tailStart + r.rewrittenLine.length,
                         )
                         newDiags += r.diagnostics
-                        cachedStyleExtras = emptyMap()
+                        styleState.cachedStyleExtras = emptyMap()
                     } else {
                         if (runStart == null) runStart = tailStart
                     }
@@ -466,7 +454,7 @@ internal class MermaidSessionPipeline(
             }
         } else {
             // Buffer tail to ensure we never split a style line across chunks.
-            rawPending = tail
+            styleState.rawPending = tail
         }
 
         // Flush last kept run.
@@ -507,10 +495,10 @@ internal class MermaidSessionPipeline(
     private fun wrapWithStyleDiagnosticsAndHints(advance: PipelineAdvance, newStyleDiags: List<Diagnostic>): PipelineAdvance {
         val styledSnapshot = injectStyleHints(advance.snapshot)
         val drawEntities = sub.drawEntitiesOrEmpty(styledSnapshot)
-        val diagnostics = if (styleDiagnosticsAll.isEmpty()) {
+        val diagnostics = if (styleState.diagnosticsAll.isEmpty()) {
             styledSnapshot.diagnostics
         } else {
-            styledSnapshot.diagnostics + styleDiagnosticsAll
+            styledSnapshot.diagnostics + styleState.diagnosticsAll
         }
         return familyKernel.finalizeAdvance(
             advance = advance.copy(snapshot = styledSnapshot),
@@ -542,7 +530,7 @@ internal class MermaidSessionPipeline(
     }
 
     private fun mergeHints(old: StyleHints, styleExtras: Map<String, String>): StyleHints {
-        val themeName = styleConfig?.theme?.name?.lowercase()
+        val themeName = styleState.styleConfig?.theme?.name?.lowercase()
         val mergedExtras = if (old.extras.isEmpty()) styleExtras else old.extras + styleExtras
         return old.copy(
             theme = themeName ?: old.theme,
@@ -552,20 +540,20 @@ internal class MermaidSessionPipeline(
 
     private fun ensureStyleExtrasCached(): Map<String, String> {
         // Rebuild lazily only when we have new style inputs and cache is empty.
-        if (cachedStyleExtras.isNotEmpty()) return cachedStyleExtras
+        if (styleState.cachedStyleExtras.isNotEmpty()) return styleState.cachedStyleExtras
         val out = LinkedHashMap<String, String>()
-        val cfg = styleConfig
+        val cfg = styleState.styleConfig
         if (cfg != null) {
             out["mermaid.styleModelVersion"] = "1"
             cfg.theme?.let { out["mermaid.theme"] = it.name.lowercase() }
             cfg.themeTokens?.let { out["mermaid.themeTokens"] = MermaidStyleExtrasCodec.encodeThemeTokens(it) }
             for ((k, v) in cfg.chartConfig) out["mermaid.config.$k"] = v
         }
-        if (styleClasses.isNotEmpty()) {
-            out["mermaid.classDefs"] = MermaidStyleExtrasCodec.encodeClassDefs(styleClasses)
+        if (styleState.styleClasses.isNotEmpty()) {
+            out["mermaid.classDefs"] = MermaidStyleExtrasCodec.encodeClassDefs(styleState.styleClasses)
         }
-        cachedStyleExtras = out
-        return cachedStyleExtras
+        styleState.cachedStyleExtras = out
+        return styleState.cachedStyleExtras
     }
 
     override fun dispose() {
@@ -573,17 +561,8 @@ internal class MermaidSessionPipeline(
         tokenBuffer.clear()
         pendingLines.clear()
         dispatcher.clear()
-        rawPending = ""
-        frontmatterStripped = false
-        styleConfig = null
-        styleClasses.clear()
-        nodeClassBindings.clear()
-        nodeInlineStyles.clear()
-        linkStyleDefault = null
-        linkStyleByIndex.clear()
+        styleState.reset()
         headerHint = null
-        styleDiagnosticsAll.clear()
-        cachedStyleExtras = emptyMap()
     }
 
     private data class TripleColonResult(

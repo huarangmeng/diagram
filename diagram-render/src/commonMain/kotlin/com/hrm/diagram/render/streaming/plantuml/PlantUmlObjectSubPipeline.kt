@@ -18,15 +18,15 @@ import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlObjectParser
+import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
 
 internal class PlantUmlObjectSubPipeline(
@@ -48,14 +48,42 @@ internal class PlantUmlObjectSubPipeline(
     )
 
     private val parser = PlantUmlObjectParser()
-    private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(176f, 92f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(176f, 92f) },
-    )
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val memberFont = FontSpec(family = "monospace", sizeSp = 11f)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+    private var currentPalette: ObjectPalette = ObjectPalette(emptyMap(), null)
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+    private val measurePolicy = GraphMeasurePolicy(
+        textMeasurer = textMeasurer,
+        defaultSize = Size(176f, 92f),
+        maxWidth = 220f,
+        minWidth = 124f,
+        minHeight = 56f,
+        labelOf = ::titleOf,
+        fontOf = { node ->
+            val kind = node.payload[PlantUmlObjectParser.KIND_KEY]
+            scopedFont(currentPalette.scopes[kind], if (kind == "note") edgeLabelFont else titleFont)
+        },
+        customSizeOf = { node -> measureNodeSize(node, currentPalette) },
+    )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.PLANTUML,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(176f, 92f), measurePolicy),
+        postLayout = { ir, laid ->
+            val clusterRects = LinkedHashMap<NodeId, Rect>()
+            for (cluster in ir.clusters) computeClusterRect(cluster, laid.nodePositions, clusterRects, currentPalette)
+            applyAnchoredNotes(
+                ir,
+                laid.copy(
+                    clusterRects = clusterRects,
+                    bounds = computeBounds(laid.nodePositions.values + clusterRects.values),
+                ),
+            )
+        },
+        renderEntities = { ir, laid -> render(ir, laid, currentPalette).also { lastDrawEntities = it } },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -64,50 +92,45 @@ internal class PlantUmlObjectSubPipeline(
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val rawIr = parser.snapshot()
         val palette = paletteOf(rawIr)
+        currentPalette = palette
         val ir = applyPalette(rawIr, palette)
-        measureNodes(ir, palette)
-        val baseLaid = layout.layout(
-            previousSnapshot.laidOut,
-            ir,
-            LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in ir.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects, palette)
-        val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
-        val laidOut = applyAnchoredNotes(
-            ir,
-            baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq),
+        val advance = kernel.advance(
+            previousSnapshot = previousSnapshot,
+            seq = seq,
+            isFinal = isFinal,
+            ir = ir,
+            diagnostics = parser.diagnosticsSnapshot(),
         )
         return PlantUmlRenderState(
             ir = ir,
-            laidOut = laidOut,
-            drawEntities = render(ir, laidOut, palette),
+            laidOut = requireNotNull(advance.snapshot.laidOut),
+            drawEntities = lastDrawEntities,
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
     override fun dispose() {
-        nodeSizes.clear()
+        currentPalette = ObjectPalette(emptyMap(), null)
+        lastDrawEntities = emptyList()
+        kernel.clear()
     }
 
-    private fun measureNodes(ir: GraphIR, palette: ObjectPalette) {
-        for (node in ir.nodes) {
-            val title = titleOf(node)
-            val members = membersOf(node)
-            val kind = node.payload[PlantUmlObjectParser.KIND_KEY]
-            val isNote = kind == "note"
-            val scoped = palette.scopes[kind]
-            val titleMetrics = textMeasurer.measure(title, scopedFont(scoped, if (isNote) edgeLabelFont else titleFont), maxWidth = 220f)
-            val resolvedMemberFont = scopedFont(scoped, memberFont)
-            val memberMetrics = if (members.isEmpty()) null else textMeasurer.measure(members.joinToString("\n"), resolvedMemberFont, maxWidth = 220f)
-            val width = maxOf(
-                titleMetrics.width + 28f,
-                (memberMetrics?.width ?: 0f) + 28f,
-                if (isNote) 120f else 124f,
-            )
-            val height = titleMetrics.height + 22f + if (memberMetrics != null) memberMetrics.height + 18f else 0f
-            nodeSizes[node.id] = Size(width, height.coerceAtLeast(if (isNote) 50f else 56f))
-        }
+    private fun measureNodeSize(node: Node, palette: ObjectPalette): Size {
+        val title = titleOf(node)
+        val members = membersOf(node)
+        val kind = node.payload[PlantUmlObjectParser.KIND_KEY]
+        val isNote = kind == "note"
+        val scoped = palette.scopes[kind]
+        val titleMetrics = textMeasurer.measure(title, scopedFont(scoped, if (isNote) edgeLabelFont else titleFont), maxWidth = 220f)
+        val resolvedMemberFont = scopedFont(scoped, memberFont)
+        val memberMetrics = if (members.isEmpty()) null else textMeasurer.measure(members.joinToString("\n"), resolvedMemberFont, maxWidth = 220f)
+        val width = maxOf(
+            titleMetrics.width + 28f,
+            (memberMetrics?.width ?: 0f) + 28f,
+            if (isNote) 120f else 124f,
+        )
+        val height = titleMetrics.height + 22f + if (memberMetrics != null) memberMetrics.height + 18f else 0f
+        return Size(width, height.coerceAtLeast(if (isNote) 50f else 56f))
     }
 
     private fun computeClusterRect(

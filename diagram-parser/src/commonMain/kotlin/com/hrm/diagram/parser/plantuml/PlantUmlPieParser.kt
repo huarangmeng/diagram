@@ -1,15 +1,14 @@
 package com.hrm.diagram.parser.plantuml
 
 import com.hrm.diagram.core.DiagramApi
-import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.PieIR
 import com.hrm.diagram.core.ir.PieSlice
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
-import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.ParserDiagnosticSink
+import com.hrm.diagram.parser.common.ParserSessionSeq
 
 /**
  * Streaming parser for PlantUML pie chart blocks.
@@ -30,7 +29,7 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
  */
 @DiagramApi
 class PlantUmlPieParser {
-    private val diagnostics: MutableList<Diagnostic> = ArrayList()
+    private val diagnostics = ParserDiagnosticSink()
     private val slices: MutableList<PieSlice> = ArrayList()
     private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
     private val skinparamSupport = PlantUmlSkinparamSupport(
@@ -55,38 +54,38 @@ class PlantUmlPieParser {
             "bordercolor" to STYLE_BORDER_KEY,
         ),
         warnUnsupported = { warnUnsupportedSkinparam(it) },
-        emptyBatch = { IrPatchBatch(seq, emptyList()) },
+        emptyBatch = { seq.emptyBatch() },
     )
     private var title: String? = null
-    private var seq: Long = 0L
+    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq++
+        seq.next()
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return IrPatchBatch(seq, emptyList())
+        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
         if (skinparamSupport.pendingScope != null) {
             if (trimmed == "}") {
                 skinparamSupport.pendingScope = null
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
             return skinparamSupport.acceptScopedEntry(skinparamSupport.pendingScope!!, trimmed)
         }
         if (trimmed.startsWith("skinparam", ignoreCase = true)) return skinparamSupport.acceptDirective(trimmed)
-        if (trimmed.equals("pie", ignoreCase = true)) return IrPatchBatch(seq, emptyList())
+        if (trimmed.equals("pie", ignoreCase = true)) return seq.emptyBatch()
         if (trimmed.startsWith("title ", ignoreCase = true)) {
             title = trimmed.substringAfter(' ').trim().takeIf { it.isNotEmpty() }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         if (trimmed.startsWith("legend ", ignoreCase = true)) {
             val position = trimmed.substringAfter(' ').trim().lowercase()
             if (position in setOf("left", "right", "top", "bottom")) {
                 styleExtras[STYLE_LEGEND_KEY] = position
-                return IrPatchBatch(seq, emptyList())
+                return seq.emptyBatch()
             }
         }
         if (trimmed.equals("hide legend", ignoreCase = true) || trimmed.equals("legend off", ignoreCase = true)) {
             styleExtras[STYLE_LEGEND_KEY] = "none"
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
 
         val parsed = parseSlice(trimmed)
@@ -94,13 +93,13 @@ class PlantUmlPieParser {
             val index = slices.size
             slices += PieSlice(label = RichLabel.Plain(parsed.label), value = parsed.value)
             parsed.color?.let { styleExtras["$STYLE_SLICE_COLOR_PREFIX$index"] = it }
-            return IrPatchBatch(seq, emptyList())
+            return seq.emptyBatch()
         }
         return errorBatch("Invalid PlantUML pie slice line '$trimmed'")
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
-        if (blockClosed) return IrPatchBatch(seq, emptyList())
+        if (blockClosed) return seq.emptyBatch()
         return errorBatch("Missing @endpie closing delimiter")
     }
 
@@ -112,7 +111,7 @@ class PlantUmlPieParser {
             styleHints = StyleHints(extras = styleExtras.toMap()),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.toList()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
 
     private fun parseSlice(line: String): ParsedSlice? {
         val colon = line.indexOf(':')
@@ -145,23 +144,11 @@ class PlantUmlPieParser {
     private fun stripQuotes(s: String): String = s.removeSurrounding("\"").removeSurrounding("'")
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch {
-        val d = Diagnostic(
-            severity = Severity.WARNING,
-            message = "Unsupported PlantUML chart skinparam '$line'",
-            code = "PLANTUML-W001",
-        )
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return seq.diagnosticBatch(diagnostics.warning("Unsupported PlantUML chart skinparam '$line'", "PLANTUML-W001"))
     }
 
     private fun errorBatch(message: String): IrPatchBatch {
-        val d = Diagnostic(
-            severity = Severity.ERROR,
-            message = message,
-            code = "PLANTUML-E021",
-        )
-        diagnostics += d
-        return IrPatchBatch(seq, listOf(IrPatch.AddDiagnostic(d)))
+        return seq.diagnosticBatch(diagnostics.error(message, "PLANTUML-E021"))
     }
 
     private data class ParsedSlice(val label: String, val value: Double, val color: String?)

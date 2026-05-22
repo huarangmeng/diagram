@@ -16,15 +16,11 @@ import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
-import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_DOCREF_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_ELEMENT_TYPE_KEY
@@ -34,9 +30,10 @@ import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIRE
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_TEXT_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_TYPE_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_VERIFY_KEY
+import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
+import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
 
 internal class MermaidRequirementSubPipeline(
@@ -45,12 +42,39 @@ internal class MermaidRequirementSubPipeline(
     private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
 
     private val parser = MermaidRequirementParser()
-    private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val nodeCardLayouts: MutableMap<NodeId, RequirementCardLayout> = HashMap()
     private var graphStyles: MermaidGraphStyleState? = null
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(180f, 96f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(180f, 96f) },
+    private val measurePolicy = GraphMeasurePolicy(
+        textMeasurer = textMeasurer,
+        defaultSize = Size(180f, 96f),
+        maxWidth = 220f,
+        minWidth = 140f,
+        minHeight = 72f,
+        labelOf = ::labelTextOf,
+        fontOf = { labelFont },
+        paddingOf = { node ->
+            val padX = if (node.shape is NodeShape.RoundedBox) 18f else 14f
+            padX to 12f
+        },
+        customSizeOf = { node ->
+            val cardLayout = measureRequirementCard(node)
+            if (cardLayout != null) {
+                nodeCardLayouts[node.id] = cardLayout
+                cardLayout.size
+            } else {
+                nodeCardLayouts.remove(node.id)
+                null
+            }
+        },
+    )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.MERMAID,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(180f, 96f), measurePolicy),
+        renderEntities = { graph, laid ->
+            flowchartRender(graph, laid).also { lastDrawEntities = it }
+        },
     )
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val boldLabelFont = labelFont.copy(weight = 700)
@@ -72,65 +96,24 @@ internal class MermaidRequirementSubPipeline(
         seq: Long,
         isFinal: Boolean,
     ): PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        val addedNodeIds = ArrayList<NodeId>()
         for (line in lines) {
-            val batch = parser.acceptLine(line)
-            for (patch in batch.patches) {
-                newPatches += patch
-                if (patch is IrPatch.AddNode) addedNodeIds += patch.node.id
-            }
+            parser.acceptLine(line)
         }
         val ir0 = parser.snapshot()
         val ir = graphStyles?.applyTo(ir0) ?: ir0
-        for (node in ir.nodes) {
-            val cardLayout = measureRequirementCard(node)
-            if (cardLayout != null) {
-                nodeCardLayouts[node.id] = cardLayout
-                nodeSizes[node.id] = cardLayout.size
-            } else {
-                nodeCardLayouts.remove(node.id)
-                val metrics = measureLabel(node)
-                val padX = if (node.shape is NodeShape.RoundedBox) 18f else 14f
-                val padY = 12f
-                nodeSizes[node.id] = Size((metrics.width + padX * 2f).coerceAtLeast(140f), (metrics.height + padY * 2f).coerceAtLeast(72f))
-            }
-        }
-        val laidOut: LaidOutDiagram = layout.layout(
-            previousSnapshot.laidOut,
-            ir,
-            LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        val drawEntities = flowchartRender(ir, laidOut)
-        val drawCommands = drawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-        val snapshot = DiagramSnapshot(
-            ir = ir,
-            laidOut = laidOut,
-            drawCommands = drawCommands,
-            diagnostics = parser.diagnosticsSnapshot(),
+        return kernel.advance(
+            previousSnapshot = previousSnapshot,
             seq = seq,
             isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(
-            snapshot = snapshot,
-            patch = SessionPatch(
-                seq = seq,
-                addedNodes = addedNodeIds,
-                addedEdges = newPatches.filterIsInstance<IrPatch.AddEdge>().map { it.edge },
-                addedDrawCommands = drawCommands,
-                newDiagnostics = newDiagnostics,
-                isFinal = isFinal,
-            ),
-            irBatch = IrPatchBatch(seq, newPatches),
+            ir = ir,
+            diagnostics = parser.diagnosticsSnapshot(),
         )
     }
 
     override fun dispose() {
-        nodeSizes.clear()
         nodeCardLayouts.clear()
+        kernel.clear()
+        lastDrawEntities = emptyList()
     }
 
     private fun flowchartRender(ir: GraphIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
@@ -249,11 +232,6 @@ internal class MermaidRequirementSubPipeline(
             is RichLabel.Markdown -> label.source.takeIf { it.isNotEmpty() } ?: n.id.value
             else -> n.id.value
         }
-
-    private fun measureLabel(node: Node): Size {
-        val layout = richLabelLayout(node.label, maxWidth = 220f)
-        return Size(layout.width, layout.height)
-    }
 
     private fun measureRequirementCard(node: Node): RequirementCardLayout? {
         val kind = node.payload[REQUIREMENT_KIND_KEY] ?: return null

@@ -11,7 +11,6 @@ import com.hrm.diagram.core.ir.JourneyIR
 import com.hrm.diagram.core.ir.KanbanIR
 import com.hrm.diagram.core.ir.PieIR
 import com.hrm.diagram.core.ir.QuadrantChartIR
-import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SankeyIR
 import com.hrm.diagram.core.ir.SequenceIR
 import com.hrm.diagram.core.ir.StateIR
@@ -19,7 +18,6 @@ import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
 import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.ir.TreeIR
-import com.hrm.diagram.core.ir.TreeNode
 import com.hrm.diagram.core.ir.WireBox
 import com.hrm.diagram.core.ir.WireframeIR
 import com.hrm.diagram.core.ir.XYChartIR
@@ -30,7 +28,7 @@ import com.hrm.diagram.render.cache.DrawEntityKey
  */
 internal object FamilyEntityKeyRegistry {
     fun semanticKeys(prefix: String, model: DiagramModel?): List<String> {
-        val p = normalizedPrefix(prefix)
+        val p = normalizedEntityPrefix(prefix)
         val keys = ArrayList<String>()
         when (model) {
             null -> keys += DrawEntityKey.decoration(p, "empty", "frame")
@@ -44,24 +42,8 @@ internal object FamilyEntityKeyRegistry {
                 model.messages.forEachIndexed { index, message -> keys += "$p.sequence.message.$index.${stableSegment(message.from.value)}-${stableSegment(message.to.value)}" }
                 model.fragments.forEachIndexed { index, fragment -> keys += "$p.sequence.fragment.$index.${stableSegment(fragment.kind.name)}" }
             }
-            is TimeSeriesIR -> {
-                keys += DrawEntityKey.decoration(p, "time-series", "axis")
-                model.tracks.forEach { track -> keys += "$p.time-series.lane.${stableSegment(track.id.value)}" }
-                model.items.forEach { item ->
-                    keys += "$p.time-series.item.${stableSegment(item.id.value)}"
-                    item.depends.forEach { depends -> keys += "$p.time-series.dependency.${stableSegment(depends.value)}-${stableSegment(item.id.value)}" }
-                }
-            }
-            is TreeIR -> {
-                fun visit(node: TreeNode) {
-                    keys += "$p.tree.node.${stableSegment(node.id.value)}"
-                    node.children.forEach { child ->
-                        keys += "$p.tree.edge.${stableSegment(node.id.value)}-${stableSegment(child.id.value)}"
-                        visit(child)
-                    }
-                }
-                visit(model.root)
-            }
+            is TimeSeriesIR -> keys += TimeSeriesEntityKeys.keys(p, model)
+            is TreeIR -> keys += TreeEntityKeys.keys(p, model)
             is JourneyIR -> model.stages.forEachIndexed { stageIndex, stage ->
                 keys += "$p.journey.stage.$stageIndex"
                 stage.steps.forEachIndexed { stepIndex, step ->
@@ -69,40 +51,14 @@ internal object FamilyEntityKeyRegistry {
                     step.actors.forEachIndexed { actorIndex, _ -> keys += "$p.journey.actor.$stageIndex.$stepIndex.$actorIndex" }
                 }
             }
-            is PieIR -> {
-                keys += DrawEntityKey.decoration(p, "pie", "title")
-                model.slices.forEachIndexed { index, slice ->
-                    val segment = stableSegment(labelText(slice.label).ifBlank { "slice-$index" })
-                    keys += "$p.pie.slice.$index.$segment"
-                    keys += "$p.pie.legend.$index.$segment"
-                    keys += "$p.pie.label.$index.$segment"
-                }
-            }
-            is GaugeIR -> {
-                keys += "$p.gauge.arc"
-                keys += "$p.gauge.value"
-                keys += "$p.gauge.label"
-            }
+            is PieIR -> keys += PieEntityKeys.keys(p, model)
+            is GaugeIR -> keys += ChartEntityKeys.gaugeKeys(p, model)
             is KanbanIR -> model.columns.forEach { column ->
                 keys += "$p.kanban.column.${stableSegment(column.id.value)}"
                 column.cards.forEach { card -> keys += "$p.kanban.card.${stableSegment(card.id.value)}" }
             }
-            is XYChartIR -> {
-                keys += "$p.xy.axis.x"
-                keys += "$p.xy.axis.y"
-                keys += "$p.xy.grid"
-                model.series.forEachIndexed { seriesIndex, series ->
-                    val seriesKey = stableSegment(series.name.ifBlank { "series-$seriesIndex" })
-                    keys += "$p.xy.series.$seriesIndex.$seriesKey"
-                    series.xs.indices.forEach { pointIndex -> keys += "$p.xy.point.$seriesIndex.$pointIndex.$seriesKey" }
-                }
-                keys += "$p.xy.legend"
-            }
-            is QuadrantChartIR -> {
-                (1..4).forEach { keys += "$p.quadrant.area.$it" }
-                model.points.forEach { point -> keys += "$p.quadrant.point.${stableSegment(point.id.value)}" }
-                keys += "$p.quadrant.axis"
-            }
+            is XYChartIR -> keys += ChartEntityKeys.xyKeys(p, model)
+            is QuadrantChartIR -> keys += ChartEntityKeys.quadrantKeys(p, model)
             is SankeyIR -> {
                 model.nodes.forEach { node -> keys += "$p.sankey.node.${stableSegment(node.id.value)}" }
                 model.flows.forEachIndexed { index, flow -> keys += "$p.sankey.flow.$index.${stableSegment(flow.from.value)}-${stableSegment(flow.to.value)}" }
@@ -194,26 +150,4 @@ internal object FamilyEntityKeyRegistry {
         }
     }
 
-    private fun labelText(label: RichLabel): String =
-        when (label) {
-            is RichLabel.Plain -> label.text
-            is RichLabel.Markdown -> label.source
-            is RichLabel.Html -> label.html
-        }
-
-    private fun normalizedPrefix(value: String): String = stableSegment(value).ifBlank { "diagram" }
-
-    private fun stableSegment(value: String): String =
-        value
-            .trim()
-            .lowercase()
-            .map { ch ->
-                when {
-                    ch.isLetterOrDigit() -> ch
-                    ch == '.' || ch == '-' || ch == '_' -> ch
-                    else -> '_'
-                }
-            }
-            .joinToString("")
-            .trim('.', '-', '_')
 }

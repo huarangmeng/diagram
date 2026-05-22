@@ -20,17 +20,18 @@ import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.EdgeRoute
-import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
-import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlComponentParser
+import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
 
 internal class PlantUmlComponentSubPipeline(
@@ -53,14 +54,52 @@ internal class PlantUmlComponentSubPipeline(
 
     private val parser = PlantUmlComponentParser()
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
-    private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
-        defaultNodeSize = Size(172f, 72f),
-        nodeSizeOf = { id -> nodeSizes[id] ?: Size(172f, 72f) },
-    )
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private val iconFallbackFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
+    private var currentPalette: ComponentPalette = ComponentPalette(emptyMap(), null)
+    private var currentPortCountByHost: Map<NodeId, Int> = emptyMap()
+    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
+    private val measurePolicy = GraphMeasurePolicy(
+        textMeasurer = textMeasurer,
+        defaultSize = Size(172f, 72f),
+        maxWidth = 180f,
+        minWidth = 56f,
+        minHeight = 32f,
+        labelOf = ::labelTextOf,
+        fontOf = { node -> scopedFont(currentPalette.scopes[node.payload[PlantUmlComponentParser.KIND_KEY]], labelFont) },
+        customSizeOf = { node ->
+            measureNodeSize(node, currentPalette, currentPortCountByHost).also { nodeSizes[node.id] = it }
+        },
+    )
+    private val kernel = StreamingGraphPipelineKernel(
+        textMeasurer = textMeasurer,
+        sourceLanguage = SourceLanguage.PLANTUML,
+        measurePolicy = measurePolicy,
+        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(172f, 72f), measurePolicy),
+        layoutModel = ::primaryLayoutIr,
+        layoutOptions = { ir, isFinal ->
+            LayoutOptions(
+                direction = ir.styleHints.direction,
+                incremental = !isFinal,
+                allowGlobalReflow = isFinal,
+                nodeSpacing = 64f,
+                rankSpacing = 112f,
+            )
+        },
+        postLayout = { ir, laid ->
+            val spacedLaid = applyPrimaryClearance(ir, laid.copy(source = ir))
+            val portsLaid = applyPortAnchors(ir, spacedLaid)
+            val notesLaid = applyAnchoredNotes(ir, portsLaid)
+            val routedLaid = routeDecoratedEdges(ir, notesLaid)
+            withClusterRects(ir, routedLaid, currentPalette, routedLaid.seq)
+        },
+        renderEntities = { ir, laid ->
+            val edgeLabelRects = layoutEdgeLabels(ir, laid)
+            render(ir, laid, currentPalette, edgeLabelRects).also { lastDrawEntities = it }
+        },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
@@ -69,30 +108,24 @@ internal class PlantUmlComponentSubPipeline(
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val rawIr = parser.snapshot()
         val palette = paletteOf(rawIr)
+        currentPalette = palette
         val ir = applyPalette(rawIr, palette)
-        measureNodes(ir, palette)
-        val primaryIr = primaryLayoutIr(ir)
-        val baseLaid = layout.layout(
-            previousSnapshot.laidOut,
-            primaryIr,
-            LayoutOptions(
-                direction = ir.styleHints.direction,
-                incremental = !isFinal,
-                allowGlobalReflow = isFinal,
-                nodeSpacing = 64f,
-                rankSpacing = 112f,
-            ),
+        currentPortCountByHost = ir.nodes
+            .filter { it.payload[PlantUmlComponentParser.KIND_KEY] == "port" }
+            .mapNotNull { it.payload[PlantUmlComponentParser.PORT_HOST_KEY]?.let(::NodeId) }
+            .groupingBy { it }
+            .eachCount()
+        val advance = kernel.advance(
+            previousSnapshot = previousSnapshot,
+            seq = seq,
+            isFinal = isFinal,
+            ir = ir,
+            diagnostics = parser.diagnosticsSnapshot(),
         )
-        val spacedLaid = applyPrimaryClearance(ir, baseLaid.copy(source = ir, seq = seq))
-        val portsLaid = applyPortAnchors(ir, spacedLaid)
-        val notesLaid = applyAnchoredNotes(ir, portsLaid)
-        val routedLaid = routeDecoratedEdges(ir, notesLaid)
-        val laidOut = withClusterRects(ir, routedLaid, palette, seq)
-        val edgeLabelRects = layoutEdgeLabels(ir, laidOut)
         return PlantUmlRenderState(
             ir = ir,
-            laidOut = laidOut,
-            drawEntities = render(ir, laidOut, palette, edgeLabelRects),
+            laidOut = requireNotNull(advance.snapshot.laidOut),
+            drawEntities = lastDrawEntities,
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -132,42 +165,35 @@ internal class PlantUmlComponentSubPipeline(
         node.payload[PlantUmlComponentParser.KIND_KEY] == "note" &&
             node.payload[PlantUmlComponentParser.NOTE_TARGET_KEY] != null
 
-    private fun measureNodes(ir: GraphIR, palette: ComponentPalette) {
-        val portCountByHost = ir.nodes
-            .filter { it.payload[PlantUmlComponentParser.KIND_KEY] == "port" }
-            .mapNotNull { it.payload[PlantUmlComponentParser.PORT_HOST_KEY]?.let(::NodeId) }
-            .groupingBy { it }
-            .eachCount()
-        for (node in ir.nodes) {
-            val label = labelTextOf(node)
-            val kind = node.payload[PlantUmlComponentParser.KIND_KEY]
-            val scoped = palette.scopes[kind]
-            val nodeFont = scopedFont(scoped, labelFont)
-            val noteFont = scopedFont(scoped, labelFont)
-            val portFont = scopedFont(scoped, iconFallbackFont)
-            when (kind) {
-                "interface", "port" -> {
-                    val metrics = textMeasurer.measure(label, if (kind == "port") portFont else nodeFont, maxWidth = 120f)
-                    nodeSizes[node.id] = Size(
-                        width = (metrics.width + 20f).coerceAtLeast(24f),
-                        height = (metrics.height + 20f).coerceAtLeast(24f),
-                    )
-                }
-                "note" -> {
-                    val metrics = textMeasurer.measure(label, noteFont, maxWidth = 180f)
-                    nodeSizes[node.id] = Size(
-                        width = (metrics.width + 30f).coerceAtLeast(120f),
-                        height = (metrics.height + 24f).coerceAtLeast(54f),
-                    )
-                }
-                else -> {
-                    val metrics = textMeasurer.measure(label, nodeFont)
-                    val hasPorts = (portCountByHost[node.id] ?: 0) > 0
-                    nodeSizes[node.id] = Size(
-                        width = (metrics.width + if (hasPorts) 64f else 36f).coerceAtLeast(if (hasPorts) 172f else 132f),
-                        height = (metrics.height + if (hasPorts) 58f else 28f).coerceAtLeast(if (hasPorts) 88f else 56f),
-                    )
-                }
+    private fun measureNodeSize(node: Node, palette: ComponentPalette, portCountByHost: Map<NodeId, Int>): Size {
+        val label = labelTextOf(node)
+        val kind = node.payload[PlantUmlComponentParser.KIND_KEY]
+        val scoped = palette.scopes[kind]
+        val nodeFont = scopedFont(scoped, labelFont)
+        val noteFont = scopedFont(scoped, labelFont)
+        val portFont = scopedFont(scoped, iconFallbackFont)
+        return when (kind) {
+            "interface", "port" -> {
+                val metrics = textMeasurer.measure(label, if (kind == "port") portFont else nodeFont, maxWidth = 120f)
+                Size(
+                    width = (metrics.width + 20f).coerceAtLeast(24f),
+                    height = (metrics.height + 20f).coerceAtLeast(24f),
+                )
+            }
+            "note" -> {
+                val metrics = textMeasurer.measure(label, noteFont, maxWidth = 180f)
+                Size(
+                    width = (metrics.width + 30f).coerceAtLeast(120f),
+                    height = (metrics.height + 24f).coerceAtLeast(54f),
+                )
+            }
+            else -> {
+                val metrics = textMeasurer.measure(label, nodeFont)
+                val hasPorts = (portCountByHost[node.id] ?: 0) > 0
+                Size(
+                    width = (metrics.width + if (hasPorts) 64f else 36f).coerceAtLeast(if (hasPorts) 172f else 132f),
+                    height = (metrics.height + if (hasPorts) 58f else 28f).coerceAtLeast(if (hasPorts) 88f else 56f),
+                )
             }
         }
     }
@@ -1025,6 +1051,10 @@ internal class PlantUmlComponentSubPipeline(
 
     override fun dispose() {
         nodeSizes.clear()
+        currentPalette = ComponentPalette(emptyMap(), null)
+        currentPortCountByHost = emptyMap()
+        lastDrawEntities = emptyList()
+        kernel.clear()
     }
 
     private enum class PortSide { Left, Right, Top, Bottom }
