@@ -29,7 +29,6 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
@@ -39,7 +38,6 @@ internal class MermaidErSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
     private val parser = MermaidErParser()
-    private val entityCache = DrawEntitySnapshotCache()
     private val entityFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val flagFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
@@ -48,7 +46,6 @@ internal class MermaidErSubPipeline(
     private val attrBadge: MutableMap<NodeId, BadgeLayout?> = HashMap()
     private val relBadge: MutableMap<Int, RelationshipBadgeLayout?> = HashMap()
     private val entityEmbedded: MutableMap<NodeId, EntityEmbeddedLayout?> = HashMap()
-    private var graphStyles: MermaidGraphStyleState? = null
     private var currentAttrEdgesByEntity: Map<NodeId, List<Node>> = emptyMap()
     private var currentIsFinal: Boolean = false
     private val measurePolicy = GraphMeasurePolicy(
@@ -70,13 +67,18 @@ internal class MermaidErSubPipeline(
         sourceLanguage = SourceLanguage.MERMAID,
         measurePolicy = measurePolicy,
         layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(140f, 56f), measurePolicy),
-        renderEntities = { graph, laid ->
-            entityCache.store(renderDraw(graph, laid, isFinal = currentIsFinal))
-        },
+        renderEntities = { graph, laid -> renderDraw(graph, laid, isFinal = currentIsFinal) },
+    )
+    private val graphPipeline = MermaidGraphSubPipelineKernel(
+        acceptLine = parser::acceptLine,
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        graphKernel = kernel,
+        beforeAdvance = ::prepareErLayout,
     )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
-        graphStyles = styles
+        graphPipeline.updateGraphStyles(styles)
     }
 
     override fun acceptLines(
@@ -84,13 +86,9 @@ internal class MermaidErSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        for (lineToks in lines) {
-            parser.acceptLine(lineToks)
-        }
+    ): PipelineAdvance = graphPipeline.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-        val ir0: GraphIR = parser.snapshot()
-        val ir: GraphIR = graphStyles?.applyTo(ir0) ?: ir0
+    private fun prepareErLayout(ir: GraphIR, isFinal: Boolean) {
         val needRemeasure = isFinal
         currentIsFinal = isFinal
 
@@ -130,13 +128,6 @@ internal class MermaidErSubPipeline(
             if (!needRemeasure && idx in relBadge) continue
             relBadge[idx] = relationshipBadgeLayoutOf(e)
         }
-        return kernel.advance(
-            previousSnapshot = previousSnapshot,
-            seq = seq,
-            isFinal = isFinal,
-            ir = ir,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
     }
 
     override fun dispose() {
@@ -146,8 +137,7 @@ internal class MermaidErSubPipeline(
         entityEmbedded.clear()
         currentAttrEdgesByEntity = emptyMap()
         currentIsFinal = false
-        kernel.clear()
-        entityCache.clear()
+        graphPipeline.clear()
     }
 
     private fun labelTextOf(n: Node): String =
@@ -604,6 +594,6 @@ internal class MermaidErSubPipeline(
         return DrawCommand.FillPath(path = path, color = color, z = 1)
     }
 
-    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = graphPipeline.drawEntities()
 
 }

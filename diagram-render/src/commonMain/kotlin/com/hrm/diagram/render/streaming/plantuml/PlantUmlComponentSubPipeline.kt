@@ -60,7 +60,6 @@ internal class PlantUmlComponentSubPipeline(
     private val iconFallbackFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
     private var currentPalette: ComponentPalette = ComponentPalette(emptyMap(), null)
     private var currentPortCountByHost: Map<NodeId, Int> = emptyMap()
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
     private val measurePolicy = GraphMeasurePolicy(
         textMeasurer = textMeasurer,
         defaultSize = Size(172f, 72f),
@@ -97,7 +96,7 @@ internal class PlantUmlComponentSubPipeline(
         },
         renderEntities = { ir, laid ->
             val edgeLabelRects = layoutEdgeLabels(ir, laid)
-            render(ir, laid, currentPalette, edgeLabelRects).also { lastDrawEntities = it }
+            render(ir, laid, currentPalette, edgeLabelRects)
         },
     )
 
@@ -115,17 +114,11 @@ internal class PlantUmlComponentSubPipeline(
             .mapNotNull { it.payload[PlantUmlComponentParser.PORT_HOST_KEY]?.let(::NodeId) }
             .groupingBy { it }
             .eachCount()
-        val advance = kernel.advance(
+        return kernel.advanceRendered(
             previousSnapshot = previousSnapshot,
             seq = seq,
             isFinal = isFinal,
             ir = ir,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = requireNotNull(advance.snapshot.laidOut),
-            drawEntities = lastDrawEntities,
             diagnostics = parser.diagnosticsSnapshot(),
         )
     }
@@ -1053,7 +1046,6 @@ internal class PlantUmlComponentSubPipeline(
         nodeSizes.clear()
         currentPalette = ComponentPalette(emptyMap(), null)
         currentPortCountByHost = emptyMap()
-        lastDrawEntities = emptyList()
         kernel.clear()
     }
 

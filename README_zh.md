@@ -29,7 +29,7 @@
 - **三套语法统一支持**：在同一套 KMP 代码库中解析并渲染 Mermaid、PlantUML 和 Graphviz DOT。
 - **流式优先链路**：`Diagram.session()` 支持 append-only 的增量解析、布局和绘制更新，适合 LLM 输出和实时预览。
 - **完全自研引擎**：解析器、IR、布局和渲染全部使用 Kotlin 实现，不依赖 ELK、dagre、Graphviz native 或 JS 借力方案。
-- **Compose 多端渲染**：`DiagramCanvas` 基于同一条 draw-command 渲染链路工作于 Android、iOS、Desktop、JS 和 Wasm。
+- **Compose 多端渲染**：`DiagramView` 是面向应用层的默认 Composable，`DiagramCanvas` 则把同一条 draw-command 渲染链路暴露给 Android、iOS、Desktop、JS 和 Wasm。
 - **增量性能收口**：内置文本测量缓存、稳定实体 key、dirty edge routing 和 `DrawCommandIndex` 视口裁剪。
 - **较宽的语法覆盖面**：当前 demo gallery 已覆盖 Mermaid、PlantUML、DOT 的大量图族和接近官方样例风格的场景。
 
@@ -101,17 +101,15 @@ println(snapshot.diagnostics)
 
 ### Compose 预览
 
-`rememberDiagramSession(...)` 会把 Compose 的文本测量接进布局链路，`DiagramCanvas(...)` 负责绘制最新快照。
+`rememberDiagramSession(...)` 会把 Compose 的文本测量接进布局链路，`DiagramView(...)` 则作为唯一对外的应用层 Composable 入口。
 
 ```kotlin
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.hrm.diagram.core.ir.SourceLanguage
-import com.hrm.diagram.render.compose.DiagramCanvas
+import com.hrm.diagram.render.compose.DiagramView
 import com.hrm.diagram.render.compose.rememberDiagramSession
 
 @Composable
@@ -120,17 +118,15 @@ fun MermaidPreview(source: String) {
         language = SourceLanguage.MERMAID,
         key = source,
     )
-    val snapshot by session.state.collectAsState()
-
     LaunchedEffect(session, source) {
         session.append(source)
         session.finish()
     }
 
-    DiagramCanvas(
-        snapshot = snapshot,
+    DiagramView(
+        session = session,
         modifier = Modifier.fillMaxSize(),
-        panZoomEnabled = true,
+        zoomEnabled = true,
     )
 }
 ```

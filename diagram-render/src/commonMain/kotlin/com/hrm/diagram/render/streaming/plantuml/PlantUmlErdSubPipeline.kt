@@ -49,14 +49,34 @@ internal class PlantUmlErdSubPipeline(
         defaultNodeSize = Size(140f, 56f),
         nodeSizeOf = { id -> nodeSizes[id] ?: Size(140f, 56f) },
     )
+    private val kernel = PlantUmlRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layoutModel = { it },
+        beforeLayout = { ir, _, isFinal -> prepareLayout(ir, isFinal) },
+        layout = { previous, ir, options, _, _ -> layout.layout(previous, ir, options) },
+        layoutOptions = { _, ir, isFinal ->
+            LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal)
+        },
+        postLayout = { ir, _, laidOut, seq, _ -> applyAnchoredNotes(ir, laidOut).copy(seq = seq) },
+        renderEntities = { ir, _, laidOut, isFinal -> renderDraw(ir, laidOut, isFinal) },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val newPatches = ArrayList<IrPatch>()
-        val ir = parser.snapshot()
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
+
+    override fun dispose() {
+        nodeSizes.clear()
+        attrBadge.clear()
+        relBadge.clear()
+        entityEmbedded.clear()
+    }
+
+    private fun prepareLayout(ir: GraphIR, isFinal: Boolean) {
         val needRemeasure = isFinal
         val attrById = ir.nodes.asSequence().filter { isAttributeNode(it) }.associateBy { it.id }
         val attrEdgesByEntity = ir.edges
@@ -89,26 +109,6 @@ internal class PlantUmlErdSubPipeline(
             val size = measureNode(n, isFinal, attrEdgesByEntity[n.id].orEmpty())
             nodeSizes[n.id] = size
         }
-        val laidOut: LaidOutDiagram = layout.layout(
-            previousSnapshot.laidOut,
-            ir,
-            LayoutOptions(direction = ir.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val adjusted = applyAnchoredNotes(ir, laidOut).copy(seq = seq)
-        val drawEntities = renderDraw(ir, adjusted, isFinal)
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = adjusted,
-            drawEntities = drawEntities,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
-
-    override fun dispose() {
-        nodeSizes.clear()
-        attrBadge.clear()
-        relBadge.clear()
-        entityEmbedded.clear()
     }
 
     private fun measureNode(n: Node, isFinal: Boolean, attrs: List<Node>): Size {

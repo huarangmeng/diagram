@@ -37,7 +37,6 @@ internal class PlantUmlArchimateSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlArchimateParser()
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val stereotypeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -88,7 +87,7 @@ internal class PlantUmlArchimateSubPipeline(
                 bounds = computeBounds(laid.nodePositions.values + clusterRects.values + edgeLabelRects),
             )
         },
-        renderEntities = { ir, laid -> renderer.render(ir, laid).also { lastDrawEntities = it } },
+        renderEntities = { ir, laid -> renderer.render(ir, laid) },
     )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
@@ -97,24 +96,17 @@ internal class PlantUmlArchimateSubPipeline(
 
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val ir = parser.snapshot()
-        val advance = kernel.advance(
+        return kernel.advanceRendered(
             previousSnapshot = previousSnapshot,
             seq = seq,
             isFinal = isFinal,
             ir = ir,
             diagnostics = parser.diagnosticsSnapshot(),
         )
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = requireNotNull(advance.snapshot.laidOut),
-            drawEntities = lastDrawEntities,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
     }
 
     override fun dispose() {
         kernel.clear()
-        lastDrawEntities = emptyList()
     }
 
     private fun measureNodeSize(node: Node): Size {

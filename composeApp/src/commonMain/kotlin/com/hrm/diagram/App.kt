@@ -44,7 +44,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.gallery.DemoSample
 import com.hrm.diagram.gallery.DemoSamples
 import com.hrm.diagram.gallery.SourceLang
-import com.hrm.diagram.render.compose.DiagramCanvas
+import com.hrm.diagram.render.compose.DiagramView
 import com.hrm.diagram.render.compose.rememberDiagramSession
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import androidx.compose.runtime.collectAsState
@@ -277,9 +277,10 @@ private fun PreviewPane(
                             .weight(1f)
                             .background(MaterialTheme.colorScheme.surface),
                     ) {
-                        DiagramCanvas(
+                        DiagramView(
                             snapshot = snapshot,
                             modifier = Modifier.fillMaxSize().padding(16.dp),
+                            zoomEnabled = false,
                         )
                     }
                     HorizontalDivider()

@@ -29,7 +29,7 @@ A Kotlin Multiplatform diagram rendering SDK with self-hosted parsing, layout, a
 - **Three Syntax Families**: Parses and renders Mermaid, PlantUML, and Graphviz DOT in one unified KMP codebase.
 - **Streaming-First Pipeline**: `Diagram.session()` supports append-only incremental parsing, layout, and draw updates for LLM and live-preview scenarios.
 - **Self-Hosted Engine**: Parser, IR, layout, and renderer are implemented in Kotlin without relying on ELK, dagre, Graphviz native, or JS interop shortcuts.
-- **Compose Multiplatform Rendering**: `DiagramCanvas` renders the same draw-command pipeline on Android, iOS, Desktop, JS, and Wasm.
+- **Compose Multiplatform Rendering**: `DiagramView` is the app-facing Composable, while `DiagramCanvas` exposes the same draw-command pipeline on Android, iOS, Desktop, JS, and Wasm.
 - **Incremental Performance Hooks**: Includes cached text measurement, stable entity keys, dirty-edge routing, and viewport culling via `DrawCommandIndex`.
 - **Broad Syntax Coverage**: The demo gallery already exercises Mermaid, PlantUML, and DOT across dozens of diagram families and official-sample-style cases.
 
@@ -101,17 +101,15 @@ println(snapshot.diagnostics)
 
 ### Compose Preview
 
-`rememberDiagramSession(...)` wires Compose text measurement into the layout pipeline, and `DiagramCanvas(...)` renders the latest snapshot.
+`rememberDiagramSession(...)` wires Compose text measurement into the layout pipeline, and `DiagramView(...)` stays as the only app-facing Composable entry point.
 
 ```kotlin
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.hrm.diagram.core.ir.SourceLanguage
-import com.hrm.diagram.render.compose.DiagramCanvas
+import com.hrm.diagram.render.compose.DiagramView
 import com.hrm.diagram.render.compose.rememberDiagramSession
 
 @Composable
@@ -120,17 +118,15 @@ fun MermaidPreview(source: String) {
         language = SourceLanguage.MERMAID,
         key = source,
     )
-    val snapshot by session.state.collectAsState()
-
     LaunchedEffect(session, source) {
         session.append(source)
         session.finish()
     }
 
-    DiagramCanvas(
-        snapshot = snapshot,
+    DiagramView(
+        session = session,
         modifier = Modifier.fillMaxSize(),
-        panZoomEnabled = true,
+        zoomEnabled = true,
     )
 }
 ```

@@ -49,22 +49,23 @@ internal class PlantUmlDitaaSubPipeline(
             customEdgeCommands = ::edgeCommands,
         ),
     )
+    private val kernel = PlantUmlRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layoutModel = { it },
+        beforeLayout = { ir, _, _ ->
+            handwrittenGraph = ir.styleHints.extras[PlantUmlDitaaParser.HANDWRITTEN_KEY] == "true"
+        },
+        layout = { previous, ir, _, _, isFinal -> layout(ir, previous, !isFinal) },
+        renderEntities = { ir, _, laidOut, _ -> renderer.render(ir, laidOut) },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
-        val laid = layout(ir, previousSnapshot.laidOut, !isFinal).copy(seq = seq)
-        handwrittenGraph = ir.styleHints.extras[PlantUmlDitaaParser.HANDWRITTEN_KEY] == "true"
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laid,
-            drawEntities = renderer.render(ir, laid),
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     private fun layout(ir: GraphIR, previous: LaidOutDiagram?, incremental: Boolean): LaidOutDiagram {
         val positions = LinkedHashMap<NodeId, Rect>()

@@ -59,12 +59,27 @@ internal class ParserSession {
     private val seq = ParserSessionSeq()
     private val diagnostics = ParserDiagnosticSink()
 
+    val value: Long
+        get() = seq.value
+
     fun beginLine(): Long = seq.next()
 
     fun emptyBatch(): IrPatchBatch = seq.emptyBatch()
 
     fun diagnosticBatch(diagnostic: IrPatch.AddDiagnostic): IrPatchBatch =
         seq.diagnosticBatch(diagnostic)
+
+    fun diagnosticBatch(diagnostics: List<IrPatch.AddDiagnostic>): IrPatchBatch =
+        seq.diagnosticBatch(diagnostics)
+
+    fun add(diagnostic: Diagnostic): IrPatch.AddDiagnostic =
+        diagnostics.add(diagnostic)
+
+    operator fun plusAssign(diagnostic: Diagnostic) {
+        add(diagnostic)
+    }
+
+    fun lastDiagnostic(): Diagnostic = diagnostics.last()
 
     fun error(message: String, code: String): IrPatch.AddDiagnostic =
         diagnostics.error(message, code)

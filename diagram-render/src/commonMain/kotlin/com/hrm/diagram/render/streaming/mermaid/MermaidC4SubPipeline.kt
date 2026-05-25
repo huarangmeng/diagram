@@ -33,7 +33,6 @@ import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.min
@@ -43,8 +42,6 @@ internal class MermaidC4SubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
     private val parser = MermaidC4Parser()
-    private var graphStyles: MermaidGraphStyleState? = null
-    private val entityCache = DrawEntitySnapshotCache()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -97,11 +94,17 @@ internal class MermaidC4SubPipeline(
                 bounds = computeBounds(laid.nodePositions.values + clusterRects.values, parser.legendSnapshot()),
             )
         },
-        renderEntities = { ir, laid -> entityCache.store(renderer.render(ir, laid)) },
+        renderEntities = { ir, laid -> renderer.render(ir, laid) },
+    )
+    private val graphPipeline = MermaidGraphSubPipelineKernel(
+        acceptLine = parser::acceptLine,
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        graphKernel = kernel,
     )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
-        graphStyles = styles
+        graphPipeline.updateGraphStyles(styles)
     }
 
     override fun acceptLines(
@@ -109,24 +112,10 @@ internal class MermaidC4SubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        for (line in lines) {
-            parser.acceptLine(line)
-        }
-        val ir0 = parser.snapshot()
-        val ir = graphStyles?.applyTo(ir0) ?: ir0
-        return kernel.advance(
-            previousSnapshot = previousSnapshot,
-            seq = seq,
-            isFinal = isFinal,
-            ir = ir,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    ): PipelineAdvance = graphPipeline.acceptLines(previousSnapshot, lines, seq, isFinal)
 
     override fun dispose() {
-        kernel.clear()
-        entityCache.clear()
+        graphPipeline.clear()
     }
 
     private fun measureNodeSize(node: Node): Size {
@@ -639,6 +628,6 @@ internal class MermaidC4SubPipeline(
         )
     }
 
-    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = graphPipeline.drawEntities()
 
 }

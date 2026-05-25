@@ -72,8 +72,7 @@ Compose 侧：
 ```kotlin
 @Composable
 fun StreamingDiagramView(session: DiagramSession, modifier: Modifier = Modifier) {
-    val snapshot by session.state.collectAsState()
-    DiagramView(snapshot = snapshot, modifier = modifier)
+    DiagramView(session = session, modifier = modifier)
 }
 ```
 

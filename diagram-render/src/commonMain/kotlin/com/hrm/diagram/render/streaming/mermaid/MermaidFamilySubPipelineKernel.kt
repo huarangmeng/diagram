@@ -9,6 +9,7 @@ import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
 
@@ -53,7 +54,7 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
         }
     },
 ) {
-    private var lastDrawEntities: List<DrawEntity> = emptyList()
+    private val entityCache = DrawEntitySnapshotCache()
 
     fun acceptLines(
         previousSnapshot: DiagramSnapshot,
@@ -70,8 +71,7 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
         beforeLayout(model)
         val laidOut = layout(previousSnapshot.laidOut, model, layoutOptions(model, isFinal))
             .let { postLayout(model, it, seq) }
-        val drawEntities = renderEntities(model, laidOut)
-        lastDrawEntities = drawEntities
+        val drawEntities = entityCache.store(renderEntities(model, laidOut))
         return PipelineAdvance(
             snapshot = DiagramSnapshot(
                 ir = model,
@@ -87,9 +87,9 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
         )
     }
 
-    fun drawEntities(): List<DrawEntity> = lastDrawEntities
+    fun drawEntities(): List<DrawEntity> = entityCache.snapshot()
 
     fun clear() {
-        lastDrawEntities = emptyList()
+        entityCache.clear()
     }
 }

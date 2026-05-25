@@ -55,29 +55,22 @@ internal class PlantUmlStateSubPipeline(
 
     private val parser = PlantUmlStateParser()
     private val layout = StateDiagramLayout(textMeasurer)
+    private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::renderState,
+        layoutOptions = { model, isFinal ->
+            LayoutOptions(direction = model.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal)
+        },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir: StateIR = parser.snapshot()
-        val laidOut = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(
-                direction = ir.styleHints.direction,
-                incremental = !isFinal,
-                allowGlobalReflow = isFinal,
-            ),
-        ).copy(seq = seq)
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laidOut,
-            drawEntities = renderState(ir, laidOut),
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)

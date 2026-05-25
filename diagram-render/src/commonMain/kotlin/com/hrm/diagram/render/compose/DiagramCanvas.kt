@@ -53,7 +53,6 @@ import kotlin.math.sin
  * DiagramCanvas(snapshot, viewportState = viewportState, panZoomEnabled = true)
  * ```
  */
-@DiagramApi
 class DiagramViewportState(
     initialZoom: Float = 1f,
     initialPan: Offset = Offset.Zero,
@@ -84,8 +83,7 @@ class DiagramViewportState(
 }
 
 @Composable
-@DiagramApi
-fun rememberDiagramViewportState(): DiagramViewportState =
+internal fun rememberDiagramViewportState(): DiagramViewportState =
     remember { DiagramViewportState() }
 
 /**
@@ -98,7 +96,7 @@ fun rememberDiagramViewportState(): DiagramViewportState =
  * [TextMeasurer]; no platform shaping API is touched.
  */
 @Composable
-fun DiagramCanvas(
+internal fun DiagramCanvas(
     snapshot: DiagramSnapshot,
     modifier: Modifier = Modifier,
     viewport: DiagramRect? = null,

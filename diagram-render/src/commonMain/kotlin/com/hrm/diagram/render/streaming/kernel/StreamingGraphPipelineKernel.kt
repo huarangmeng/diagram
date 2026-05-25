@@ -15,8 +15,10 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.withMeasuredEntityTextBounds
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.PipelineAdvanceAssembler
+import com.hrm.diagram.render.streaming.RenderedSubPipelineState
 import com.hrm.diagram.render.streaming.StreamingDiffTracker
 
 internal class StreamingGraphPipelineKernel(
@@ -39,6 +41,7 @@ internal class StreamingGraphPipelineKernel(
 ) {
     private val drawStore = DrawCommandStore()
     private val diffTracker = StreamingDiffTracker(edgeKeyOf)
+    private val entityCache = DrawEntitySnapshotCache()
 
     fun advance(
         previousSnapshot: DiagramSnapshot,
@@ -52,7 +55,8 @@ internal class StreamingGraphPipelineKernel(
             .layout(previousSnapshot.laidOut, layoutModel(ir), layoutOptions(ir, isFinal))
             .copy(source = ir, seq = seq)
             .let { postLayout(ir, it) }
-        val drawDelta = drawStore.updateEntities(renderEntities(ir, laid).withMeasuredEntityTextBounds(textMeasurer))
+        val renderedEntities = entityCache.store(renderEntities(ir, laid))
+        val drawDelta = drawStore.updateEntities(renderedEntities.withMeasuredEntityTextBounds(textMeasurer))
         val diff = diffTracker.diffGraph(ir, diagnostics)
         return PipelineAdvanceAssembler.assemble(
             seq = seq,
@@ -66,10 +70,29 @@ internal class StreamingGraphPipelineKernel(
         )
     }
 
+    fun advanceRendered(
+        previousSnapshot: DiagramSnapshot,
+        seq: Long,
+        isFinal: Boolean,
+        ir: GraphIR,
+        diagnostics: List<Diagnostic>,
+    ): RenderedSubPipelineState {
+        val advance = advance(previousSnapshot, seq, isFinal, ir, diagnostics)
+        return RenderedSubPipelineState(
+            ir = ir,
+            laidOut = requireNotNull(advance.snapshot.laidOut),
+            diagnostics = diagnostics,
+            drawEntities = entityCache.snapshot(),
+        )
+    }
+
+    fun drawEntities(): List<DrawEntity> = entityCache.snapshot()
+
     fun clear() {
         drawStore.clear()
         diffTracker.reset()
         measurePolicy.clear()
+        entityCache.clear()
     }
 
     companion object {

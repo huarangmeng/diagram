@@ -3,7 +3,6 @@ package com.hrm.diagram.render.streaming.mermaid
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.FontSpec
 import com.hrm.diagram.core.draw.Size
-import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.SourceLanguage
@@ -18,7 +17,6 @@ import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.graph.graphLabelText
 import com.hrm.diagram.render.streaming.BatchLineStreamingSubPipeline
 import com.hrm.diagram.render.streaming.DrawEntitySnapshotProvider
-import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
@@ -72,20 +70,22 @@ internal class MermaidFlowchartSubPipeline(
             nodeFontOf = { _, _ -> labelFont },
         ),
     )
-    private val entityCache = DrawEntitySnapshotCache()
     private val kernel = StreamingGraphPipelineKernel(
         textMeasurer = textMeasurer,
         sourceLanguage = SourceLanguage.MERMAID,
         measurePolicy = measurePolicy,
         layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(120f, 48f), measurePolicy),
-        renderEntities = { graph, laid ->
-            entityCache.store(renderer.render(graph, laid))
-        },
+        renderEntities = { graph, laid -> renderer.render(graph, laid) },
     )
-    private var graphStyles: MermaidGraphStyleState? = null
+    private val graphPipeline = MermaidGraphSubPipelineKernel(
+        acceptLine = parser::acceptLine,
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        graphKernel = kernel,
+    )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
-        graphStyles = styles
+        graphPipeline.updateGraphStyles(styles)
     }
 
     override fun acceptLines(
@@ -93,28 +93,13 @@ internal class MermaidFlowchartSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        for (lineToks in lines) {
-            parser.acceptLine(lineToks)
-        }
-
-        val rawIr: GraphIR = parser.snapshot()
-        val ir: GraphIR = graphStyles?.applyTo(rawIr) ?: rawIr
-        return kernel.advance(
-            previousSnapshot = previousSnapshot,
-            seq = seq,
-            isFinal = isFinal,
-            ir = ir,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    ): PipelineAdvance = graphPipeline.acceptLines(previousSnapshot, lines, seq, isFinal)
 
     override fun dispose() {
-        kernel.clear()
-        entityCache.clear()
+        graphPipeline.clear()
     }
 
-    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = graphPipeline.drawEntities()
 
     private fun labelTextOf(node: Node): String =
         graphLabelText(node.label).ifBlank { node.id.value }

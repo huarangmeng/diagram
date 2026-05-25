@@ -55,7 +55,6 @@ internal class PlantUmlUsecaseSubPipeline(
 
     private val parser = PlantUmlUsecaseParser()
     private var currentPalette: UsecasePalette = paletteOf(GraphIR(nodes = emptyList(), sourceLanguage = SourceLanguage.PLANTUML))
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -80,7 +79,7 @@ internal class PlantUmlUsecaseSubPipeline(
             val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
             applyAnchoredNotes(ir, baseLaid.copy(clusterRects = clusterRects, bounds = bounds))
         },
-        renderEntities = { ir, laid -> render(ir, laid, currentPalette).also { lastDrawEntities = it } },
+        renderEntities = { ir, laid -> render(ir, laid, currentPalette) },
     )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
@@ -92,24 +91,17 @@ internal class PlantUmlUsecaseSubPipeline(
         val palette = paletteOf(rawIr)
         currentPalette = palette
         val ir = applyPalette(rawIr, palette)
-        val advance = kernel.advance(
+        return kernel.advanceRendered(
             previousSnapshot = previousSnapshot,
             seq = seq,
             isFinal = isFinal,
             ir = ir,
             diagnostics = parser.diagnosticsSnapshot(),
         )
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = requireNotNull(advance.snapshot.laidOut),
-            drawEntities = lastDrawEntities,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
     }
 
     override fun dispose() {
         currentPalette = paletteOf(GraphIR(nodes = emptyList(), sourceLanguage = SourceLanguage.PLANTUML))
-        lastDrawEntities = emptyList()
         kernel.clear()
     }
 

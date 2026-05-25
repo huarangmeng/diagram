@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.rememberTextMeasurer
+import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.theme.DiagramTheme
@@ -24,6 +25,7 @@ import com.hrm.diagram.render.streaming.DiagramSession
  * key you'd pass to `remember(...)` — typically the selected source/language).
  */
 @Composable
+@DiagramApi
 fun rememberDiagramSession(
     language: SourceLanguage,
     key: Any? = language,

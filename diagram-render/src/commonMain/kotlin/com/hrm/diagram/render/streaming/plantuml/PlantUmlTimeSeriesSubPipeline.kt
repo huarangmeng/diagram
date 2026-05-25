@@ -37,6 +37,22 @@ internal class PlantUmlTimeSeriesSubPipeline(
     private val ganttParser = if (kind == Kind.Gantt) PlantUmlGanttParser() else null
     private val timingParser = if (kind == Kind.Timing) PlantUmlTimingParser() else null
     private val layout = GanttLayout(textMeasurer)
+    private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
+        snapshot = {
+            when (kind) {
+                Kind.Gantt -> ganttParser!!.snapshot()
+                Kind.Timing -> timingParser!!.snapshot()
+            }
+        },
+        diagnostics = {
+            when (kind) {
+                Kind.Gantt -> ganttParser!!.diagnosticsSnapshot()
+                Kind.Timing -> timingParser!!.diagnosticsSnapshot()
+            }
+        },
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val trackFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val itemFont = FontSpec(family = "sans-serif", sizeSp = 12f)
@@ -53,26 +69,8 @@ internal class PlantUmlTimeSeriesSubPipeline(
             Kind.Timing -> timingParser!!.finish(blockClosed)
         }
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = when (kind) {
-            Kind.Gantt -> ganttParser!!.snapshot()
-            Kind.Timing -> timingParser!!.snapshot()
-        }
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laid,
-            drawEntities = render(ir, laid),
-            diagnostics = when (kind) {
-                Kind.Gantt -> ganttParser!!.diagnosticsSnapshot()
-                Kind.Timing -> timingParser!!.diagnosticsSnapshot()
-            },
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: TimeSeriesIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)

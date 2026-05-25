@@ -56,27 +56,24 @@ internal class PlantUmlNetworkSubPipeline(
             customEdgeCommands = ::edgeCommands,
         ),
     )
+    private val kernel = PlantUmlRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layoutModel = { it },
+        beforeLayout = { ir, _, _ -> measureNodes(ir) },
+        layout = { previous, ir, _, seq, isFinal ->
+            layoutNetwork(ir = ir, previous = previous, seq = seq, incremental = !isFinal)
+        },
+        renderEntities = { ir, _, laidOut, _ -> renderer.render(ir, laidOut) },
+        postLayout = { _, _, laidOut, _, _ -> laidOut },
+    )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
 
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
-        measureNodes(ir)
-        val laid = layoutNetwork(
-            ir = ir,
-            previous = previousSnapshot.laidOut,
-            seq = seq,
-            incremental = !isFinal,
-        )
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laid,
-            drawEntities = renderer.render(ir, laid),
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     private fun measureNodes(ir: GraphIR) {
         for (node in ir.nodes) {

@@ -36,6 +36,12 @@ internal class PlantUmlStructSubPipeline(
 
     private val parser = PlantUmlStructParser(format)
     private val layout = StructLayout(textMeasurer)
+    private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
     private val font = FontSpec(family = "monospace", sizeSp = 12f)
     private val rootFont = font.copy(weight = 600)
 
@@ -43,20 +49,8 @@ internal class PlantUmlStructSubPipeline(
 
     override fun finish(blockClosed: Boolean) = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laid,
-            drawEntities = render(ir, laid),
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: StructIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)

@@ -53,6 +53,23 @@ internal class PlantUmlActivitySubPipeline(
         defaultNodeSize = Size(160f, 72f),
         nodeSizeOf = { id -> nodeSizes[id] ?: Size(160f, 72f) },
     )
+    private val kernel = PlantUmlRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layoutModel = ::lower,
+        beforeLayout = { model, lowered, _ -> measureNodes(lowered, paletteOf(model)) },
+        layout = { previous, lowered, options, _, _ -> layout.layout(previous, lowered, options) },
+        postLayout = { _, lowered, baseLaid, seq, _ ->
+            val clusterRects = LinkedHashMap<NodeId, Rect>()
+            for (cluster in lowered.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
+            val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
+            baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
+        },
+        renderEntities = { model, lowered, laidOut, _ -> render(lowered, laidOut, paletteOf(model)) },
+        layoutOptions = { _, lowered, isFinal ->
+            LayoutOptions(direction = lowered.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal)
+        },
+    )
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private var idCounter: Int = 0
@@ -61,27 +78,8 @@ internal class PlantUmlActivitySubPipeline(
 
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
-        val palette = paletteOf(ir)
-        val lowered = lower(ir)
-        measureNodes(lowered, palette)
-        val baseLaid = layout.layout(
-            previousSnapshot.laidOut,
-            lowered,
-            LayoutOptions(direction = lowered.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val clusterRects = LinkedHashMap<NodeId, Rect>()
-        for (cluster in lowered.clusters) computeClusterRect(cluster, baseLaid.nodePositions, clusterRects)
-        val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
-        val laidOut = baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laidOut,
-            drawEntities = render(lowered, laidOut, palette),
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     override fun dispose() {
         nodeSizes.clear()

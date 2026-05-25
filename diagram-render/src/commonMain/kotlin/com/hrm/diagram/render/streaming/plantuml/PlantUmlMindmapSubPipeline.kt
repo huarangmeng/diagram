@@ -36,6 +36,12 @@ internal class PlantUmlMindmapSubPipeline(
 
     private val parser = PlantUmlMindmapParser()
     private val layout = MindmapLayout(textMeasurer)
+    private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
     private val font = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val stereotypeGap = 2f
 
@@ -43,20 +49,8 @@ internal class PlantUmlMindmapSubPipeline(
 
     override fun finish(blockClosed: Boolean) = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laid,
-            drawEntities = render(ir, laid),
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: TreeIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)

@@ -82,8 +82,11 @@ fun App() {
 }
 
 // 导出
-laidOut.toSvg(): String
-laidOut.toPng(width = 1920, scale = 2f): ByteArray
+laidOut.toSvg(theme = DiagramTheme.Default): String
+laidOut.toPng(
+    theme = DiagramTheme.Default,
+    options = RasterExportOptions(scale = ExportScale.Width(1920)),
+): ByteArray
 ```
 
 ---
@@ -195,23 +198,115 @@ fun DiagramView(
 
 ---
 
-## 7. 导出层（合并入 `:diagram-core`）
+## 7. 导出层（核心编码 + render bridge）
 
-SVG 与位图共用同一份 "已布局图 → DrawCommand 流" 中间层，统一收在 `:diagram-core`（SVG 在 commonMain；PNG/JPEG 用 expect/actual）。
+SVG 与位图共用同一份 `RenderedDiagram(bounds + DrawCommand)` 导出载体：
 
-### SVG（纯 commonMain）
-- `LaidOutDiagram.toSvg(): String` 遍历 `DrawCommand` 写 XML 字符串。
-- 字体：嵌入字体名 + fallback；可选嵌入 base64 字体。
+- `:diagram-core` 负责纯导出编码（SVG commonMain；PNG/JPEG expect/actual）；
+- `:diagram-render` 负责把 `DiagramSnapshot` / `LaidOutDiagram` 桥接为 `RenderedDiagram`，并提供对外 `toSvg()` / `toPng()` / `toJpeg()` 便捷入口。
 
-### PNG / JPEG（expect/actual）
-- `expect fun LaidOutDiagram.toPng(width: Int, scale: Float = 1f): ByteArray`
-- `expect fun LaidOutDiagram.toJpeg(width: Int, quality: Int = 90, scale: Float = 1f): ByteArray`
-- JVM：`java.awt.image.BufferedImage` + 自绘 `DrawCommand`（不依赖 Batik）。
+这样可以保持 `:diagram-core` 不直接依赖 `:diagram-layout`，同时让导出器只消费稳定的 `DrawCommand` 语义层。
+
+### 核心导出载体（`:diagram-core`）
+
+```kotlin
+data class RenderedDiagram(
+    val bounds: Rect,
+    val drawCommands: List<DrawCommand>,
+    val background: Color? = null,
+)
+
+sealed interface ExportScale {
+    data object Intrinsic : ExportScale
+    data class Factor(val value: Float) : ExportScale
+    data class Width(val px: Int) : ExportScale
+    data class Height(val px: Int) : ExportScale
+}
+
+sealed interface ExportBackground {
+    data object Auto : ExportBackground
+    data object Transparent : ExportBackground
+    data class Solid(val color: Color) : ExportBackground
+}
+
+data class ExportArtifact<T>(
+    val value: T,
+    val mimeType: String,
+    val widthPx: Int,
+    val heightPx: Int,
+    val diagnostics: List<Diagnostic> = emptyList(),
+)
+
+data class SvgExportOptions(
+    val scale: ExportScale = ExportScale.Intrinsic,
+    val background: ExportBackground = ExportBackground.Auto,
+    val pretty: Boolean = false,
+    val embedFonts: Boolean = false,
+    val includeXmlDeclaration: Boolean = true,
+)
+
+data class RasterExportOptions(
+    val scale: ExportScale = ExportScale.Intrinsic,
+    val background: ExportBackground = ExportBackground.Auto,
+)
+
+data class JpegExportOptions(
+    val scale: ExportScale = ExportScale.Intrinsic,
+    val background: ExportBackground = ExportBackground.Auto,
+    val quality: Int = 90,
+)
+
+fun RenderedDiagram.exportSvg(options: SvgExportOptions = SvgExportOptions()): ExportArtifact<String>
+expect suspend fun RenderedDiagram.exportPng(options: RasterExportOptions = RasterExportOptions()): ExportArtifact<ByteArray>
+expect suspend fun RenderedDiagram.exportJpeg(options: JpegExportOptions = JpegExportOptions()): ExportArtifact<ByteArray>
+```
+
+### 渲染桥接与便捷入口（`:diagram-render`）
+
+```kotlin
+fun DiagramSnapshot.prepareExport(
+    background: ExportBackground = ExportBackground.Auto,
+): RenderedDiagram
+
+fun LaidOutDiagram.prepareExport(
+    theme: DiagramTheme = DiagramTheme.Default,
+    background: ExportBackground = ExportBackground.Auto,
+): RenderedDiagram
+
+fun DiagramSnapshot.toSvg(options: SvgExportOptions = SvgExportOptions()): String
+suspend fun DiagramSnapshot.toPng(options: RasterExportOptions = RasterExportOptions()): ByteArray
+suspend fun DiagramSnapshot.toJpeg(options: JpegExportOptions = JpegExportOptions()): ByteArray
+
+fun LaidOutDiagram.toSvg(
+    theme: DiagramTheme = DiagramTheme.Default,
+    options: SvgExportOptions = SvgExportOptions(),
+): String
+
+suspend fun LaidOutDiagram.toPng(
+    theme: DiagramTheme = DiagramTheme.Default,
+    options: RasterExportOptions = RasterExportOptions(),
+): ByteArray
+
+suspend fun LaidOutDiagram.toJpeg(
+    theme: DiagramTheme = DiagramTheme.Default,
+    options: JpegExportOptions = JpegExportOptions(),
+): ByteArray
+```
+
+### 平台落地
+
+- JVM：共享 `RenderedDiagram` 遍历 + JVM 位图 surface / encoder；不依赖 Batik。
 - Android：`android.graphics.Canvas` + `Bitmap.compress`。
-- iOS：`CoreGraphics` (`CGContext`) + `UIImage` / `UIImageJPEGRepresentation`。
-- JS / Wasm：`OffscreenCanvas` + `toBlob`。
+- iOS：`CoreGraphics` (`CGContext`) + 平台图片编码 API。
+- JS / Wasm：`OffscreenCanvas` / browser canvas + `blob/arrayBuffer`。
 
-每个平台只写一个 `PlatformCanvas` 适配器消费 `DrawCommand`，SVG 与位图共享渲染逻辑。
+### 导出不变式
+
+- `ExportScale.Width` / `Height` 只做**等比缩放**，不允许导出阶段重新布局或拉伸。
+- `ExportBackground.Auto` 继承 `RenderedDiagram.background`；`Transparent` 仅对 SVG / PNG 保证透明语义。
+- `JPEG` 遇到透明背景时必须降为不透明纯色背景，并记录 `EXPORT-W001`。
+- PNG / JPEG 统一定义为 `suspend`，以适配 JS / Wasm 的异步编码能力。
+- 导出阶段禁止重新测量文本；所有文本几何必须复用布局 / 渲染阶段已写入的测量结果。
 
 ---
 
@@ -234,7 +329,7 @@ SVG 与位图共用同一份 "已布局图 → DrawCommand 流" 中间层，统�
 
 已落地：
 - `:diagram-core` 的通用 IR / DrawCommand / Theme / LayoutOptions / SVG 导出骨架；
-- `:diagram-render` 的 `Diagram.session(...)`、Compose 侧 `rememberDiagramSession(...)`、`DiagramCanvas`；
+- `:diagram-render` 的 `Diagram.session(...)`、Compose 侧 `rememberDiagramSession(...)`、`DiagramView`（底层保留 `DiagramCanvas`）；
 - `composeApp` 的多语法 demo gallery 骨架；当前已扩展为 70 个内置预览样例（Mermaid 32 / PlantUML 33 / DOT 5），并新增 gallery smoke test 确保所有样例走真实渲染链路且无 ERROR 诊断。
 
 ### Phase 1 — Mermaid 主力图（Sugiyama 体系） ✅ 已完成
@@ -249,7 +344,6 @@ flowchart → sequenceDiagram → classDiagram → stateDiagram → erDiagram。
 - ✅ `erDiagram`：最终态（`finish()`）渲染为“实体框内嵌属性列表”；增量态内部仍使用“实体节点 + 属性节点”以满足 append-only IR 与 pinned layout，最终渲染阶段折叠隐藏属性节点与属性连线（详见 `docs/syntax-compat/mermaid.md`）。
 - ✅ Mermaid 颜色：支持 hex、CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`；无法识别的颜色会被忽略并记录 `MERMAID-W011`（详见 `docs/diagnostics.md`）。
 - ✅ 增量约束：影响几何的样式（如字体/字号/padding）统一延迟到 `finish()` 收敛，避免破坏 pinned layout 契约（详见 `docs/streaming.md`）。
-- ⏸️ 本轮暂不计划：PlantUML / DOT 仍为 stub pipeline（保留 Phase 4/6 路线，但当前不推进实现）。
 
 ### Phase 2 — Mermaid 数据/时间/树类
 gantt、timeline、pie、gauge、journey、mindmap、xyChart、sankey、kanban、gitGraph。
@@ -263,7 +357,7 @@ requirementDiagram、architectureDiagram、c4、block。
 
 当前状态：✅ 已完成；`requirementDiagram` 已支持 requirement / element / relation / direction、`style` / `classDef` / `class` / `:::` 样式链路，以及 requirement 文本中的基础 markdown 保真渲染。`architectureDiagram` 已覆盖 `architecture-beta` 官方主语法：group / nested group / service / junction / port-side edge / `{group}` boundary edge / icon，并兼容内置 icon 与 iconify 名称透传。`c4` 已补齐 `C4Context/C4Container/C4Component/C4Dynamic/C4Deployment`、常用元素/边界、`Rel/BiRel/RelIndex/Rel_*`、`AddElementTag/AddRelTag`、`UpdateElementStyle/UpdateRelStyle`、`UpdateLayoutConfig`、`$tags` / `$link` / legend，以及 `RoundedBoxShape` / `EightSidedShape` / `DashedLine` / `DottedLine` / `BoldLine` helper。`block` 已补齐 `block` / `block-beta`、显式 `columns`、`space[:n]`、列跨度、nested `block ... end`、常用形状、block arrow、`-->` / `---` 与带标签连线，并全部接入 Mermaid streaming 主链路、`commonTest` 与 one-shot vs chunked 一致性校验。
 
-### Phase 4 — PlantUML 主体
+### Phase 4 — PlantUML 主体 ✅ 已完成
 sequence、usecase、class、activity、component、state、object、deployment、erd。
 重点：`@startuml/@enduml` 块、skinparam 主题、PlantUML 特殊连线语法、activity 链式。
 
@@ -273,7 +367,7 @@ sequence、usecase、class、activity、component、state、object、deployment�
 
 非阻塞后续：`skinparam` 当前已覆盖 `sequence`、`activity`、`usecase`、`state`、`class`、`component`、`deployment` 与 `object`，并已补齐 `BackgroundColor` / `BorderColor` / `FontColor` / `ArrowColor` / `FontSize` / `FontName` / `LineThickness` / `Shadowing`；其余未覆盖项仍会记录 `PLANTUML-W001` 后忽略。更细粒度的 PlantUML 样式体系可在后续阶段继续增强。
 
-### Phase 5 — PlantUML 扩展
+### Phase 5 — PlantUML 扩展 ✅ 已完成
 timing（✅ 已完成）、wireframe、archimate、c4、gantt（✅ 已完成）、mindmap、wbs、network（✅ 已完成）、ditaa、json、yaml、chart（✅ 已完成）。
 许多复用 Phase 1-3 的布局算法 + 新的 lowering 规则。
 
@@ -281,16 +375,35 @@ timing（✅ 已完成）、wireframe、archimate、c4、gantt（✅ 已完成�
 
 补充：✅ `PlantUML chart (pie/bar/line/scatter)` 已从最小可用增强为完成状态，新增 `@startchart/@endchart`、`h-axis/v-axis`、legend 开关与位置、`skinparam pie/chart` 基础样式、pie 行内颜色与百分比值、命名/着色 series、line/scatter 坐标对，并通过 `jvmTest` 定向 parser 与 one-shot vs chunked 集成校验。
 
-### Phase 6 — Graphviz DOT
-digraph / graph / cluster / 属性子集（rank、shape、style、color、label、port、HTML-like label）。
-需要更完整的 Sugiyama（rankdir、constraint、rank=same）。
+### Phase 6 — Graphviz DOT ✅ 已完成
+阶段目标：`digraph` / `graph` / `cluster` / 属性子集（`rank`、`shape`、`style`、`color`、`label`、`port`、HTML-like label），以及更完整的 Sugiyama 约束支持（`rankdir`、`constraint`、`rank=same`）。
+
+非目标 / 后续增强：不追求 Graphviz native 的 100% 语义与布局复刻；`neato/fdp/twopi/circo` 等原生布局引擎指令当前仅作为提示保留，统一走内部 Sugiyama；HTML-like label 当前以文本化兼容为主，`TABLE/TR/TD/BR`、`FONT/B/I` 已支持，多格 table cell layout、嵌入图片与 `PORT/IMG` 的原生布局语义仍可在后续阶段继续增强。
 
 当前状态：✅ 已完成 Phase 6 目标；`SourceLanguage.DOT` 已从 `StubSessionPipeline` 切换到真实 DOT parser + GraphIR/Sugiyama 渲染链路。当前已支持 `strict`、`graph/digraph`、节点/边语句、edge chain、`{a b} -> {c d}` 集合边展开、`subgraph cluster_*`、graph/node/edge attr 语句、quoted ID、注释、HTML-like label 纯文本清洗、`rankdir` 方向提示，以及 shape/style/color/fillcolor/label/penwidth/arrowhead/arrowtail/headlabel/taillabel 等属性映射；端口 `node:port:compass` 已保留到 payload 并用于渲染端点锚定；`nodesep/ranksep/bgcolor` 已映射到布局与背景渲染；`constraint=false` 已不参与分层；`rank=same/min/max/source/sink` 已在 full reflow 阶段强制调整 Sugiyama layer。DOT streaming 已改为 statement-level 增量 parser：按 `;` / `}` / 换行 safe point 推进完整 statement，append 阶段不再对累计源码做 `source.toString()` 全量解析。渲染链路新增 `DrawCommandStore`，`SessionPatch.addedDrawCommands` 只携带新增命令，空闲 append 不再重放整帧；DOT 主 GraphIR 渲染已迁移到 stable node/edge/cluster/background entity key 的 `updateEntities()`，Mermaid Flowchart / ER / Requirement / Architecture / C4 与 DOT 共用 `StreamingGraphPipelineKernel`，PlantUML Component / Deployment / Object / C4 / Archimate / Usecase 通过 Graph kernel 复用测量、布局、diff 与 DrawEntity 提交 seam；Mermaid / PlantUML 顶层共用 `StreamingFamilyPipelineKernel` 提交 DrawEntity；原生 renderer 直接输出实体，共享图族 renderer 通过 `FrameEntityRenderer.sink` 在绘制过程中即时写入稳定实体 bucket，稳定 key 门面是 `FamilyEntityKeyRegistry`，Pie / Tree / TimeSeries / Chart-like / Graph / Sequence / Structural / ClassState key 规则已拆到 family-specific registry；Mermaid/PlantUML 子流水线已继承统一 `StreamingSubPipeline` 能力接口，顶层图型选择统一走 `DiagramKindDispatcher` + `SubPipelineRegistry`，Mermaid header、PlantUML start directive、factory 与 lifecycle 不再散落在 session pipeline；Mermaid frontmatter/style 与 PlantUML skinparam/style block 的 session 状态统一归入 `LanguageStyleState`，并已抽出 `MermaidStylePreprocessor` / `PlantUmlStyleBlockRouter` 承载样式预处理 seam；不再走 full-frame seam、位置索引/轮转 fallback key、DrawCommand 语义派生 key、文本字符宽度估算 bounds 或子流水线边界 flat frame 再实体化；Mermaid 子流水线自身也不再把完整 frame 写入 `SessionPatch.addedDrawCommands`，新增 draw delta 统一由 Graph/Family kernel 的 `DrawCommandStore.updateEntities()` 计算；`diagram-parser` 已提供 `parser.common` 的 seq/diagnostic 组合件，Mermaid / PlantUML 可迁移的 streaming line parsers 已全面迁移到该组合件；DOT session 保持 statement-level 增量 parser，不机械套用 line-parser seq，禁止回退到 append 时全文 `source.toString()` 重解析。布局链路新增显式 `LayoutState` 与 `EdgeRouteKey` route index，Sugiyama incremental 只重算 dirty edge routes，避免 append 时全量 edge routing 与 O(E²) route 查找；`Diagram.session()` 默认注入 session-scoped `CachedTextMeasurer`，统一复用文本测量结果。UI 消费链路新增 `DiagramSnapshot.drawCommandIndex` 与 `DrawCommandIndex`，`DiagramCanvas` 支持 `DiagramViewportState` pan/zoom 并通过 quadtree viewport culling 查询可见命令；Mermaid / PlantUML / DOT 默认 pipeline 都会递归写入 `DrawText.measuredBounds`，文本可安全参与 quadtree。布局质量已参考 Graphviz/dagre 的 layered layout 思路增强：final reflow 在等距排布后按邻居重心居中较窄 rank，并且 DOT 渲染端会把 Sugiyama Bezier route 作为 `CubicTo` 消费，避免将控制点错误画成折线。HTML-like label 支持 TABLE/TR/TD/BR 多行文本化与 FONT/B/I 文本样式映射；PORT/IMG 作为文本兼容，不做嵌入图片/table cell layout。已补充 parser、layout 与 render 的 one-shot vs chunked / 菱形依赖图 / 单字符 chunk 增量 parser / DrawCommand delta / dirty route / measurement cache / viewport culling / measured text bounds / structured draw entity key 回归测试。
 
-### Phase 7 — 导出与发布
-`toSvg()` 全图类型覆盖、`toPng()` 多平台落地、Maven Central 发布、文档站。
+后续 API 收口事项（待排期）：
+- Compose 对外门面保持 `DiagramView(..., zoomEnabled = ...)` 极简形态；缩放/平移状态管理、手势策略与可选控制接口后续单独设计，避免当前公开 API 暴露 viewport 等渲染层细节。
 
-当前状态：⬜ 未开始实现；SVG 目前仍以骨架能力为主，PNG/JPEG expect/actual 尚未进入交付态。
+### Phase 7 — 导出与发布
+`toSvg()` / `toPng()` / `toJpeg()` 全图类型覆盖、Maven Central 发布、文档站。
+
+阶段设计（导出 API）：
+- `:diagram-core` 只暴露纯导出载体 `RenderedDiagram` 与 `exportSvg/exportPng/exportJpeg` 编码 API，不直接依赖 `LaidOutDiagram`。
+- `:diagram-render` 负责 `DiagramSnapshot.prepareExport()` / `LaidOutDiagram.prepareExport(theme)` 桥接，并提供对外便捷入口 `toSvg()` / `toPng()` / `toJpeg()`。
+- SVG 保持同步 `String` 导出；PNG / JPEG 统一为 `suspend` `ByteArray` 导出，以适配 JS / Wasm 异步编码。
+- 导出结果使用 `ExportArtifact<T>` 携带 `mimeType`、最终像素尺寸与 `EXPORT-W001` 等导出诊断；便捷入口只返回 `String` / `ByteArray`。
+- `ExportScale` 仅支持 `Intrinsic` / `Factor` / `Width` / `Height` 四种等比输出策略；v1 不引入裁剪、cover/stretch 与导出时重布局。
+
+实施顺序：
+1. 在 `:diagram-core` 新增 `RenderedDiagram`、`ExportScale`、`ExportBackground`、`ExportArtifact` 与三类 options。
+2. 将现有 `SvgWriter` 接到 `RenderedDiagram.exportSvg()`，补齐 XML 声明、背景、字体与全图型回归测试。
+3. 在 `:diagram-render` 新增 `DiagramSnapshot.prepareExport()`，优先打通 streaming 当前帧导出。
+4. 在 `:diagram-render` 新增 `LaidOutDiagram.prepareExport(theme)`，打通 one-shot / headless 导出。
+5. 落地 PNG / JPEG expect/actual：JVM、Android、iOS、JS/Wasm 共用同一份 `RenderedDiagram` 遍历语义。
+6. 补齐导出黄金样例、跨平台回归、README / 文档站 / 发布流水线。
+
+当前状态：🟡 设计已明确；`RenderedDiagram` / `ExportArtifact` / `ExportScale` / `ExportBackground` 与 `toSvg()` / `toPng()` / `toJpeg()` 的桥接形状已在文档定稿。SVG 目前仍以骨架能力为主，PNG/JPEG expect/actual 尚未进入交付态，Maven Central 发布与文档站仍待 Phase 7 实现完成。
 
 ---
 

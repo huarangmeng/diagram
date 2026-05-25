@@ -31,6 +31,12 @@ internal class PlantUmlXYChartSubPipeline(
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlXYChartParser(defaultKind)
     private val layout = XYChartLayout(textMeasurer)
+    private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val axisTitleFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val axisLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -39,20 +45,8 @@ internal class PlantUmlXYChartSubPipeline(
 
     override fun finish(blockClosed: Boolean): IrPatchBatch = parser.finish(blockClosed)
 
-    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val ir = parser.snapshot()
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = laid,
-            drawEntities = render(ir, laid),
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
-    }
+    override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: XYChartIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)

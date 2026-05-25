@@ -52,7 +52,6 @@ internal class PlantUmlObjectSubPipeline(
     private val memberFont = FontSpec(family = "monospace", sizeSp = 11f)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
     private var currentPalette: ObjectPalette = ObjectPalette(emptyMap(), null)
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
     private val measurePolicy = GraphMeasurePolicy(
         textMeasurer = textMeasurer,
         defaultSize = Size(176f, 92f),
@@ -82,7 +81,7 @@ internal class PlantUmlObjectSubPipeline(
                 ),
             )
         },
-        renderEntities = { ir, laid -> render(ir, laid, currentPalette).also { lastDrawEntities = it } },
+        renderEntities = { ir, laid -> render(ir, laid, currentPalette) },
     )
 
     override fun acceptLine(line: String): IrPatchBatch = parser.acceptLine(line)
@@ -94,24 +93,17 @@ internal class PlantUmlObjectSubPipeline(
         val palette = paletteOf(rawIr)
         currentPalette = palette
         val ir = applyPalette(rawIr, palette)
-        val advance = kernel.advance(
+        return kernel.advanceRendered(
             previousSnapshot = previousSnapshot,
             seq = seq,
             isFinal = isFinal,
             ir = ir,
             diagnostics = parser.diagnosticsSnapshot(),
         )
-        return PlantUmlRenderState(
-            ir = ir,
-            laidOut = requireNotNull(advance.snapshot.laidOut),
-            drawEntities = lastDrawEntities,
-            diagnostics = parser.diagnosticsSnapshot(),
-        )
     }
 
     override fun dispose() {
         currentPalette = ObjectPalette(emptyMap(), null)
-        lastDrawEntities = emptyList()
         kernel.clear()
     }
 
