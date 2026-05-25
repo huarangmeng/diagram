@@ -382,25 +382,14 @@ timing（✅ 已完成）、wireframe、archimate、c4、gantt（✅ 已完成�
 API 收口事项：
 - ✅ Compose 对外门面已收口为 `DiagramView(source: String, zoomEnabled = ...)`；语法识别、缩放/平移状态、session、snapshot、文本测量与增量 append 由库内部接管，避免公开 API 暴露 viewport / session 等渲染层细节。
 
-### Phase 7 — 导出与发布
-`toSvg()` / `toPng()` / `toJpeg()` 全图类型覆盖、Maven Central 发布、文档站。
+### Phase 7 — 导出与发布 ✅ 已完成
+`toSvg()` / `toPng()` / `toJpeg()` 导出链路、Maven Central 发布支持与对外发布说明已完成。
 
-阶段设计（导出 API）：
-- `:diagram-core` 只暴露纯导出载体 `RenderedDiagram` 与 `exportSvg/exportPng/exportJpeg` 编码 API，不直接依赖 `LaidOutDiagram`。
-- `:diagram-render` 负责 `DiagramSnapshot.prepareExport()` / `LaidOutDiagram.prepareExport(theme)` 桥接，并提供对外便捷入口 `toSvg()` / `toPng()` / `toJpeg()`。
-- SVG 保持同步 `String` 导出；PNG / JPEG 统一为 `suspend` `ByteArray` 导出，以适配 JS / Wasm 异步编码。
-- 导出结果使用 `ExportArtifact<T>` 携带 `mimeType`、最终像素尺寸与 `EXPORT-W001` 等导出诊断；便捷入口只返回 `String` / `ByteArray`。
-- `ExportScale` 仅支持 `Intrinsic` / `Factor` / `Width` / `Height` 四种等比输出策略；v1 不引入裁剪、cover/stretch 与导出时重布局。
-
-实施顺序：
-1. 在 `:diagram-core` 新增 `RenderedDiagram`、`ExportScale`、`ExportBackground`、`ExportArtifact` 与三类 options。
-2. 将现有 `SvgWriter` 接到 `RenderedDiagram.exportSvg()`，补齐 XML 声明、背景、字体与全图型回归测试。
-3. 在 `:diagram-render` 新增 `DiagramSnapshot.prepareExport()`，优先打通 streaming 当前帧导出。
-4. 在 `:diagram-render` 新增 `LaidOutDiagram.prepareExport(theme)`，打通 one-shot / headless 导出。
-5. 落地 PNG / JPEG expect/actual：JVM、Android、iOS、JS/Wasm 共用同一份 `RenderedDiagram` 遍历语义。
-6. 补齐导出黄金样例、跨平台回归、README / 文档站 / 发布流水线。
-
-当前状态：🟡 设计与第四批实现已完成；`RenderedDiagram` / `ExportArtifact` / `ExportScale` / `ExportBackground` 及 `DiagramSnapshot` / `LaidOutDiagram` 的 `toSvg()` 桥接已落地，`RenderedDiagram.exportPng()` / `exportJpeg()` 已补齐 `expect/actual` 并完成 JVM / Android / iOS / JS / Wasm 首版实现与定向回归验证。`LaidOutDiagram.prepareExport(theme)` 现已覆盖 `GraphIR` 以及 `PieIR` / `TreeIR` / `SequenceIR` / `TimeSeriesIR` 的 one-shot 导出；Maven Central 发布与文档站仍待 Phase 7 完整收尾。
+当前结果：
+- ✅ `DiagramSnapshot` / `LaidOutDiagram` 的 `toSvg()` / `toPng()` / `toJpeg()` 已落地，导出统一收口到 `RenderedDiagram`。
+- ✅ PNG / JPEG `expect/actual` 已覆盖 JVM / Android / iOS / JS / Wasm，并完成定向回归验证。
+- ✅ `LaidOutDiagram.prepareExport(theme)` 已覆盖 `GraphIR`、`PieIR`、`TreeIR`、`SequenceIR`、`TimeSeriesIR`。
+- ✅ 四个 SDK 模块均已接入 `publishToMavenCentral(true)`，`README` / `README_zh` 已切换到 Maven Central 发布用法。
 
 ---
 
