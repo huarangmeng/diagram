@@ -72,9 +72,8 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 | 工程 | [`docs/testing.md`](./docs/testing.md) | 黄金语料、快照、跨平台测试 |
 | 工程 | [`docs/contributing.md`](./docs/contributing.md) | 新增图类型 / 语法 / 布局算法的步骤 |
 | 工程 | [`docs/diagnostics.md`](./docs/diagnostics.md) | 诊断码命名与已分配清单 |
-| 工程 | [`docs/release.md`](./docs/release.md) | 版本号、Maven 工件、发布流程 |
 | 决策 | [`docs/adr/`](./docs/adr/) | 架构决策记录（ADR） |
-| 模板 | [`README.md`](./README.md) | KMP 模板的原始构建说明（保留） |
+| 入口 | [`README.md`](./README.md) | 项目介绍、模块坐标、快速开始、双语说明 |
 
 ---
 

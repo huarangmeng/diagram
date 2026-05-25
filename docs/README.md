@@ -27,7 +27,6 @@
 ## 工程化
 - [`testing.md`](./testing.md) —— 黄金语料、快照策略、跨平台测试
 - [`contributing.md`](./contributing.md) —— 新增图类型 / 新增语法 / 新增布局算法的步骤
-- [`release.md`](./release.md) —— 版本号、Maven 发布、变更日志规范
 - [`adr/`](./adr/) —— Architecture Decision Record（重要决策记一条）
 
 > 文档新增/迁移规则：动手时同步更新本 README 索引和 `../AGENTS.md` §3。
