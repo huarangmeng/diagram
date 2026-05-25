@@ -2,14 +2,11 @@ package com.hrm.diagram.parser.mermaid
 
 import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.GaugeIR
-import com.hrm.diagram.core.ir.Severity
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
-import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
 import com.hrm.diagram.core.streaming.Token
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for Mermaid `gauge` (Phase 2).
@@ -24,19 +21,18 @@ import com.hrm.diagram.core.streaming.Token
  * - Never throws on user input; emits diagnostics and keeps parsing.
  */
 class MermaidGaugeParser {
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private var headerSeen: Boolean = false
     private var title: String? = null
     private var min: Double = 0.0
     private var max: Double = 100.0
     private var value: Double = 0.0
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
 
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
@@ -44,7 +40,7 @@ class MermaidGaugeParser {
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.GAUGE_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'gauge' header")
         }
@@ -53,7 +49,7 @@ class MermaidGaugeParser {
         if (toks.first().kind == MermaidTokenKind.IDENT && toks.first().text.toString() == "title") {
             val rest = toks.drop(1).joinToString(" ") { it.text.toString() }.trim()
             if (rest.isNotEmpty()) title = rest
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         if (toks.first().kind == MermaidTokenKind.IDENT) {
@@ -65,7 +61,7 @@ class MermaidGaugeParser {
                 "value" -> next?.let { parseNumber(it) }?.let { value = it } ?: return errorBatch("Invalid gauge value")
             }
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): GaugeIR = GaugeIR(
@@ -77,7 +73,7 @@ class MermaidGaugeParser {
         styleHints = StyleHints(),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseNumber(tok: Token): Double? {
         val s = tok.text.toString()
@@ -88,9 +84,6 @@ class MermaidGaugeParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch {
-        val d = Diagnostic(Severity.ERROR, message, "MERMAID-E201")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        return session.errorBatch(message, "MERMAID-E201")
     }
 }
-

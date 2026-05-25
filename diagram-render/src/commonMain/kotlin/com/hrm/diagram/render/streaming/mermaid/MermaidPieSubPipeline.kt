@@ -11,17 +11,18 @@ import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.PieIR
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.pie.PieLayout
 import com.hrm.diagram.parser.mermaid.MermaidPieParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -31,11 +32,15 @@ import kotlin.math.tan
 internal class MermaidPieSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
-
     private val parser = MermaidPieParser()
     private val layout = PieLayout(textMeasurer)
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
 
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val legendFont = FontSpec(family = "sans-serif", sizeSp = 12f)
@@ -45,44 +50,16 @@ internal class MermaidPieSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        for (line in lines) {
-            parser.acceptLine(line)
-        }
-        val ir = parser.snapshot()
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val drawEntities = render(ir, laid)
-        val draw = drawEntities.flatMap { it.commands }
-
-        val out = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = draw,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(
-            snapshot = out,
-            patch = SessionPatch.empty(seq, isFinal),
-        )
-    }
-
-    private fun render(ir: PieIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
+    private fun render(ir: PieIR, laid: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
 
         // Compute pie geometry from bounds. Layout fixes pie at left, legend at right.
         val pad = 20f
         val radius = 120f
         val diameter = radius * 2f
-        val pieTop = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("pie:title")]?.bottom?.plus(10f) ?: pad
+        val pieTop = laid.nodePositions[NodeId("pie:title")]?.bottom?.plus(10f) ?: pad
         val center = Point(pad + radius, pieTop + radius)
 
         val total = ir.slices.sumOf { it.value }.takeIf { it > 0.0 } ?: 1.0
@@ -100,7 +77,7 @@ internal class MermaidPieSubPipeline(
         val borderColor = Color(0xFF263238.toInt())
 
         // Title.
-        val titleRect = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("pie:title")]
+        val titleRect = laid.nodePositions[NodeId("pie:title")]
         if (titleRect != null && !ir.title.isNullOrBlank()) {
             out += DrawCommand.DrawText(
                 text = ir.title!!,
@@ -127,7 +104,7 @@ internal class MermaidPieSubPipeline(
 
         // Legend rows from layout nodePositions.
         for ((i, s) in ir.slices.withIndex()) {
-            val row = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("pie:legend:$i")] ?: continue
+            val row = laid.nodePositions[NodeId("pie:legend:$i")] ?: continue
             val swatch = Rect.ltrb(row.left, row.top + 3f, row.left + 14f, row.bottom - 3f)
             val fill = palette[i % palette.size]
             out += DrawCommand.FillRect(rect = swatch, color = fill, corner = 3f, z = 5)
@@ -202,6 +179,10 @@ internal class MermaidPieSubPipeline(
         ops += PathOp.CubicTo(c1, c2, p3)
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
+
+    override fun dispose() {
+        kernel.clear()
+    }
 
 }

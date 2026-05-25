@@ -11,21 +11,19 @@ import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
-import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.struct.StructLayout
 import com.hrm.diagram.parser.mermaid.MermaidPacketParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 
 internal class MermaidPacketSubPipeline(
     textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private companion object {
         val fill = Color(0xFFFFF8E1.toInt())
         val rootFill = Color(0xFFFFECB3.toInt())
@@ -37,6 +35,14 @@ internal class MermaidPacketSubPipeline(
 
     private val parser = MermaidPacketParser()
     private val layout = StructLayout(textMeasurer)
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+        postLayout = { _, laidOut, seq -> laidOut.copy(seq = seq) },
+    )
     private val font = FontSpec(family = "monospace", sizeSp = 12f)
     private val rootFont = font.copy(weight = 700)
 
@@ -45,31 +51,10 @@ internal class MermaidPacketSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        for (line in lines) parser.acceptLine(line)
-        val ir = parser.snapshot()
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        val drawEntities = render(ir, laid)
-        val drawCommands = drawEntities.flatMap { it.commands }
-        val snap = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = drawCommands,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
-    }
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-    private fun render(ir: StructIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
+    private fun render(ir: StructIR, laid: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         for (route in laid.edgeRoutes) {
             out += DrawCommand.StrokePath(
                 PathCmd(route.points.mapIndexed { index, point -> if (index == 0) PathOp.MoveTo(point) else PathOp.LineTo(point) }),
@@ -111,6 +96,9 @@ internal class MermaidPacketSubPipeline(
         }
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
 
+    override fun dispose() {
+        kernel.clear()
+    }
 }

@@ -53,3 +53,30 @@ internal class ParserDiagnosticSink {
     fun warningBatch(seq: ParserSessionSeq, message: String, code: String): IrPatchBatch =
         seq.diagnosticBatch(warning(message, code))
 }
+
+/** Facade for the common streaming line-parser session pattern. */
+internal class ParserSession {
+    private val seq = ParserSessionSeq()
+    private val diagnostics = ParserDiagnosticSink()
+
+    fun beginLine(): Long = seq.next()
+
+    fun emptyBatch(): IrPatchBatch = seq.emptyBatch()
+
+    fun diagnosticBatch(diagnostic: IrPatch.AddDiagnostic): IrPatchBatch =
+        seq.diagnosticBatch(diagnostic)
+
+    fun error(message: String, code: String): IrPatch.AddDiagnostic =
+        diagnostics.error(message, code)
+
+    fun warning(message: String, code: String): IrPatch.AddDiagnostic =
+        diagnostics.warning(message, code)
+
+    fun errorBatch(message: String, code: String): IrPatchBatch =
+        seq.diagnosticBatch(error(message, code))
+
+    fun warningBatch(message: String, code: String): IrPatchBatch =
+        seq.diagnosticBatch(warning(message, code))
+
+    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+}

@@ -7,8 +7,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for Mermaid `pie` (Phase 2).
@@ -22,17 +21,16 @@ import com.hrm.diagram.parser.common.ParserSessionSeq
  * Error model: never throws on user input; emits diagnostics and keeps parsing.
  */
 class MermaidPieParser {
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val slices: MutableList<PieSlice> = ArrayList()
     private var title: String? = null
     private var headerSeen: Boolean = false
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
 
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
@@ -40,7 +38,7 @@ class MermaidPieParser {
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.PIE_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'pie' header")
         }
@@ -49,7 +47,7 @@ class MermaidPieParser {
         if (toks.first().kind == MermaidTokenKind.IDENT && toks.first().text.toString() == "title") {
             val rest = toks.drop(1).joinToString(" ") { it.text.toString() }.trim()
             if (rest.isNotEmpty()) title = rest
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val parsed = parseSliceLine(toks)
@@ -57,7 +55,7 @@ class MermaidPieParser {
             is SliceParse.Ok -> {
                 slices += PieSlice(label = RichLabel.Plain(parsed.label), value = parsed.value)
                 // PieIR isn't patchable like GraphIR nodes/edges; keep patch empty for now.
-                seq.emptyBatch()
+                session.emptyBatch()
             }
             is SliceParse.Error -> errorBatch(parsed.message)
         }
@@ -70,7 +68,7 @@ class MermaidPieParser {
         styleHints = StyleHints(),
     )
 
-    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
 
     // --- internals ---
 
@@ -105,6 +103,6 @@ class MermaidPieParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch {
-        return seq.diagnosticBatch(diagnostics.error(message, "MERMAID-E200"))
+        return session.errorBatch(message, "MERMAID-E200")
     }
 }

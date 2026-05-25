@@ -13,14 +13,14 @@ import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.GaugeIR
 import com.hrm.diagram.core.ir.NodeId
-import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.gauge.GaugeLayout
 import com.hrm.diagram.parser.mermaid.MermaidGaugeParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -28,10 +28,15 @@ import kotlin.math.sin
 import kotlin.math.tan
 
 internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidGaugeParser()
     private val layout = GaugeLayout()
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
 
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val valueFont = FontSpec(family = "sans-serif", sizeSp = 20f, weight = 600)
@@ -42,46 +47,10 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        val newPatches = ArrayList<com.hrm.diagram.core.streaming.IrPatch>()
-        for (line in lines) {
-            val batch = parser.acceptLine(line)
-            newPatches += batch.patches
-        }
-        val ir = parser.snapshot()
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val drawEntities = render(ir, laid)
-        val draw = drawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<com.hrm.diagram.core.streaming.IrPatch.AddDiagnostic>().map { it.diagnostic }
-
-        val snap = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = draw,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        val patch = SessionPatch(
-            seq = seq,
-            addedNodes = emptyList(),
-            addedEdges = emptyList(),
-            addedDrawCommands = emptyList(),
-            newDiagnostics = newDiagnostics,
-            isFinal = isFinal,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(snapshot = snap, patch = patch)
-    }
-
-    private fun render(ir: GaugeIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
+    private fun render(ir: GaugeIR, laid: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
 
         val titleRect = laid.nodePositions[NodeId("gauge:title")]
@@ -219,7 +188,10 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
         ops += PathOp.CubicTo(c1, c2, p3)
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
+
+    override fun dispose() {
+        kernel.clear()
+    }
 
 }
-

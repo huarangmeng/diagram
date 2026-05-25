@@ -22,6 +22,7 @@ import com.hrm.diagram.render.streaming.SessionPatch
 import com.hrm.diagram.render.streaming.SessionPipeline
 import com.hrm.diagram.render.streaming.drawEntitiesOrEmpty
 import com.hrm.diagram.render.streaming.dispatcher.DiagramKindDispatcher
+import com.hrm.diagram.render.streaming.ingress.TokenLineDrain
 import com.hrm.diagram.render.streaming.kernel.StreamingFamilyPipelineKernel
 
 /**
@@ -40,7 +41,7 @@ internal class MermaidSessionPipeline(
     private val lexer = MermaidLexer()
     private val familyKernel = StreamingFamilyPipelineKernel(textMeasurer)
     private var lexState: MermaidLexerState = lexer.initialState()
-    private val tokenBuffer: MutableList<Token> = ArrayList()
+    private val tokenLines = TokenLineDrain<Token> { it.kind == MermaidTokenKind.NEWLINE }
     private val pendingLines: MutableList<List<Token>> = ArrayList()
     private val subPipelineRegistry = MermaidSubPipelineRegistry(textMeasurer)
     private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
@@ -65,7 +66,7 @@ internal class MermaidSessionPipeline(
             // Still need to advance lexer state on EOS so pending is flushed deterministically.
             val step = lexer.feed(lexState, "", absoluteOffset, eos = isFinal)
             lexState = step.newState
-            tokenBuffer += step.tokens
+            tokenLines.add(step.tokens)
         } else {
             for ((i, feed) in pre.lexerFeeds.withIndex()) {
                 // Safety: if we skipped any bytes between feeds, ensure the lexer does not carry
@@ -81,11 +82,11 @@ internal class MermaidSessionPipeline(
                     eos = isFinal && i == pre.lexerFeeds.lastIndex,
                 )
                 lexState = step.newState
-                tokenBuffer += step.tokens
+                tokenLines.add(step.tokens)
             }
         }
 
-        val lines = drainLines(isFinal)
+        val lines = tokenLines.drain(isFinal)
 
         // Decide the sub-pipeline using either: (a) lexer mode (after header was lexed) or
         // (b) the first non-blank line we have buffered so far.
@@ -150,26 +151,6 @@ internal class MermaidSessionPipeline(
             snapshot = snap,
             patch = SessionPatch.empty(seq, isFinal),
         )
-    }
-
-    private fun drainLines(eos: Boolean): List<List<Token>> {
-        val out = ArrayList<List<Token>>()
-        var start = 0
-        for (i in tokenBuffer.indices) {
-            if (tokenBuffer[i].kind == MermaidTokenKind.NEWLINE) {
-                if (i > start) out += tokenBuffer.subList(start, i).toList()
-                start = i + 1
-            }
-        }
-        if (eos && start < tokenBuffer.size) {
-            out += tokenBuffer.subList(start, tokenBuffer.size).toList()
-            tokenBuffer.clear()
-        } else {
-            val tail = if (start < tokenBuffer.size) tokenBuffer.subList(start, tokenBuffer.size).toList() else emptyList()
-            tokenBuffer.clear()
-            tokenBuffer.addAll(tail)
-        }
-        return out
     }
 
     private data class LexerFeed(
@@ -539,7 +520,7 @@ internal class MermaidSessionPipeline(
 
     override fun dispose() {
         familyKernel.clear()
-        tokenBuffer.clear()
+        tokenLines.clear()
         pendingLines.clear()
         dispatcher.clear()
         styleState.reset()

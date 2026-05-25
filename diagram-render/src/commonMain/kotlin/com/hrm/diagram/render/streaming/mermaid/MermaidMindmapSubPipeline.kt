@@ -15,25 +15,29 @@ import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.ir.TreeNode
-import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.tree.MindmapLayout
 import com.hrm.diagram.parser.mermaid.MermaidMindmapParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 import kotlin.math.min
 
 internal class MermaidMindmapSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidMindmapParser()
     private val layout = MindmapLayout(textMeasurer)
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = { model, laidOut -> render(model, laidOut, parser.snapshotNodeShapes()) },
+    )
     private val font = FontSpec(family = "sans-serif", sizeSp = 12f)
 
     override fun acceptLines(
@@ -41,45 +45,10 @@ internal class MermaidMindmapSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        for (line in lines) {
-            val batch = parser.acceptLine(line)
-            newPatches += batch.patches
-        }
-        val ir = parser.snapshot()
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val drawEntities = render(ir, laid, parser.snapshotNodeShapes())
-        val draw = drawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-        val snap = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = draw,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        val patch = SessionPatch(
-            seq = seq,
-            addedNodes = emptyList(),
-            addedEdges = emptyList(),
-            addedDrawCommands = emptyList(),
-            newDiagnostics = newDiagnostics,
-            isFinal = isFinal,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(snapshot = snap, patch = patch)
-    }
-
-    private fun render(ir: TreeIR, laid: LaidOutDiagram, shapes: Map<NodeId, NodeShape>): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
+    private fun render(ir: TreeIR, laid: LaidOutDiagram, shapes: Map<NodeId, NodeShape>): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val icons = parser.snapshotNodeIcons()
         val defaultNodeFill = Color(0xFFE8F5E9.toInt())
         val defaultNodeStroke = Color(0xFF2E7D32.toInt())
@@ -250,6 +219,10 @@ internal class MermaidMindmapSubPipeline(
         }
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
+
+    override fun dispose() {
+        kernel.clear()
+    }
 
 }

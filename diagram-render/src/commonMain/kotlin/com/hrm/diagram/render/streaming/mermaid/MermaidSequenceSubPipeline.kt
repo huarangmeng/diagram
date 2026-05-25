@@ -14,9 +14,6 @@ import com.hrm.diagram.core.ir.MessageKind
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SequenceIR
-import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
-import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
@@ -38,61 +35,27 @@ internal class MermaidSequenceSubPipeline(
 
     private val parser = MermaidSequenceParser()
     private val layout = SequenceLayouts.forSequence(textMeasurer)
-    var lastDrawEntities: List<DrawEntity> = emptyList()
-        private set
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::renderSequence,
+        postLayout = { _, laidOut, seq -> laidOut.copy(seq = seq) },
+    )
 
     override fun acceptLines(
         previousSnapshot: com.hrm.diagram.render.streaming.DiagramSnapshot,
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): com.hrm.diagram.render.streaming.PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        for (lineToks in lines) {
-            val batch = parser.acceptLine(lineToks)
-            for (p in batch.patches) newPatches += p
-        }
-
-        val ir: SequenceIR = parser.snapshot()
-        val opts = LayoutOptions(
-            incremental = !isFinal,
-            allowGlobalReflow = isFinal,
-        )
-        val laidOut: LaidOutDiagram = layout.layout(previousSnapshot.laidOut, ir, opts).copy(seq = seq)
-        val drawEntities = renderSequence(ir, laidOut)
-        lastDrawEntities = drawEntities
-        val drawCommands = drawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-
-        val snapshot = com.hrm.diagram.render.streaming.DiagramSnapshot(
-            ir = ir,
-            laidOut = laidOut,
-            drawCommands = drawCommands,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        val patch = com.hrm.diagram.render.streaming.SessionPatch(
-            seq = seq,
-            addedNodes = emptyList(),
-            addedEdges = emptyList(),
-            addedDrawCommands = emptyList(),
-            newDiagnostics = newDiagnostics,
-            isFinal = isFinal,
-        )
-        return com.hrm.diagram.render.streaming.PipelineAdvance(
-            snapshot = snapshot,
-            patch = patch,
-            irBatch = IrPatchBatch(seq, newPatches),
-        )
-    }
+    ): com.hrm.diagram.render.streaming.PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
     override fun dispose() {
-        lastDrawEntities = emptyList()
+        kernel.clear()
     }
 
-    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
 
     private fun renderSequence(ir: SequenceIR, laidOut: LaidOutDiagram): List<DrawEntity> {
         val out = ArrayList<DrawEntity>()

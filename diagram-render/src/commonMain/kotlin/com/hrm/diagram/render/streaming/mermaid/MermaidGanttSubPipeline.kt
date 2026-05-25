@@ -12,28 +12,32 @@ import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.TimeSeriesIR
-import com.hrm.diagram.core.layout.LayoutOptions
-import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.timeseries.GanttAxisSupport
 import com.hrm.diagram.layout.timeseries.GanttLayout
 import com.hrm.diagram.parser.mermaid.MermaidGanttParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 import kotlin.math.abs
 
 internal class MermaidGanttSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
-
     private val parser = MermaidGanttParser()
     private val layout = GanttLayout(textMeasurer)
     private var styleExtras: Map<String, String> = emptyMap()
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        transformModel = ::applyStyleExtras,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
 
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val trackFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
@@ -49,49 +53,17 @@ internal class MermaidGanttSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        for (line in lines) {
-            val batch = parser.acceptLine(line)
-            newPatches += batch.patches
-        }
-        val baseIr = parser.snapshot()
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
+
+    private fun applyStyleExtras(baseIr: TimeSeriesIR): TimeSeriesIR {
         val mergedExtras = baseIr.styleHints.extras + styleExtras
             .filterKeys { it.startsWith("mermaid.config.gantt.") }
             .mapKeys { it.key.removePrefix("mermaid.config.") }
-        val ir = baseIr.copy(styleHints = baseIr.styleHints.copy(extras = mergedExtras))
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val drawEntities = render(ir, laid)
-        val draw = drawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-
-        val snap = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = draw,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        val patch = SessionPatch(
-            seq = seq,
-            addedNodes = emptyList(),
-            addedEdges = emptyList(),
-            addedDrawCommands = emptyList(),
-            newDiagnostics = newDiagnostics,
-            isFinal = isFinal,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(snapshot = snap, patch = patch)
+        return baseIr.copy(styleHints = baseIr.styleHints.copy(extras = mergedExtras))
     }
 
-    private fun render(ir: TimeSeriesIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
+    private fun render(ir: TimeSeriesIR, laid: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
 
         val bg = Color(0xFFFFFFFF.toInt())
@@ -523,6 +495,10 @@ internal class MermaidGanttSubPipeline(
     private fun Int.pad(width: Int): String = toString().padStart(width, '0')
     private fun Long.pad(width: Int): String = toString().padStart(width, '0')
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
+
+    override fun dispose() {
+        kernel.clear()
+    }
 
 }

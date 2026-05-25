@@ -15,23 +15,28 @@ import com.hrm.diagram.core.ir.GitCommitType
 import com.hrm.diagram.core.ir.GitGraphIR
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.gitgraph.GitGraphLayout
 import com.hrm.diagram.parser.mermaid.MermaidGitGraphParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 
 internal class MermaidGitGraphSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidGitGraphParser()
     private val layout = GitGraphLayout(textMeasurer)
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val branchFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 10f)
@@ -42,31 +47,10 @@ internal class MermaidGitGraphSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        for (line in lines) parser.acceptLine(line)
-        val ir = parser.snapshot()
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val drawEntities = render(ir, laid)
-        val draw = drawEntities.flatMap { it.commands }
-        val snap = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = draw,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
-    }
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-    private fun render(ir: GitGraphIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
+    private fun render(ir: GitGraphIR, laid: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val text = Color(0xFF263238.toInt())
         val lane = Color(0xFFE0E0E0.toInt())
@@ -174,6 +158,9 @@ internal class MermaidGitGraphSubPipeline(
         Color(0xFFEC407A.toInt()),
     )[index % 8]
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
 
+    override fun dispose() {
+        kernel.clear()
+    }
 }

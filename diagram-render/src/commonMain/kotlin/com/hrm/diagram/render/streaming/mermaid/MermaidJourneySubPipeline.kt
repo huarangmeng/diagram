@@ -11,25 +11,31 @@ import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
+import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.JourneyIR
 import com.hrm.diagram.core.ir.RichLabel
-import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.journey.JourneyLayout
 import com.hrm.diagram.parser.mermaid.MermaidJourneyParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.SessionPatch
 
 internal class MermaidJourneySubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidJourneyParser()
     private val layout = JourneyLayout(textMeasurer)
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        layout = layout::layout,
+        renderEntities = ::render,
+    )
 
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 14f, weight = 600)
     private val stageFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
@@ -42,38 +48,17 @@ internal class MermaidJourneySubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        for (line in lines) parser.acceptLine(line)
-        val ir = parser.snapshot()
-        val laid = layout.layout(
-            previous = previousSnapshot.laidOut,
-            model = ir,
-            options = LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        )
-        val drawEntities = render(ir, laid)
-        val draw = drawEntities.flatMap { it.commands }
-        val snap = DiagramSnapshot(
-            ir = ir,
-            laidOut = laid,
-            drawCommands = draw,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(snapshot = snap, patch = SessionPatch.empty(seq, isFinal))
-    }
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-    private fun render(ir: JourneyIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
+    private fun render(ir: JourneyIR, laid: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
         val text = Color(0xFF263238.toInt())
         val axis = Color(0xFFD0D7DE.toInt())
         val line = Color(0xFF90A4AE.toInt())
 
         out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
-        val titleRect = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("journey:title")]
+        val titleRect = laid.nodePositions[NodeId("journey:title")]
         if (titleRect != null && !ir.title.isNullOrBlank()) {
             out += DrawCommand.DrawText(ir.title!!, Point(titleRect.left, titleRect.top), titleFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
         }
@@ -94,13 +79,13 @@ internal class MermaidJourneySubPipeline(
 
         val centers = ArrayList<Point>()
         for ((stageIndex, stage) in ir.stages.withIndex()) {
-            val stageRect = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("journey:stage:$stageIndex")]
+            val stageRect = laid.nodePositions[NodeId("journey:stage:$stageIndex")]
             val stageLabel = (stage.label as? RichLabel.Plain)?.text.orEmpty()
             if (stageRect != null) {
                 out += DrawCommand.DrawText(stageLabel, Point(stageRect.left, stageRect.top), stageFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
             }
             for ((stepIndex, step) in stage.steps.withIndex()) {
-                val rect = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("journey:step:$stageIndex:$stepIndex")] ?: continue
+                val rect = laid.nodePositions[NodeId("journey:step:$stageIndex:$stepIndex")] ?: continue
                 val fill = scoreColor(step.score)
                 out += DrawCommand.FillRect(rect = rect, color = fill, corner = 12f, z = 3)
                 out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = line, corner = 12f, z = 4)
@@ -129,7 +114,7 @@ internal class MermaidJourneySubPipeline(
         val centers = ArrayList<Pair<Int, Float>>()
         for ((stageIndex, stage) in ir.stages.withIndex()) {
             for ((stepIndex, step) in stage.steps.withIndex()) {
-                val rect = laid.nodePositions[com.hrm.diagram.core.ir.NodeId("journey:step:$stageIndex:$stepIndex")] ?: continue
+                val rect = laid.nodePositions[NodeId("journey:step:$stageIndex:$stepIndex")] ?: continue
                 val centerY = (rect.top + rect.bottom) / 2f
                 if (step.score !in known) known[step.score] = centerY
                 centers += step.score to centerY
@@ -180,6 +165,9 @@ internal class MermaidJourneySubPipeline(
         else -> Color(0xFFEF9A9A.toInt())
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
 
+    override fun dispose() {
+        kernel.clear()
+    }
 }
