@@ -55,36 +55,20 @@ internal class MermaidGraphStyleState {
     private fun mergeNodeDecl(nodeId: NodeId, defaultClassDecl: MermaidStyleDecl?): MermaidStyleDecl? {
         var out: MermaidStyleDecl? = null
         // theme default is represented by the existing NodeStyle in IR (base style).
-        defaultClassDecl?.let { out = mergeDecl(out, it) }
+        defaultClassDecl?.let { out = mergeMermaidStyleDecl(out, it) }
         nodeClassBindings[nodeId]?.forEach { cls ->
             val decl = classDefs[cls] ?: return@forEach
-            out = mergeDecl(out, decl)
+            out = mergeMermaidStyleDecl(out, decl)
         }
-        nodeInline[nodeId]?.let { out = mergeDecl(out, it) }
+        nodeInline[nodeId]?.let { out = mergeMermaidStyleDecl(out, it) }
         return out
     }
 
     private fun mergeEdgeDecl(idx1: Int): MermaidStyleDecl? {
         var out: MermaidStyleDecl? = null
-        linkDefault?.let { out = mergeDecl(out, it) }
-        linkByIndex[idx1]?.let { out = mergeDecl(out, it) }
+        linkDefault?.let { out = mergeMermaidStyleDecl(out, it) }
+        linkByIndex[idx1]?.let { out = mergeMermaidStyleDecl(out, it) }
         return out
-    }
-
-    private fun mergeDecl(base: MermaidStyleDecl?, override: MermaidStyleDecl): MermaidStyleDecl {
-        val b = base ?: MermaidStyleDecl()
-        return MermaidStyleDecl(
-            fill = override.fill ?: b.fill,
-            stroke = override.stroke ?: b.stroke,
-            strokeWidthPx = override.strokeWidthPx ?: b.strokeWidthPx,
-            strokeDashArrayPx = override.strokeDashArrayPx ?: b.strokeDashArrayPx,
-            textColor = override.textColor ?: b.textColor,
-            fontFamily = override.fontFamily ?: b.fontFamily,
-            fontSizePx = override.fontSizePx ?: b.fontSizePx,
-            fontWeight = override.fontWeight ?: b.fontWeight,
-            italic = override.italic ?: b.italic,
-            extras = if (b.extras.isEmpty()) override.extras else b.extras + override.extras,
-        )
     }
 
     private fun mergeNodeStyle(base: NodeStyle, decl: MermaidStyleDecl): NodeStyle {

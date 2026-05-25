@@ -10,6 +10,7 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.withMeasuredEntityTextBounds
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.PipelineAdvanceAssembler
+import com.hrm.diagram.render.streaming.RenderedSubPipelineState
 import com.hrm.diagram.render.streaming.StreamingDiff
 
 /**
@@ -35,17 +36,44 @@ internal class StreamingFamilyPipelineKernel(
         } else {
             advance.patch.newDiagnostics + newDiagnostics
         }
-        return advance.copy(
-            snapshot = advance.snapshot.copy(
-                drawCommands = drawDelta.fullFrame,
-                diagnostics = diagnostics,
-            ),
-            patch = advance.patch.copy(
-                addedDrawCommands = drawDelta.addedCommands,
+        val model = advance.snapshot.ir ?: return advance.copy(
+            snapshot = advance.snapshot.copy(drawCommands = drawDelta.fullFrame, diagnostics = diagnostics),
+            patch = advance.patch.copy(addedDrawCommands = drawDelta.addedCommands, newDiagnostics = mergedPatchDiagnostics),
+        )
+        return PipelineAdvanceAssembler.assemble(
+            seq = advance.snapshot.seq,
+            isFinal = advance.snapshot.isFinal,
+            sourceLanguage = advance.snapshot.sourceLanguage,
+            model = model,
+            laidOut = advance.snapshot.laidOut,
+            drawDelta = drawDelta,
+            diagnostics = diagnostics,
+            diff = StreamingDiff(
+                addedNodes = advance.patch.addedNodes,
+                addedEdges = advance.patch.addedEdges,
                 newDiagnostics = mergedPatchDiagnostics,
+                irPatches = advance.irBatch.patches,
             ),
         )
     }
+
+    fun assembleRendered(
+        seq: Long,
+        isFinal: Boolean,
+        sourceLanguage: SourceLanguage,
+        rendered: RenderedSubPipelineState,
+        diagnostics: List<Diagnostic>,
+        diff: StreamingDiff,
+    ): PipelineAdvance = assembleRendered(
+        seq = seq,
+        isFinal = isFinal,
+        sourceLanguage = sourceLanguage,
+        model = rendered.ir,
+        laidOut = rendered.laidOut,
+        drawEntities = rendered.drawEntities,
+        diagnostics = diagnostics,
+        diff = diff,
+    )
 
     fun assembleRendered(
         seq: Long,

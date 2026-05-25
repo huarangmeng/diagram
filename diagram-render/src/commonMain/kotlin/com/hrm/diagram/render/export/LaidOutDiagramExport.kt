@@ -15,6 +15,10 @@ import com.hrm.diagram.core.ir.DiagramModel
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeShape
+import com.hrm.diagram.core.ir.PieIR
+import com.hrm.diagram.core.ir.SequenceIR
+import com.hrm.diagram.core.ir.TimeSeriesIR
+import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
@@ -39,6 +43,10 @@ fun LaidOutDiagram.prepareExport(
 ): RenderedDiagram {
     return when (val source = source) {
         is GraphIR -> renderGraphDiagram(source, this, theme, background)
+        is PieIR -> renderFamilyDiagram(this, theme, background, renderPieEntities(source, this, theme))
+        is TreeIR -> renderFamilyDiagram(this, theme, background, renderTreeEntities(source, this, theme))
+        is SequenceIR -> renderFamilyDiagram(this, theme, background, renderSequenceEntities(source, this, theme))
+        is TimeSeriesIR -> renderFamilyDiagram(this, theme, background, renderTimeSeriesEntities(source, this, theme))
         else -> unsupportedRenderedDiagram(this, source, background)
     }
 }
@@ -86,6 +94,17 @@ private fun renderGraphDiagram(
         background = resolveBackground(theme, background),
     )
 }
+
+private fun renderFamilyDiagram(
+    laidOut: LaidOutDiagram,
+    theme: DiagramTheme,
+    background: ExportBackground,
+    entities: List<com.hrm.diagram.render.cache.DrawEntity>,
+): RenderedDiagram = RenderedDiagram(
+    bounds = laidOut.bounds,
+    drawCommands = entities.flatMap { it.commands },
+    background = resolveBackground(theme, background),
+)
 
 private fun unsupportedRenderedDiagram(
     laidOut: LaidOutDiagram,

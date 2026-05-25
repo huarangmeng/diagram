@@ -1,11 +1,12 @@
 package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.streaming.IrPatch
+import com.hrm.diagram.render.streaming.style.LanguageStyleIngress
 
 internal class PlantUmlStyleBlockRouter(
-    private val state: PlantUmlLanguageStyleState,
+    override val state: PlantUmlLanguageStyleState,
     private val registry: PlantUmlSubPipelineRegistry,
-) {
+) : LanguageStyleIngress<PlantUmlLanguageStyleState> {
     fun route(
         trimmed: String,
         activeKind: PlantUmlDiagramKind?,

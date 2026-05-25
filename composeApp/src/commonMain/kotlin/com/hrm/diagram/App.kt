@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,10 +40,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hrm.diagram.core.draw.Color
+import com.hrm.diagram.core.export.ExportBackground
+import com.hrm.diagram.core.export.ExportScale
+import com.hrm.diagram.core.export.JpegExportOptions
+import com.hrm.diagram.core.export.RasterExportOptions
+import com.hrm.diagram.core.export.SvgExportOptions
+import com.hrm.diagram.core.export.exportJpeg
+import com.hrm.diagram.core.export.exportPng
+import com.hrm.diagram.core.export.svg.exportSvg
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.gallery.DemoSample
 import com.hrm.diagram.gallery.DemoSamples
+import com.hrm.diagram.gallery.SourceLang
+import com.hrm.diagram.render.Diagram
 import com.hrm.diagram.render.compose.DiagramView
+import com.hrm.diagram.render.export.prepareExport
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 @Preview
@@ -234,6 +249,9 @@ private fun PreviewPane(
     onStreamRequested: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val scope = rememberCoroutineScope()
+    var exportState by remember(sample, sourceText) { mutableStateOf<ExportPreviewState>(ExportPreviewState.Idle) }
+
     Column(modifier = modifier) {
         SectionLabel("Preview")
         Box(
@@ -276,12 +294,89 @@ private fun PreviewPane(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Button(onClick = onStreamRequested) {
-                            Text("Stream this source (16 char chunks)")
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(
+                                onClick = onStreamRequested,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("Stream")
+                            }
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        exportState = ExportPreviewState.Running("SVG")
+                                        exportState = runExportPreview(sample, sourceText, ExportFormat.SVG)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("SVG")
+                            }
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        exportState = ExportPreviewState.Running("PNG")
+                                        exportState = runExportPreview(sample, sourceText, ExportFormat.PNG)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("PNG")
+                            }
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        exportState = ExportPreviewState.Running("JPEG")
+                                        exportState = runExportPreview(sample, sourceText, ExportFormat.JPEG)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text("JPEG")
+                            }
                         }
+                        ExportPreviewSection(exportState = exportState)
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ExportPreviewSection(exportState: ExportPreviewState) {
+    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+    when (exportState) {
+        ExportPreviewState.Idle -> {
+            Text(
+                text = "点击 SVG / PNG / JPEG，直接生成并保存文件。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        is ExportPreviewState.Running -> {
+            Text(
+                text = "正在导出 ${exportState.format} ...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        is ExportPreviewState.Saved -> {
+            Text(
+                text = exportState.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        is ExportPreviewState.Failure -> {
+            Text(
+                text = exportState.message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
@@ -301,3 +396,112 @@ private fun SectionLabel(label: String) {
 
 private fun Modifier.clickableSimple(onClick: () -> Unit): Modifier =
     this.clickable(onClick = onClick)
+
+private enum class ExportFormat {
+    SVG,
+    PNG,
+    JPEG,
+}
+
+private sealed interface ExportPreviewState {
+    data object Idle : ExportPreviewState
+    data class Running(val format: String) : ExportPreviewState
+    data class Saved(val message: String) : ExportPreviewState
+    data class Failure(val message: String) : ExportPreviewState
+}
+
+private suspend fun runExportPreview(
+    sample: DemoSample,
+    sourceText: String,
+    format: ExportFormat,
+): ExportPreviewState =
+    runCatching {
+        val session = Diagram.session(language = sample.lang.toSourceLanguage())
+        try {
+            session.append(sourceText)
+            val snapshot = session.finish()
+            val rendered = snapshot.prepareExport(
+                background = if (format == ExportFormat.SVG) ExportBackground.Transparent else ExportBackground.Solid(Color.White),
+            )
+            when (format) {
+                ExportFormat.SVG -> {
+                    val artifact = rendered.exportSvg(
+                        SvgExportOptions(
+                            scale = ExportScale.Width(1280),
+                            background = ExportBackground.Transparent,
+                            includeXmlDeclaration = false,
+                            pretty = true,
+                        ),
+                    )
+                    val saved = savePreviewExport(
+                        fileName = buildPreviewFileName(sample, format),
+                        mimeType = artifact.mimeType,
+                        bytes = artifact.value.encodeToByteArray(),
+                    )
+                    ExportPreviewState.Saved("SVG 已保存到 ${saved.locationDescription}")
+                }
+                ExportFormat.PNG -> {
+                    val artifact = rendered.exportPng(
+                        RasterExportOptions(
+                            scale = ExportScale.Width(1280),
+                            background = ExportBackground.Solid(Color.White),
+                        ),
+                    )
+                    val saved = savePreviewExport(
+                        fileName = buildPreviewFileName(sample, format),
+                        mimeType = artifact.mimeType,
+                        bytes = artifact.value,
+                    )
+                    ExportPreviewState.Saved("PNG 已保存到 ${saved.locationDescription}")
+                }
+                ExportFormat.JPEG -> {
+                    val artifact = rendered.exportJpeg(
+                        JpegExportOptions(
+                            scale = ExportScale.Width(1280),
+                            background = ExportBackground.Solid(Color.White),
+                            quality = 90,
+                        ),
+                    )
+                    val saved = savePreviewExport(
+                        fileName = buildPreviewFileName(sample, format),
+                        mimeType = artifact.mimeType,
+                        bytes = artifact.value,
+                    )
+                    ExportPreviewState.Saved("JPEG 已保存到 ${saved.locationDescription}")
+                }
+            }
+        } finally {
+            session.close()
+        }
+    }.getOrElse { error ->
+        ExportPreviewState.Failure("${format.name} 导出失败: ${error.message ?: error::class.simpleName ?: "unknown error"}")
+    }
+
+private fun SourceLang.toSourceLanguage(): SourceLanguage =
+    when (this) {
+        SourceLang.MERMAID -> SourceLanguage.MERMAID
+        SourceLang.PLANTUML -> SourceLanguage.PLANTUML
+        SourceLang.DOT -> SourceLanguage.DOT
+    }
+
+private fun buildPreviewFileName(sample: DemoSample, format: ExportFormat): String {
+    val kind = sample.kind.asSafeFilePart()
+    val lang = sample.lang.name.lowercase()
+    val extension = when (format) {
+        ExportFormat.SVG -> "svg"
+        ExportFormat.PNG -> "png"
+        ExportFormat.JPEG -> "jpg"
+    }
+    return "diagram-$lang-$kind.$extension"
+}
+
+private fun String.asSafeFilePart(): String =
+    lowercase().map { char ->
+        when {
+            char in 'a'..'z' || char in '0'..'9' -> char
+            else -> '-'
+        }
+    }.joinToString("")
+        .replace(Regex("-+"), "-")
+        .trim('-')
+        .ifEmpty { "preview" }

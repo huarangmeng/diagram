@@ -16,6 +16,7 @@ import com.hrm.diagram.core.ir.ClassNode
 import com.hrm.diagram.core.ir.ClassRelation
 import com.hrm.diagram.core.ir.ClassRelationKind
 import com.hrm.diagram.core.ir.NodeId
+import com.hrm.diagram.core.ir.NodeStyle
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.Visibility
 import com.hrm.diagram.core.layout.LayoutOptions
@@ -36,7 +37,7 @@ internal class MermaidClassSubPipeline(
 
     private val parser = MermaidClassParser()
     private val layout = ClassDiagramLayout(textMeasurer)
-    private var graphStyles: MermaidGraphStyleState? = null
+    private val styleTransform = MermaidStyleTransformState<ClassIR> { model, _ -> model }
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
         snapshot = parser::snapshot,
@@ -50,7 +51,7 @@ internal class MermaidClassSubPipeline(
     )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
-        graphStyles = styles
+        styleTransform.update(styles)
     }
 
     override fun acceptLines(
@@ -316,56 +317,15 @@ internal class MermaidClassSubPipeline(
     private fun computeClassNodeStyles(
         ir: ClassIR,
         classStyleByName: Map<NodeId, String>,
-    ): Map<NodeId, com.hrm.diagram.core.ir.NodeStyle> {
-        val styles = graphStyles ?: return emptyMap()
-        val defaultDecl = styles.classDefs["default"]
-        if (defaultDecl == null && styles.nodeInline.isEmpty() && styles.classDefs.isEmpty()) return emptyMap()
-
-        val out = HashMap<NodeId, com.hrm.diagram.core.ir.NodeStyle>()
+    ): Map<NodeId, NodeStyle> {
+        val out = HashMap<NodeId, NodeStyle>()
         for (c in ir.classes) {
             val id = c.id
-            var decl: com.hrm.diagram.parser.mermaid.MermaidStyleDecl? = null
-            defaultDecl?.let { decl = mergeDecl(decl, it) }
-
             // `:::someclass` and bulk `cssClass "A,B" someclass` point to a named classDef.
-            val clsName = classStyleByName[id]
-            if (!clsName.isNullOrBlank()) {
-                styles.classDefs[clsName]?.let { decl = mergeDecl(decl, it) }
-            }
-
-            // `style Animal ...` in classDiagram.
-            styles.nodeInline[id]?.let { decl = mergeDecl(decl, it) }
-
-            if (decl != null) {
-                val d = decl
-                out[id] = com.hrm.diagram.core.ir.NodeStyle(
-                    fill = d.fill,
-                    stroke = d.stroke,
-                    strokeWidth = d.strokeWidthPx,
-                    textColor = d.textColor,
-                )
-            }
+            val classNames = listOfNotNull(classStyleByName[id]?.takeIf { it.isNotBlank() })
+            styleTransform.nodeStyleFor(id, classNames)?.let { out[id] = it }
         }
         return out
-    }
-
-    private fun mergeDecl(
-        base: com.hrm.diagram.parser.mermaid.MermaidStyleDecl?,
-        override: com.hrm.diagram.parser.mermaid.MermaidStyleDecl,
-    ): com.hrm.diagram.parser.mermaid.MermaidStyleDecl {
-        val b = base ?: com.hrm.diagram.parser.mermaid.MermaidStyleDecl()
-        return com.hrm.diagram.parser.mermaid.MermaidStyleDecl(
-            fill = override.fill ?: b.fill,
-            stroke = override.stroke ?: b.stroke,
-            strokeWidthPx = override.strokeWidthPx ?: b.strokeWidthPx,
-            strokeDashArrayPx = override.strokeDashArrayPx ?: b.strokeDashArrayPx,
-            textColor = override.textColor ?: b.textColor,
-            fontFamily = override.fontFamily ?: b.fontFamily,
-            fontSizePx = override.fontSizePx ?: b.fontSizePx,
-            fontWeight = override.fontWeight ?: b.fontWeight,
-            italic = override.italic ?: b.italic,
-            extras = if (b.extras.isEmpty()) override.extras else b.extras + override.extras,
-        )
     }
 
 

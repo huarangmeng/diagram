@@ -1,5 +1,6 @@
 package com.hrm.diagram.core.export
 
+import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.draw.ArrowHead
 import com.hrm.diagram.core.draw.Cap
 import com.hrm.diagram.core.draw.Color
@@ -34,6 +35,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
+@DiagramApi
 actual suspend fun RenderedDiagram.exportPng(
     options: RasterExportOptions,
 ): ExportArtifact<ByteArray> {
@@ -52,6 +54,7 @@ actual suspend fun RenderedDiagram.exportPng(
     )
 }
 
+@DiagramApi
 actual suspend fun RenderedDiagram.exportJpeg(
     options: JpegExportOptions,
 ): ExportArtifact<ByteArray> {
@@ -317,7 +320,7 @@ private fun drawArrowHead(
                             lineTo(tip.x.toDouble(), tip.y.toDouble())
                             lineTo(right.x.toDouble(), right.y.toDouble())
                         }
-                        else -> Unit
+                        ArrowHead.None -> Unit
                     }
                 }
                 graphics.draw(path)

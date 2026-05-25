@@ -1,8 +1,10 @@
 package com.hrm.diagram.render.streaming.mermaid
 
+import com.hrm.diagram.render.streaming.style.LanguageStyleIngress
+
 internal class MermaidStylePreprocessor(
-    private val state: MermaidLanguageStyleState,
-) {
+    override val state: MermaidLanguageStyleState,
+) : LanguageStyleIngress<MermaidLanguageStyleState> {
     fun supportsStyleDirectives(kind: MermaidDiagramKind?): Boolean =
         kind == MermaidDiagramKind.Flowchart ||
             kind == MermaidDiagramKind.Er ||

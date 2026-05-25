@@ -6,39 +6,40 @@ import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.kernel.RenderedSubPipelineKernel
 
 internal class PlantUmlRenderSubPipelineKernel<M : DiagramModel, L : DiagramModel>(
-    private val snapshot: () -> M,
-    private val diagnostics: () -> List<Diagnostic>,
-    private val layoutModel: (M) -> L,
-    private val layout: (
+    snapshot: () -> M,
+    diagnostics: () -> List<Diagnostic>,
+    layoutModel: (M) -> L,
+    layout: (
         previous: LaidOutDiagram?,
         model: L,
         options: LayoutOptions,
         seq: Long,
         isFinal: Boolean,
     ) -> LaidOutDiagram,
-    private val renderEntities: (model: M, layoutModel: L, laidOut: LaidOutDiagram, isFinal: Boolean) -> List<DrawEntity>,
-    private val layoutOptions: (model: M, layoutModel: L, isFinal: Boolean) -> LayoutOptions = { _, _, isFinal ->
+    renderEntities: (model: M, layoutModel: L, laidOut: LaidOutDiagram, isFinal: Boolean) -> List<DrawEntity>,
+    layoutOptions: (model: M, layoutModel: L, isFinal: Boolean) -> LayoutOptions = { _, _, isFinal ->
         LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal)
     },
-    private val beforeLayout: (model: M, layoutModel: L, isFinal: Boolean) -> Unit = { _, _, _ -> },
-    private val postLayout: (model: M, layoutModel: L, laidOut: LaidOutDiagram, seq: Long, isFinal: Boolean) -> LaidOutDiagram =
+    beforeLayout: (model: M, layoutModel: L, isFinal: Boolean) -> Unit = { _, _, _ -> },
+    postLayout: (model: M, layoutModel: L, laidOut: LaidOutDiagram, seq: Long, isFinal: Boolean) -> LaidOutDiagram =
         { _, _, laidOut, seq, _ -> laidOut.copy(seq = seq) },
 ) {
-    fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
-        val model = snapshot()
-        val layoutModel = layoutModel(model)
-        beforeLayout(model, layoutModel, isFinal)
-        val laidOut = layout(previousSnapshot.laidOut, layoutModel, layoutOptions(model, layoutModel, isFinal), seq, isFinal)
-            .let { postLayout(model, layoutModel, it, seq, isFinal) }
-        return PlantUmlRenderState(
-            ir = model,
-            laidOut = laidOut,
-            drawEntities = renderEntities(model, layoutModel, laidOut, isFinal),
-            diagnostics = diagnostics(),
-        )
-    }
+    private val delegate = RenderedSubPipelineKernel(
+        snapshot = snapshot,
+        diagnostics = diagnostics,
+        layoutModel = layoutModel,
+        layout = layout,
+        renderEntities = renderEntities,
+        layoutOptions = layoutOptions,
+        beforeLayout = beforeLayout,
+        postLayout = postLayout,
+    )
+
+    fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState =
+        delegate.render(previousSnapshot, seq, isFinal)
 }
 
 internal class PlantUmlFamilyRenderSubPipelineKernel<M : DiagramModel>(

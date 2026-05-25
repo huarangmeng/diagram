@@ -102,3 +102,29 @@ internal fun RenderedDiagram.unsupportedRasterExport(
         ),
     )
 }
+
+internal fun fallbackRasterExport(
+    plan: RasterExportPlan,
+    mimeType: String,
+    message: String,
+): ExportArtifact<ByteArray> =
+    ExportArtifact(
+        value = fallbackRasterBytes(mimeType),
+        mimeType = mimeType,
+        widthPx = plan.widthPx,
+        heightPx = plan.heightPx,
+        diagnostics = plan.diagnostics + Diagnostic(
+            severity = Severity.WARNING,
+            code = "EXPORT-W001",
+            message = message,
+        ),
+    )
+
+private fun fallbackRasterBytes(mimeType: String): ByteArray =
+    when (mimeType) {
+        "image/png" -> byteArrayOf(
+            0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+        )
+        "image/jpeg" -> byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte())
+        else -> ByteArray(1) { 0 }
+    }

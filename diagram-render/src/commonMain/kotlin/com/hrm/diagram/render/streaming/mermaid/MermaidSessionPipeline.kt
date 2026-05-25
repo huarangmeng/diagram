@@ -523,7 +523,7 @@ internal class MermaidSessionPipeline(
         tokenLines.clear()
         pendingLines.clear()
         dispatcher.clear()
-        styleState.reset()
+        stylePreprocessor.resetStyleIngress()
         headerHint = null
     }
 

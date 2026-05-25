@@ -16,10 +16,10 @@ internal class MermaidGraphSubPipelineKernel(
     private val graphKernel: StreamingGraphPipelineKernel,
     private val beforeAdvance: (GraphIR, Boolean) -> Unit = { _, _ -> },
 ) {
-    private var graphStyles: MermaidGraphStyleState? = null
+    private val styleTransform = MermaidStyleTransformState.graph()
 
     fun updateGraphStyles(styles: MermaidGraphStyleState) {
-        graphStyles = styles
+        styleTransform.update(styles)
     }
 
     fun acceptLines(
@@ -31,8 +31,7 @@ internal class MermaidGraphSubPipelineKernel(
         for (line in lines) {
             acceptLine(line)
         }
-        val ir0 = snapshot()
-        val ir = graphStyles?.applyTo(ir0) ?: ir0
+        val ir = styleTransform.apply(snapshot())
         beforeAdvance(ir, isFinal)
         return graphKernel.advance(
             previousSnapshot = previousSnapshot,

@@ -70,9 +70,7 @@ internal class PlantUmlSessionPipeline(
                 seq = seq,
                 isFinal = isFinal,
                 sourceLanguage = previousSnapshot.sourceLanguage,
-                model = rendered.ir,
-                laidOut = rendered.laidOut,
-                drawEntities = rendered.drawEntities,
+                rendered = rendered,
                 diagnostics = diagnosticsAll + rendered.diagnostics,
                 diff = StreamingDiff(
                     addedNodes = emptyList(),
@@ -172,7 +170,7 @@ internal class PlantUmlSessionPipeline(
         diagnosticsAll.clear()
         lineIngress.clear()
         bufferedBodyLines.clear()
-        styleState.reset()
+        styleRouter.resetStyleIngress()
         dispatcher.clear()
     }
 

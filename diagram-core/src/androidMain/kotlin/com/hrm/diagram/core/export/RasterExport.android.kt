@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.draw.ArrowHead
 import com.hrm.diagram.core.draw.Cap
 import com.hrm.diagram.core.draw.Color
@@ -30,6 +31,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
+@DiagramApi
 actual suspend fun RenderedDiagram.exportPng(
     options: RasterExportOptions,
 ): ExportArtifact<ByteArray> {
@@ -38,7 +40,9 @@ actual suspend fun RenderedDiagram.exportPng(
         background = options.background,
         opaqueRequired = false,
     )
-    val render = renderRasterBitmap(plan = plan, opaque = false)
+    val render = runCatching { renderRasterBitmap(plan = plan, opaque = false) }.getOrElse {
+        return fallbackRasterExport(plan, "image/png", "Android PNG export failed: ${it.message ?: it::class.simpleName}.")
+    }
     return ExportArtifact(
         value = encodeBitmap(render.bitmap, Bitmap.CompressFormat.PNG, 100),
         mimeType = "image/png",
@@ -48,6 +52,7 @@ actual suspend fun RenderedDiagram.exportPng(
     )
 }
 
+@DiagramApi
 actual suspend fun RenderedDiagram.exportJpeg(
     options: JpegExportOptions,
 ): ExportArtifact<ByteArray> {
@@ -56,7 +61,9 @@ actual suspend fun RenderedDiagram.exportJpeg(
         background = options.background,
         opaqueRequired = true,
     )
-    val render = renderRasterBitmap(plan = plan, opaque = true)
+    val render = runCatching { renderRasterBitmap(plan = plan, opaque = true) }.getOrElse {
+        return fallbackRasterExport(plan, "image/jpeg", "Android JPEG export failed: ${it.message ?: it::class.simpleName}.")
+    }
     return ExportArtifact(
         value = encodeBitmap(render.bitmap, Bitmap.CompressFormat.JPEG, options.quality),
         mimeType = "image/jpeg",
@@ -308,7 +315,7 @@ private fun drawArrowHead(
                     }
                     canvas.drawPath(path, paint)
                 }
-                else -> Unit
+                ArrowHead.None -> Unit
             }
         }
         ArrowHead.None -> Unit

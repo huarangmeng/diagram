@@ -12,6 +12,7 @@ import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
+import com.hrm.diagram.render.streaming.kernel.FamilyRenderedSubPipelineKernel
 
 /**
  * Shared template for Mermaid family sub-pipelines that parse token lines into a non-GraphIR model.
@@ -55,6 +56,16 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
     },
 ) {
     private val entityCache = DrawEntitySnapshotCache()
+    private val renderedKernel = FamilyRenderedSubPipelineKernel(
+        snapshot = snapshot,
+        diagnostics = diagnostics,
+        transformModel = transformModel,
+        beforeLayout = beforeLayout,
+        layout = layout,
+        renderEntities = renderEntities,
+        layoutOptions = layoutOptions,
+        postLayout = postLayout,
+    )
 
     fun acceptLines(
         previousSnapshot: DiagramSnapshot,
@@ -67,17 +78,14 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
             newPatches += acceptLine(line).patches
         }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-        val model = transformModel(snapshot())
-        beforeLayout(model)
-        val laidOut = layout(previousSnapshot.laidOut, model, layoutOptions(model, isFinal))
-            .let { postLayout(model, it, seq) }
-        val drawEntities = entityCache.store(renderEntities(model, laidOut))
+        val rendered = renderedKernel.render(previousSnapshot, seq, isFinal)
+        val drawEntities = entityCache.store(rendered.drawEntities)
         return PipelineAdvance(
             snapshot = DiagramSnapshot(
-                ir = model,
-                laidOut = laidOut,
+                ir = rendered.ir,
+                laidOut = rendered.laidOut,
                 drawCommands = drawEntities.flatMap { it.commands },
-                diagnostics = diagnostics(),
+                diagnostics = rendered.diagnostics,
                 seq = seq,
                 isFinal = isFinal,
                 sourceLanguage = previousSnapshot.sourceLanguage,

@@ -41,12 +41,12 @@ internal class MermaidBlockSubPipeline(
 ) : MermaidSubPipeline {
     private val parser = MermaidBlockParser()
     private val layout = BlockLayout(textMeasurer)
-    private var graphStyles: MermaidGraphStyleState? = null
+    private val styleTransform = MermaidStyleTransformState.graph()
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
         snapshot = parser::snapshot,
         diagnostics = parser::diagnosticsSnapshot,
-        transformModel = { graphStyles?.applyTo(it) ?: it },
+        transformModel = styleTransform::apply,
         beforeLayout = { layout.updatePlacements(parser.placementSnapshot()) },
         layout = layout::layout,
         renderEntities = ::render,
@@ -58,7 +58,7 @@ internal class MermaidBlockSubPipeline(
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
-        graphStyles = styles
+        styleTransform.update(styles)
     }
 
     override fun acceptLines(
