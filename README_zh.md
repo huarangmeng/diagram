@@ -12,9 +12,17 @@
 
 ## 图像预览
 
-| Mermaid | PlantUML | DOT |
-|---|---|---|
-| ![Mermaid 预览](./images/mermaid.png) | ![PlantUML 预览](./images/plantuml.png) | ![DOT 预览](./images/dot.png) |
+### Mermaid
+
+![Mermaid 预览](./images/mermaid.png)
+
+### PlantUML
+
+![PlantUML 预览](./images/plantuml.png)
+
+### DOT
+
+![DOT 预览](./images/dot.png)
 
 ## 核心特性
 

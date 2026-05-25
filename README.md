@@ -12,9 +12,17 @@ A Kotlin Multiplatform diagram rendering SDK with self-hosted parsing, layout, a
 
 ## Preview
 
-| Mermaid | PlantUML | DOT |
-|---|---|---|
-| ![Mermaid preview](./images/mermaid.png) | ![PlantUML preview](./images/plantuml.png) | ![DOT preview](./images/dot.png) |
+### Mermaid
+
+![Mermaid preview](./images/mermaid.png)
+
+### PlantUML
+
+![PlantUML preview](./images/plantuml.png)
+
+### DOT
+
+![DOT preview](./images/dot.png)
 
 ## Key Features
 
