@@ -19,7 +19,6 @@ import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatch
-import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.EdgeRoute
@@ -28,6 +27,8 @@ import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.mermaid.BlockCellPlacement
 import com.hrm.diagram.parser.mermaid.MermaidBlockParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -38,11 +39,20 @@ import kotlin.math.sqrt
 internal class MermaidBlockSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidBlockParser()
     private val layout = BlockLayout(textMeasurer)
     private var graphStyles: MermaidGraphStyleState? = null
+    private val kernel = MermaidFamilySubPipelineKernel(
+        acceptLine = { parser.acceptLine(it) },
+        snapshot = parser::snapshot,
+        diagnostics = parser::diagnosticsSnapshot,
+        transformModel = { graphStyles?.applyTo(it) ?: it },
+        beforeLayout = { layout.updatePlacements(parser.placementSnapshot()) },
+        layout = layout::layout,
+        renderEntities = ::render,
+        postLayout = { _, laidOut, seq -> laidOut.copy(seq = seq) },
+        patchFactory = ::blockPatch,
+    )
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -56,53 +66,24 @@ internal class MermaidBlockSubPipeline(
         lines: List<List<Token>>,
         seq: Long,
         isFinal: Boolean,
-    ): PipelineAdvance {
-        val newPatches = ArrayList<IrPatch>()
-        val addedNodeIds = ArrayList<NodeId>()
-        for (line in lines) {
-            val batch = parser.acceptLine(line)
-            for (patch in batch.patches) {
-                newPatches += patch
-                if (patch is IrPatch.AddNode) addedNodeIds += patch.node.id
-            }
-        }
-        val ir0 = parser.snapshot()
-        val ir = graphStyles?.applyTo(ir0) ?: ir0
-        layout.updatePlacements(parser.placementSnapshot())
-        val laidOut = layout.layout(
-            previousSnapshot.laidOut,
-            ir,
-            LayoutOptions(incremental = !isFinal, allowGlobalReflow = isFinal),
-        ).copy(seq = seq)
-        val drawEntities = render(ir, laidOut)
-        val drawCommands = drawEntities.flatMap { it.commands }
-        val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
-        val snapshot = DiagramSnapshot(
-            ir = ir,
-            laidOut = laidOut,
-            drawCommands = drawCommands,
-            diagnostics = parser.diagnosticsSnapshot(),
-            seq = seq,
-            isFinal = isFinal,
-            sourceLanguage = previousSnapshot.sourceLanguage,
-        )
-        lastDrawEntities = drawEntities
-        return PipelineAdvance(
-            snapshot = snapshot,
-            patch = SessionPatch(
-                seq = seq,
-                addedNodes = addedNodeIds,
-                addedEdges = newPatches.filterIsInstance<IrPatch.AddEdge>().map { it.edge },
-                addedDrawCommands = emptyList(),
-                newDiagnostics = newDiagnostics,
-                isFinal = isFinal,
-            ),
-            irBatch = IrPatchBatch(seq, newPatches),
-        )
-    }
+    ): PipelineAdvance = kernel.acceptLines(previousSnapshot, lines, seq, isFinal)
 
-    private fun render(ir: GraphIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
+    private fun blockPatch(
+        seq: Long,
+        isFinal: Boolean,
+        patches: List<IrPatch>,
+        diagnostics: List<com.hrm.diagram.core.ir.Diagnostic>,
+    ): SessionPatch = SessionPatch(
+        seq = seq,
+        addedNodes = patches.filterIsInstance<IrPatch.AddNode>().map { it.node.id },
+        addedEdges = patches.filterIsInstance<IrPatch.AddEdge>().map { it.edge },
+        addedDrawCommands = emptyList(),
+        newDiagnostics = diagnostics,
+        isFinal = isFinal,
+    )
+
+    private fun render(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         out += DrawCommand.FillRect(
             rect = Rect(Point(laidOut.bounds.left, laidOut.bounds.top), Size(laidOut.bounds.size.width, laidOut.bounds.size.height)),
             color = Color(0xFFFFFFFF.toInt()),
@@ -380,7 +361,11 @@ internal class MermaidBlockSubPipeline(
         return DrawCommand.FillPath(path = PathCmd(listOf(PathOp.MoveTo(to), PathOp.LineTo(p1), PathOp.LineTo(p2), PathOp.Close)), color = color, z = 4)
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
+
+    override fun dispose() {
+        kernel.clear()
+    }
 
 }
 

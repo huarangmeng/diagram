@@ -31,7 +31,10 @@ import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIRE
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_TYPE_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_VERIFY_KEY
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
@@ -39,11 +42,10 @@ import kotlin.math.sqrt
 internal class MermaidRequirementSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidRequirementParser()
     private val nodeCardLayouts: MutableMap<NodeId, RequirementCardLayout> = HashMap()
     private var graphStyles: MermaidGraphStyleState? = null
+    private val entityCache = DrawEntitySnapshotCache()
     private val measurePolicy = GraphMeasurePolicy(
         textMeasurer = textMeasurer,
         defaultSize = Size(180f, 96f),
@@ -73,7 +75,7 @@ internal class MermaidRequirementSubPipeline(
         measurePolicy = measurePolicy,
         layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(180f, 96f), measurePolicy),
         renderEntities = { graph, laid ->
-            flowchartRender(graph, laid).also { lastDrawEntities = it }
+            entityCache.store(flowchartRender(graph, laid))
         },
     )
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
@@ -113,11 +115,11 @@ internal class MermaidRequirementSubPipeline(
     override fun dispose() {
         nodeCardLayouts.clear()
         kernel.clear()
-        lastDrawEntities = emptyList()
+        entityCache.clear()
     }
 
-    private fun flowchartRender(ir: GraphIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
+    private fun flowchartRender(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         val defaultNodeFill = Color(0xFFE3F2FD.toInt())
         val defaultNodeStroke = Color(0xFF1565C0.toInt())
         val defaultTextColor = Color(0xFF0D47A1.toInt())
@@ -543,6 +545,6 @@ internal class MermaidRequirementSubPipeline(
         val bodyPadX: Float,
     )
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
 
 }

@@ -25,8 +25,11 @@ import com.hrm.diagram.core.text.TextMetrics
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.mermaid.MermaidErParser
+import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
@@ -35,10 +38,8 @@ import kotlin.math.sqrt
 internal class MermaidErSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
-
     private val parser = MermaidErParser()
+    private val entityCache = DrawEntitySnapshotCache()
     private val entityFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val flagFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
@@ -70,7 +71,7 @@ internal class MermaidErSubPipeline(
         measurePolicy = measurePolicy,
         layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(140f, 56f), measurePolicy),
         renderEntities = { graph, laid ->
-            renderDraw(graph, laid, isFinal = currentIsFinal).also { lastDrawEntities = it }
+            entityCache.store(renderDraw(graph, laid, isFinal = currentIsFinal))
         },
     )
 
@@ -146,7 +147,7 @@ internal class MermaidErSubPipeline(
         currentAttrEdgesByEntity = emptyMap()
         currentIsFinal = false
         kernel.clear()
-        lastDrawEntities = emptyList()
+        entityCache.clear()
     }
 
     private fun labelTextOf(n: Node): String =
@@ -179,8 +180,8 @@ internal class MermaidErSubPipeline(
         return Size(w, h) to raw
     }
 
-    private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
+    private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<DrawEntity> {
+        val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         val fallbackEntityFill = Color(0xFFE8F5E9U.toInt())
         val fallbackEntityStroke = Color(0xFF2E7D32U.toInt())
         val fallbackEntityText = Color(0xFF1B5E20U.toInt())
@@ -603,6 +604,6 @@ internal class MermaidErSubPipeline(
         return DrawCommand.FillPath(path = path, color = color, z = 1)
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
 
 }

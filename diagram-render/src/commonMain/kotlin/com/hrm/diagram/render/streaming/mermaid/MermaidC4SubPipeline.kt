@@ -33,6 +33,7 @@ import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.min
@@ -41,10 +42,9 @@ import kotlin.math.sqrt
 internal class MermaidC4SubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidC4Parser()
     private var graphStyles: MermaidGraphStyleState? = null
+    private val entityCache = DrawEntitySnapshotCache()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -97,7 +97,7 @@ internal class MermaidC4SubPipeline(
                 bounds = computeBounds(laid.nodePositions.values + clusterRects.values, parser.legendSnapshot()),
             )
         },
-        renderEntities = { ir, laid -> renderer.render(ir, laid).also { lastDrawEntities = it } },
+        renderEntities = { ir, laid -> entityCache.store(renderer.render(ir, laid)) },
     )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
@@ -126,7 +126,7 @@ internal class MermaidC4SubPipeline(
 
     override fun dispose() {
         kernel.clear()
-        lastDrawEntities = emptyList()
+        entityCache.clear()
     }
 
     private fun measureNodeSize(node: Node): Size {
@@ -639,6 +639,6 @@ internal class MermaidC4SubPipeline(
         )
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
 
 }

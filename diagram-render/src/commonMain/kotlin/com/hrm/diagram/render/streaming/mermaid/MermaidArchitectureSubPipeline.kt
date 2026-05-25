@@ -25,10 +25,12 @@ import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.mermaid.MermaidArchitectureParser
+import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
 import kotlin.math.sqrt
@@ -36,10 +38,9 @@ import kotlin.math.sqrt
 internal class MermaidArchitectureSubPipeline(
     private val textMeasurer: TextMeasurer,
 ) : MermaidSubPipeline {
-    private var lastDrawEntities: List<com.hrm.diagram.render.cache.DrawEntity> = emptyList()
-
     private val parser = MermaidArchitectureParser()
     private var graphStyles: MermaidGraphStyleState? = null
+    private val entityCache = DrawEntitySnapshotCache()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -83,7 +84,7 @@ internal class MermaidArchitectureSubPipeline(
             }
             normalizeVisibleArea(laid, clusterRects, laid.seq)
         },
-        renderEntities = { ir, laid -> renderer.render(ir, laid).also { lastDrawEntities = it } },
+        renderEntities = { ir, laid -> entityCache.store(renderer.render(ir, laid)) },
     )
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
@@ -112,7 +113,7 @@ internal class MermaidArchitectureSubPipeline(
 
     override fun dispose() {
         kernel.clear()
-        lastDrawEntities = emptyList()
+        entityCache.clear()
     }
 
     private fun measureNodeSize(node: Node): Size {
@@ -485,6 +486,6 @@ internal class MermaidArchitectureSubPipeline(
         return DrawCommand.FillPath(path = path, color = color, z = 3)
     }
 
-    override fun drawEntitiesFor(snapshot: com.hrm.diagram.render.streaming.DiagramSnapshot): List<com.hrm.diagram.render.cache.DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
 
 }

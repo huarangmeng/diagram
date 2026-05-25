@@ -24,6 +24,7 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
     private val snapshot: () -> M,
     private val diagnostics: () -> List<Diagnostic>,
     private val transformModel: (M) -> M = { it },
+    private val beforeLayout: (M) -> Unit = {},
     private val layout: (previous: LaidOutDiagram?, model: M, options: LayoutOptions) -> LaidOutDiagram,
     private val renderEntities: (model: M, laidOut: LaidOutDiagram) -> List<DrawEntity>,
     private val layoutOptions: (model: M, isFinal: Boolean) -> LayoutOptions = { _, isFinal ->
@@ -31,6 +32,25 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
     },
     private val postLayout: (model: M, laidOut: LaidOutDiagram, seq: Long) -> LaidOutDiagram = { _, laidOut, _ ->
         laidOut
+    },
+    private val patchFactory: (
+        seq: Long,
+        isFinal: Boolean,
+        patches: List<IrPatch>,
+        diagnostics: List<Diagnostic>,
+    ) -> SessionPatch = { seq, isFinal, _, diagnostics ->
+        if (diagnostics.isEmpty()) {
+            SessionPatch.empty(seq, isFinal)
+        } else {
+            SessionPatch(
+                seq = seq,
+                addedNodes = emptyList(),
+                addedEdges = emptyList(),
+                addedDrawCommands = emptyList(),
+                newDiagnostics = diagnostics,
+                isFinal = isFinal,
+            )
+        }
     },
 ) {
     private var lastDrawEntities: List<DrawEntity> = emptyList()
@@ -47,6 +67,7 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
         }
         val newDiagnostics = newPatches.filterIsInstance<IrPatch.AddDiagnostic>().map { it.diagnostic }
         val model = transformModel(snapshot())
+        beforeLayout(model)
         val laidOut = layout(previousSnapshot.laidOut, model, layoutOptions(model, isFinal))
             .let { postLayout(model, it, seq) }
         val drawEntities = renderEntities(model, laidOut)
@@ -61,18 +82,7 @@ internal class MermaidFamilySubPipelineKernel<M : DiagramModel>(
                 isFinal = isFinal,
                 sourceLanguage = previousSnapshot.sourceLanguage,
             ),
-            patch = if (newDiagnostics.isEmpty()) {
-                SessionPatch.empty(seq, isFinal)
-            } else {
-                SessionPatch(
-                    seq = seq,
-                    addedNodes = emptyList(),
-                    addedEdges = emptyList(),
-                    addedDrawCommands = emptyList(),
-                    newDiagnostics = newDiagnostics,
-                    isFinal = isFinal,
-                )
-            },
+            patch = patchFactory(seq, isFinal, newPatches, newDiagnostics),
             irBatch = IrPatchBatch(seq, newPatches),
         )
     }

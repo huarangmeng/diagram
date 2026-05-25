@@ -18,6 +18,7 @@ import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.graph.graphLabelText
 import com.hrm.diagram.render.streaming.BatchLineStreamingSubPipeline
 import com.hrm.diagram.render.streaming.DrawEntitySnapshotProvider
+import com.hrm.diagram.render.streaming.DrawEntitySnapshotCache
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
@@ -71,19 +72,17 @@ internal class MermaidFlowchartSubPipeline(
             nodeFontOf = { _, _ -> labelFont },
         ),
     )
+    private val entityCache = DrawEntitySnapshotCache()
     private val kernel = StreamingGraphPipelineKernel(
         textMeasurer = textMeasurer,
         sourceLanguage = SourceLanguage.MERMAID,
         measurePolicy = measurePolicy,
         layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(120f, 48f), measurePolicy),
         renderEntities = { graph, laid ->
-            renderer.render(graph, laid).also { lastDrawEntities = it }
+            entityCache.store(renderer.render(graph, laid))
         },
     )
     private var graphStyles: MermaidGraphStyleState? = null
-
-    var lastDrawEntities: List<DrawEntity> = emptyList()
-        private set
 
     override fun updateGraphStyles(styles: MermaidGraphStyleState) {
         graphStyles = styles
@@ -112,10 +111,10 @@ internal class MermaidFlowchartSubPipeline(
 
     override fun dispose() {
         kernel.clear()
-        lastDrawEntities = emptyList()
+        entityCache.clear()
     }
 
-    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = lastDrawEntities
+    override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = entityCache.snapshot()
 
     private fun labelTextOf(node: Node): String =
         graphLabelText(node.label).ifBlank { node.id.value }
