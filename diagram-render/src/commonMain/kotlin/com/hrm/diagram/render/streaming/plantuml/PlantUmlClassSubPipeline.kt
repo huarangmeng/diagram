@@ -48,7 +48,7 @@ internal class PlantUmlClassSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
         val classStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_CLASS_LINE_THICKNESS_KEY) ?: 1.5f
         val noteStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_NOTE_LINE_THICKNESS_KEY) ?: 1.5f

@@ -7,6 +7,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
+import com.hrm.diagram.parser.common.LineParserSession
 import com.hrm.diagram.parser.common.ParserSession
 
 /**
@@ -20,13 +21,13 @@ import com.hrm.diagram.parser.common.ParserSession
  *
  * Error model: never throws on user input; emits diagnostics and keeps parsing.
  */
-class MermaidPieParser {
+class MermaidPieParser : LineParserSession<List<Token>, PieIR> {
     private val session = ParserSession()
     private val slices: MutableList<PieSlice> = ArrayList()
     private var title: String? = null
     private var headerSeen: Boolean = false
 
-    fun acceptLine(line: List<Token>): IrPatchBatch {
+    override fun acceptLine(line: List<Token>): IrPatchBatch {
         session.beginLine()
         if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
@@ -61,14 +62,14 @@ class MermaidPieParser {
         }
     }
 
-    fun snapshot(): PieIR = PieIR(
+    override fun snapshot(): PieIR = PieIR(
         slices = slices.toList(),
         title = title,
         sourceLanguage = SourceLanguage.MERMAID,
         styleHints = StyleHints(),
     )
 
-    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
+    override fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
 
     // --- internals ---
 

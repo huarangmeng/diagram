@@ -49,7 +49,7 @@ internal class PlantUmlPieSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: PieIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
         val pad = 20f
         val pieRect = laid.nodePositions[NodeId("pie:plot")] ?: Rect(Point(pad, laid.nodePositions[NodeId("pie:title")]?.bottom?.plus(10f) ?: pad), Size(240f, 240f))
         val radius = pieRect.size.width.coerceAtMost(pieRect.size.height) / 2f

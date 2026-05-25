@@ -73,7 +73,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: TimeSeriesIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
         out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
         val text = Color(0xFF263238.toInt())
         val isTiming = ir.styleHints.extras["plantuml.timeseries.kind"] == "timing"

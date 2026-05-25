@@ -73,7 +73,7 @@ internal class PlantUmlStateSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
         val boxFill = Color((palette.stateFill ?: ArgbColor(0xFFE8F5E9U.toInt())).argb)
         val boxStroke = Color((palette.stateStroke ?: ArgbColor(0xFF2E7D32U.toInt())).argb)

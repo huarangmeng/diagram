@@ -169,7 +169,7 @@ internal class PlantUmlUsecaseSubPipeline(
     }
 
     private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: UsecasePalette): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val bounds = laidOut.bounds
         out += DrawCommand.FillRect(
             rect = Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)),

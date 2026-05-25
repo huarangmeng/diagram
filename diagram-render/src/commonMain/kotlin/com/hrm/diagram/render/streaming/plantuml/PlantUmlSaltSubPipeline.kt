@@ -44,7 +44,7 @@ internal class PlantUmlSaltSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: WireframeIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
         val rootRect = laid.nodePositions[NodeId("wire:root")]
         if (rootRect != null) {
             out += DrawCommand.FillRect(rootRect, Color(0xFFF8FAFC.toInt()), corner = 8f, z = 0)

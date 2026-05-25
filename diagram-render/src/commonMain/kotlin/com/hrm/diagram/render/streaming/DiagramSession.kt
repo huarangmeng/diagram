@@ -1,5 +1,6 @@
 package com.hrm.diagram.render.streaming
 
+import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.Diagnostic
 import com.hrm.diagram.core.ir.DiagramModel
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * **NOT thread-safe for concurrent producers** — wrap with a Mutex if you have multiple writers.
  */
+@DiagramApi
 class DiagramSession internal constructor(
     val language: SourceLanguage,
     val theme: DiagramTheme,
@@ -100,7 +102,7 @@ class DiagramSession internal constructor(
      * Public facade construction should normally go through `Diagram.session(...)`, which selects
      * the registered Mermaid / PlantUML / DOT pipeline for the requested language.
          */
-        fun create(
+        internal fun create(
             language: SourceLanguage,
             theme: DiagramTheme = DiagramTheme.Default,
             layoutOptions: LayoutOptions = LayoutOptions(),
@@ -118,6 +120,7 @@ class DiagramSession internal constructor(
  * - `drawCommands` is always a complete list (not just deltas) — UIs may rely on it for full repaint.
  * - `ir` is null only before the first non-empty chunk has produced any node.
  */
+@DiagramApi
 data class DiagramSnapshot(
     val ir: DiagramModel?,
     val laidOut: LaidOutDiagram?,
@@ -127,12 +130,12 @@ data class DiagramSnapshot(
     val isFinal: Boolean,
     val sourceLanguage: SourceLanguage,
 ) {
-    val drawCommandIndex: DrawCommandIndex by lazy(LazyThreadSafetyMode.NONE) {
+    internal val drawCommandIndex: DrawCommandIndex by lazy(LazyThreadSafetyMode.NONE) {
         DrawCommandIndex.from(drawCommands, laidOut?.bounds)
     }
 
     companion object {
-        fun empty(language: SourceLanguage): DiagramSnapshot = DiagramSnapshot(
+        internal fun empty(language: SourceLanguage): DiagramSnapshot = DiagramSnapshot(
             ir = null,
             laidOut = null,
             drawCommands = emptyList(),
@@ -148,6 +151,7 @@ data class DiagramSnapshot(
  * Diff between two consecutive [DiagramSnapshot]s. Useful for animation hooks and benchmarks
  * (e.g. assert that no chunk produces > N new draw commands).
  */
+@DiagramApi
 data class SessionPatch(
     val seq: Long,
     val addedNodes: List<NodeId>,
@@ -161,7 +165,7 @@ data class SessionPatch(
             addedDrawCommands.isEmpty() && newDiagnostics.isEmpty()
 
     companion object {
-        fun empty(seq: Long, isFinal: Boolean = false): SessionPatch =
+        internal fun empty(seq: Long, isFinal: Boolean = false): SessionPatch =
             SessionPatch(seq, emptyList(), emptyList(), emptyList(), emptyList(), isFinal)
     }
 }
@@ -170,7 +174,7 @@ data class SessionPatch(
  * Output bundle returned by a single [SessionPipeline.advance] call.
  * The session owns wiring it into [DiagramSession.state]; the pipeline owns producing it.
  */
-data class PipelineAdvance(
+internal data class PipelineAdvance(
     val snapshot: DiagramSnapshot,
     val patch: SessionPatch,
     /** Raw IR patches from the parser layer this round (exposed for tests / observers). */
@@ -186,7 +190,7 @@ data class PipelineAdvance(
  * - Pinned layout coordinates when [LayoutOptions.incremental].
  * - Bounded per-call work; soft 16ms watchdog discipline.
  */
-interface SessionPipeline {
+internal interface SessionPipeline {
     fun advance(
         previousSnapshot: DiagramSnapshot,
         chunk: CharSequence,
@@ -202,7 +206,7 @@ interface SessionPipeline {
  * No-op pipeline: bumps `seq` and emits an empty patch. Useful for:
  * - Unit-testing the [DiagramSession] state machine in isolation.
  */
-class NoopSessionPipeline : SessionPipeline {
+internal class NoopSessionPipeline : SessionPipeline {
     override fun advance(
         previousSnapshot: DiagramSnapshot,
         chunk: CharSequence,
@@ -222,7 +226,7 @@ class NoopSessionPipeline : SessionPipeline {
     message = "Use NoopSessionPipeline for tests; production code should use Diagram.session(...).",
     replaceWith = ReplaceWith("NoopSessionPipeline()"),
 )
-typealias StubSessionPipeline = NoopSessionPipeline
+internal typealias StubSessionPipeline = NoopSessionPipeline
 
 /** Suppress unused import. */
 @Suppress("unused") private val unusedIrPatch: IrPatch? = null

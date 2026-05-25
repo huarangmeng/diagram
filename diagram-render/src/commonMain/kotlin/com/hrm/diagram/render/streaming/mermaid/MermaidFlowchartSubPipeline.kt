@@ -19,7 +19,7 @@ import com.hrm.diagram.render.streaming.BatchLineStreamingSubPipeline
 import com.hrm.diagram.render.streaming.DrawEntitySnapshotProvider
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 
 /**
  * Sub-pipeline for Mermaid flowchart. Syntax and style adaptation stay here; GraphIR
@@ -70,11 +70,13 @@ internal class MermaidFlowchartSubPipeline(
             nodeFontOf = { _, _ -> labelFont },
         ),
     )
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.MERMAID,
+        defaultNodeSize = Size(120f, 48f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(120f, 48f), measurePolicy),
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
         renderEntities = { graph, laid -> renderer.render(graph, laid) },
     )
     private val graphPipeline = MermaidGraphSubPipelineKernel(

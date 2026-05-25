@@ -13,7 +13,7 @@ import kotlin.math.min
  * Commands with conservative bounds are indexed in a [Quadtree]. Commands that cannot be bounded
  * safely stay in [alwaysVisible], so culling never drops content incorrectly.
  */
-class DrawCommandIndex private constructor(
+internal class DrawCommandIndex private constructor(
     private val commands: List<DrawCommand>,
     private val indexed: Quadtree<Int>?,
     private val alwaysVisible: List<Int>,

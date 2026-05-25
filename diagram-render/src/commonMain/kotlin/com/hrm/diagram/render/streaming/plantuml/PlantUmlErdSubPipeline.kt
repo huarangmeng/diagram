@@ -134,7 +134,7 @@ internal class PlantUmlErdSubPipeline(
     }
 
     private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val nodeById = ir.nodes.associateBy { it.id }
         val fallbackEntityFill = Color(0xFFE8F5E9U.toInt())
         val fallbackEntityStroke = Color(0xFF2E7D32U.toInt())

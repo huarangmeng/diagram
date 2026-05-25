@@ -157,7 +157,7 @@ internal class PlantUmlObjectSubPipeline(
     }
 
     private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: ObjectPalette): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)
         for (node in ir.nodes) {
             val rect = laidOut.nodePositions[node.id] ?: continue

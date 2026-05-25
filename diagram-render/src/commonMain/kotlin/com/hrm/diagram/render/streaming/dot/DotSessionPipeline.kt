@@ -24,7 +24,7 @@ import com.hrm.diagram.render.graph.graphLabelText
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPipeline
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 
 internal class DotSessionPipeline(
     private val textMeasurer: TextMeasurer,
@@ -50,12 +50,10 @@ internal class DotSessionPipeline(
         },
     )
     private val renderer = GraphIrRenderer(textMeasurer, dotRenderStyle())
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.DOT,
+        defaultNodeSize = Size(112f, 44f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(112f, 44f), measurePolicy),
-        renderEntities = renderer::render,
         layoutModel = { ir -> ir.copy(edges = ir.edges.filterNot { it.payload["dot.edge.constraint"].equals("false", ignoreCase = true) }) },
         layoutOptions = { ir, isFinal ->
             LayoutOptions(
@@ -69,6 +67,10 @@ internal class DotSessionPipeline(
         },
         postLayout = { ir, laid -> GraphClusterLayout.withClusterRects(ir, laid, textMeasurer, clusterFont) },
         edgeKeyOf = { index, edge -> "${edge.from.value}->${edge.to.value}:$index:${graphLabelText(edge.label)}" },
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
+        renderEntities = renderer::render,
     )
 
     override fun advance(

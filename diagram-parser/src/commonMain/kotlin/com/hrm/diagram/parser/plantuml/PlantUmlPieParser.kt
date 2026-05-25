@@ -7,6 +7,7 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatchBatch
+import com.hrm.diagram.parser.common.LineParserSession
 import com.hrm.diagram.parser.common.ParserSession
 
 /**
@@ -27,7 +28,7 @@ import com.hrm.diagram.parser.common.ParserSession
  * ```
  */
 @DiagramApi
-class PlantUmlPieParser {
+class PlantUmlPieParser : LineParserSession<String, PieIR> {
     private val session = ParserSession()
     private val slices: MutableList<PieSlice> = ArrayList()
     private val styleExtras: LinkedHashMap<String, String> = LinkedHashMap()
@@ -57,7 +58,7 @@ class PlantUmlPieParser {
     )
     private var title: String? = null
 
-    fun acceptLine(line: String): IrPatchBatch {
+    override fun acceptLine(line: String): IrPatchBatch {
         session.beginLine()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return session.emptyBatch()
@@ -101,7 +102,7 @@ class PlantUmlPieParser {
         return errorBatch("Missing @endpie closing delimiter")
     }
 
-    fun snapshot(): PieIR =
+    override fun snapshot(): PieIR =
         PieIR(
             slices = slices.toList(),
             title = title,
@@ -109,7 +110,7 @@ class PlantUmlPieParser {
             styleHints = StyleHints(extras = styleExtras.toMap()),
         )
 
-    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
+    override fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseSlice(line: String): ParsedSlice? {
         val colon = line.indexOf(':')

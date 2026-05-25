@@ -19,7 +19,7 @@ import com.hrm.diagram.core.text.TextMetrics
  * through the active `Density`. Returned metrics are in *the same unit Compose draws in*
  * (pixels at the current density), which matches what `DiagramCanvas` consumes when it draws.
  */
-class ComposeTextMeasurerAdapter(
+internal class ComposeTextMeasurerAdapter(
     private val measurer: ComposeTextMeasurer,
     private val defaultStyle: TextStyle = TextStyle(),
 ) : TextMeasurer {

@@ -53,7 +53,7 @@ internal class PlantUmlMindmapSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: TreeIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
         val boxless = parseBoxless(ir)
         val inlineColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlMindmapParser.INLINE_COLOR_KEY].orEmpty())
         val styleColors = PlantUmlTreeRenderSupport.parseNodeColorMap(ir.styleHints.extras[PlantUmlMindmapParser.STYLE_COLOR_KEY].orEmpty())

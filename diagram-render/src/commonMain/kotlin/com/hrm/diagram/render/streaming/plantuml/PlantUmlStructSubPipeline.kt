@@ -53,7 +53,7 @@ internal class PlantUmlStructSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: StructIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
         val collapsiblePaths = parsePathSet(ir.styleHints.extras[PlantUmlStructParser.COLLAPSIBLE_PATHS_KEY].orEmpty())
         val scalarKinds = parsePathMap(ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty())
         for (route in laid.edgeRoutes) {

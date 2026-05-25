@@ -282,7 +282,7 @@ internal class PlantUmlComponentSubPipeline(
         palette: ComponentPalette,
         edgeLabelRects: Map<Int, Rect>,
     ): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val bounds = laidOut.bounds
         out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)

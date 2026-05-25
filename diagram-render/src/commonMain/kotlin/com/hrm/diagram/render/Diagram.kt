@@ -36,12 +36,26 @@ object Diagram {
      * Open a streaming session — the primary use case for LLM-driven incremental rendering.
      * See `docs/streaming.md`.
      *
-     * If [pipeline] is omitted, dispatches to the best registered pipeline for [language]:
+     * Dispatches to the best registered pipeline for [language]:
      * - [SourceLanguage.MERMAID] → [MermaidSessionPipeline] multi-family Mermaid pipeline.
      * - [SourceLanguage.PLANTUML] → [PlantUmlSessionPipeline] multi-family PlantUML pipeline.
      * - [SourceLanguage.DOT]      → [DotSessionPipeline] Graphviz DOT pipeline.
      */
+    @DiagramApi
     fun session(
+        language: SourceLanguage,
+        theme: DiagramTheme = DiagramTheme.Default,
+        layoutOptions: LayoutOptions = LayoutOptions(),
+        textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
+    ): DiagramSession = session(
+        language = language,
+        theme = theme,
+        layoutOptions = layoutOptions,
+        textMeasurer = textMeasurer,
+        pipeline = defaultPipelineFor(language, textMeasurer),
+    )
+
+    internal fun session(
         language: SourceLanguage,
         theme: DiagramTheme = DiagramTheme.Default,
         layoutOptions: LayoutOptions = LayoutOptions(),

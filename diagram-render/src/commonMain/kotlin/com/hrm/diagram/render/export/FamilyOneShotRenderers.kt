@@ -34,7 +34,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
 
-internal fun renderPieCommands(
+private fun buildPieFrame(
     ir: PieIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
@@ -110,9 +110,9 @@ internal fun renderPieEntities(
     ir: PieIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
-): List<DrawEntity> = oneShotEntities(ir, laid, renderPieCommands(ir, laid, theme))
+): List<DrawEntity> = oneShotEntities(ir, laid, buildPieFrame(ir, laid, theme))
 
-internal fun renderTreeCommands(
+private fun buildTreeFrame(
     ir: TreeIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
@@ -174,9 +174,9 @@ internal fun renderTreeEntities(
     ir: TreeIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
-): List<DrawEntity> = oneShotEntities(ir, laid, renderTreeCommands(ir, laid, theme))
+): List<DrawEntity> = oneShotEntities(ir, laid, buildTreeFrame(ir, laid, theme))
 
-internal fun renderSequenceCommands(
+private fun buildSequenceFrame(
     ir: SequenceIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
@@ -300,20 +300,20 @@ internal fun renderSequenceEntities(
     ir: SequenceIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
-): List<DrawEntity> = oneShotEntities(ir, laid, renderSequenceCommands(ir, laid, theme))
+): List<DrawEntity> = oneShotEntities(ir, laid, buildSequenceFrame(ir, laid, theme))
 
-internal fun renderTimeSeriesCommands(
+private fun buildTimeSeriesFrame(
     ir: TimeSeriesIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
 ): List<DrawCommand> =
     if (laid.nodePositions.keys.any { it.value.startsWith("timeline:") }) {
-        renderTimelineCommands(ir, laid, theme)
+        buildTimelineFrame(ir, laid, theme)
     } else {
-        renderGanttCommands(ir, laid, theme)
+        buildGanttFrame(ir, laid, theme)
     }
 
-private fun renderGanttCommands(
+private fun buildGanttFrame(
     ir: TimeSeriesIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
@@ -410,7 +410,7 @@ internal fun renderTimeSeriesEntities(
     ir: TimeSeriesIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,
-): List<DrawEntity> = oneShotEntities(ir, laid, renderTimeSeriesCommands(ir, laid, theme))
+): List<DrawEntity> = oneShotEntities(ir, laid, buildTimeSeriesFrame(ir, laid, theme))
 
 private fun oneShotEntities(
     model: DiagramModel,
@@ -429,7 +429,7 @@ private val SourceLanguage.entityPrefix: String
         SourceLanguage.DOT -> "dot"
     }
 
-private fun renderTimelineCommands(
+private fun buildTimelineFrame(
     ir: TimeSeriesIR,
     laid: LaidOutDiagram,
     theme: DiagramTheme,

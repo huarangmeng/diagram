@@ -49,7 +49,7 @@ internal class PlantUmlXYChartSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun render(ir: XYChartIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laid)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
         val bounds = laid.bounds
         val plot = laid.nodePositions[NodeId("xychart:plot")] ?: return emptyList()
         val bg = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_BACKGROUND_KEY]) ?: Color(0xFFFFFFFF.toInt())

@@ -95,3 +95,10 @@ internal class ParserSession {
 
     fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
 }
+
+/** Common shape for append-only line parsers that expose a live IR snapshot. */
+internal interface LineParserSession<in L, out M> {
+    fun acceptLine(line: L): IrPatchBatch
+    fun snapshot(): M
+    fun diagnosticsSnapshot(): List<Diagnostic>
+}

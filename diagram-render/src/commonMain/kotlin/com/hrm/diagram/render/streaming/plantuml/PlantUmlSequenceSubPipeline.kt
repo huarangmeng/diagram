@@ -75,7 +75,7 @@ internal class PlantUmlSequenceSubPipeline(
         kernel.render(previousSnapshot, seq, isFinal)
 
     private fun renderSequence(ir: SequenceIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
-        val out = com.hrm.diagram.render.family.FrameEntityRenderer.sink(prefix = "plantuml", model = ir, laidOut = laidOut)
+        val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
         val headerFillDefault = Color(0xFFE3F2FDU.toInt())
         val headerStrokeDefault = Color(0xFF1565C0U.toInt())

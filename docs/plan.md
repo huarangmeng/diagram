@@ -342,11 +342,14 @@ flowchart → sequenceDiagram → classDiagram → stateDiagram → erDiagram。
 - ✅ Mermaid 颜色：支持 hex、CSS 颜色关键字、`rgb/rgba`、`hsl/hsla`；无法识别的颜色会被忽略并记录 `MERMAID-W011`（详见 `docs/diagnostics.md`）。
 - ✅ 增量约束：影响几何的样式（如字体/字号/padding）统一延迟到 `finish()` 收敛，避免破坏 pinned layout 契约（详见 `docs/streaming.md`）。
 
-### Phase 2 — Mermaid 数据/时间/树类
-gantt、timeline、pie、gauge、journey、mindmap、xyChart、sankey、kanban、gitGraph。
-需要：时间轴 / 树 / 桑基 / 网格等布局，xyChart 坐标系。
+### Phase 2 — Mermaid 数据/时间/树类 ✅ 已完成
+`gantt`、`timeline`、`pie`、`gauge`、`journey`、`mindmap`、`xyChart`、`sankey`、`kanban`、`gitGraph` 及相关数据类扩展图型已完成。
 
-当前状态：✅ 已完成；`gantt`、`timeline`、`pie`、`gauge`、`journey`、`mindmap`、`xyChart`、`sankey`、`kanban`、`gitGraph` 均已落地 Mermaid streaming 主链路、`commonTest` 与 one-shot vs chunked 一致性校验，并额外完成了 `quadrantChart`。Gantt 已补齐前缀式 `vert "Label" : date` 参考线语法、section/任务行浅色带，并避免轴标签在渲染阶段因宽度约束换行。本轮继续补齐 Mermaid 官方剩余数据类图型 `packet-beta` 的最小可用链路：支持 `packet-beta` header、`title`、bit range 字段与单 bit 字段，当前降到 `StructIR + StructLayout` 渲染为字段结构列表，并已接入 streaming session 与 one-shot vs chunked 一致性校验。`composeApp` 中对应样例已可作为 Phase 2 验收集使用。
+当前结果：
+- ✅ `gantt`、`timeline`、`pie`、`gauge`、`journey`、`mindmap`、`xyChart`、`sankey`、`kanban`、`gitGraph` 均已接入 Mermaid streaming 主链路。
+- ✅ 上述图型均已接入 `commonTest` 与 one-shot vs chunked 一致性校验，并补齐 `quadrantChart`。
+- ✅ `gantt` 已补齐参考线、section/任务行浅色带与轴标签稳定渲染。
+- ✅ `packet-beta` 已以 `StructIR + StructLayout` 最小可用链路落地，并纳入 `composeApp` 验收样例集。
 
 ### Phase 3 — Mermaid 进阶结构图 ✅ 已完成
 requirementDiagram、architectureDiagram、c4、block。
