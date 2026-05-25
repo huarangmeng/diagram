@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.mavenPublish)
 }
 
 kotlin {
@@ -36,6 +37,40 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutinesTest)
+        }
+    }
+}
+
+mavenPublishing {
+    publishToMavenCentral(true)
+
+    signAllPublications()
+
+    coordinates("io.github.huarangmeng", "diagram-render", rootProject.property("VERSION").toString())
+
+    pom {
+        name.set("Diagram Render")
+        description.set("Compose Multiplatform rendering facade and streaming session APIs for Diagram.")
+        inceptionYear.set("2026")
+        url.set("https://github.com/huarangmeng/diagram")
+        licenses {
+            license {
+                name.set("MIT License")
+                url.set("https://opensource.org/licenses/MIT")
+                distribution.set("repo")
+            }
+        }
+        developers {
+            developer {
+                id.set("huarangmeng")
+                name.set("huarangmeng")
+                url.set("https://github.com/huarangmeng/")
+            }
+        }
+        scm {
+            url.set("https://github.com/huarangmeng/diagram")
+            connection.set("scm:git:git://github.com/huarangmeng/diagram.git")
+            developerConnection.set("scm:git:ssh://git@github.com/huarangmeng/diagram.git")
         }
     }
 }

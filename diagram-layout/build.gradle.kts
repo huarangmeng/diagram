@@ -4,6 +4,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
+    alias(libs.plugins.mavenPublish)
 }
 
 kotlin {
@@ -28,6 +29,40 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+        }
+    }
+}
+
+mavenPublishing {
+    publishToMavenCentral(true)
+
+    signAllPublications()
+
+    coordinates("io.github.huarangmeng", "diagram-layout", rootProject.property("VERSION").toString())
+
+    pom {
+        name.set("Diagram Layout")
+        description.set("Cross-platform layout algorithms for Mermaid, PlantUML, and DOT diagrams.")
+        inceptionYear.set("2026")
+        url.set("https://github.com/huarangmeng/diagram")
+        licenses {
+            license {
+                name.set("MIT License")
+                url.set("https://opensource.org/licenses/MIT")
+                distribution.set("repo")
+            }
+        }
+        developers {
+            developer {
+                id.set("huarangmeng")
+                name.set("huarangmeng")
+                url.set("https://github.com/huarangmeng/")
+            }
+        }
+        scm {
+            url.set("https://github.com/huarangmeng/diagram")
+            connection.set("scm:git:git://github.com/huarangmeng/diagram.git")
+            developerConnection.set("scm:git:ssh://git@github.com/huarangmeng/diagram.git")
         }
     }
 }
