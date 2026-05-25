@@ -30,3 +30,7 @@
 - [`0001-self-research-layout.md`](./0001-self-research-layout.md)
 - [`0002-strict-syntax-compat.md`](./0002-strict-syntax-compat.md)
 - [`0003-single-export-module.md`](./0003-single-export-module.md)
+- [`0004-streaming-incremental-pipeline.md`](./0004-streaming-incremental-pipeline.md)
+- [`0005-drawtext-measured-bounds.md`](./0005-drawtext-measured-bounds.md)
+- [`0006-export-rendered-diagram-bridge.md`](./0006-export-rendered-diagram-bridge.md)
+- [`0007-string-first-diagram-view.md`](./0007-string-first-diagram-view.md)

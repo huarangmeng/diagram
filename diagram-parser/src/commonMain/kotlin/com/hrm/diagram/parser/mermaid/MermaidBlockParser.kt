@@ -19,8 +19,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 data class BlockCellPlacement(
@@ -82,7 +81,7 @@ class MermaidBlockParser {
         val extras: Map<String, String> = emptyMap(),
     )
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val placements: LinkedHashMap<NodeId, BlockCellPlacement> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
@@ -90,16 +89,15 @@ class MermaidBlockParser {
     private val blockStack: MutableList<OpenBlock> = ArrayList()
     private val pendingEdges: MutableList<PendingEdge> = ArrayList()
     private var headerSeen = false
-    private val seq = ParserSessionSeq()
     private var autoBlockSeq = 0
     private var autoNodeSeq = 0
     private var title: String? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}")
 
@@ -108,13 +106,13 @@ class MermaidBlockParser {
             if (first.kind == MermaidTokenKind.BLOCK_HEADER) {
                 headerSeen = true
                 ensureRootBlock()
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'block-beta' header")
         }
 
         val text = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (text.isBlank()) return seq.emptyBatch()
+        if (text.isBlank()) return session.emptyBatch()
 
         val patches = ArrayList<IrPatch>()
         when {
@@ -126,7 +124,7 @@ class MermaidBlockParser {
             else -> parseRow(text, patches)
         }
         flushPendingEdges(patches)
-        return IrPatchBatch(seq.value, patches)
+        return IrPatchBatch(session.value, patches)
     }
 
     fun snapshot(): GraphIR =
@@ -139,7 +137,7 @@ class MermaidBlockParser {
             styleHints = StyleHints(direction = Direction.LR, extras = buildExtras()),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     fun placementSnapshot(): Map<NodeId, BlockCellPlacement> = placements.toMap()
 
@@ -156,8 +154,8 @@ class MermaidBlockParser {
     private fun parseColumns(spec: String, out: MutableList<IrPatch>) {
         val value = spec.toIntOrNull()
         if (value == null || value <= 0) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid block columns value", "MERMAID-E214")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "Invalid block columns value", "MERMAID-E214")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         currentBlock().columns = value
@@ -165,8 +163,8 @@ class MermaidBlockParser {
 
     private fun openBlock(text: String, out: MutableList<IrPatch>) {
         val item = parseBlockStart(text) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid block start syntax", "MERMAID-E214")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "Invalid block start syntax", "MERMAID-E214")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         val parent = currentBlock()
@@ -186,8 +184,8 @@ class MermaidBlockParser {
 
     private fun closeBlock(out: MutableList<IrPatch>) {
         if (blockStack.size <= 1) {
-            diagnostics += Diagnostic(Severity.ERROR, "Unexpected 'end' in block diagram", "MERMAID-E214")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "Unexpected 'end' in block diagram", "MERMAID-E214")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         blockStack.removeAt(blockStack.lastIndex)
@@ -311,8 +309,8 @@ class MermaidBlockParser {
             else -> null
         }
         if (targetSplit == null || targetSplit.third <= 0) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid block edge syntax", "MERMAID-E214")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "Invalid block edge syntax", "MERMAID-E214")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         val (operator, arrow, splitIndex) = targetSplit
@@ -320,8 +318,8 @@ class MermaidBlockParser {
         val right = text.substring(splitIndex + operator.length).trim()
         val to = right.takeIf { it.matches(Regex("""[A-Za-z0-9_:-]+""")) }?.let(::NodeId)
         if (to == null) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid block edge target", "MERMAID-E214")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "Invalid block edge target", "MERMAID-E214")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         val labelRegex = Regex("""^([A-Za-z0-9_:-]+)\s*--\s*"([^"]*)"$""")
@@ -341,8 +339,8 @@ class MermaidBlockParser {
             } else {
                 val plain = plainRegex.matchEntire(left.removeSuffix("--").trim())
                 if (plain == null) {
-                    diagnostics += Diagnostic(Severity.ERROR, "Invalid block edge syntax", "MERMAID-E214")
-                    out += IrPatch.AddDiagnostic(diagnostics.last())
+                    session += Diagnostic(Severity.ERROR, "Invalid block edge syntax", "MERMAID-E214")
+                    out += IrPatch.AddDiagnostic(session.lastDiagnostic())
                     return
                 }
                 from = NodeId(plain.groupValues[1])
@@ -512,7 +510,7 @@ class MermaidBlockParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val diagnostic = Diagnostic(Severity.ERROR, message, "MERMAID-E214")
-        diagnostics += diagnostic
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(diagnostic)))
+        session += diagnostic
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(diagnostic)))
     }
 }

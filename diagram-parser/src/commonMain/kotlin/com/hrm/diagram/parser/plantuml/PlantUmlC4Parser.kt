@@ -24,8 +24,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for PlantUML C4-PlantUML macros.
@@ -96,7 +95,7 @@ class PlantUmlC4Parser {
         val legendText: String? = null,
     )
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val boundaries: LinkedHashMap<NodeId, BoundaryDef> = LinkedHashMap()
@@ -116,25 +115,24 @@ class PlantUmlC4Parser {
     private var diagramKind = "C4Context"
     private val layoutExtras: LinkedHashMap<String, String> = linkedMapOf("plantuml.graph.kind" to "c4", "c4.diagramKind" to diagramKind)
     private var title: String? = null
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
-        if (trimmed.startsWith("!include", ignoreCase = true)) return seq.emptyBatch()
+        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return session.emptyBatch()
+        if (trimmed.startsWith("!include", ignoreCase = true)) return session.emptyBatch()
         if (trimmed in HEADERS) {
             diagramKind = trimmed
             layoutExtras["c4.diagramKind"] = diagramKind
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("title ", ignoreCase = true)) {
             title = unquote(trimmed.substringAfter(' ').trim())
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed == "}") {
             if (boundaryStack.isNotEmpty()) boundaryStack.removeAt(boundaryStack.lastIndex) else return errorBatch("Unexpected '}' in C4 diagram")
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.endsWith("{")) {
             return parseBoundaryLine(trimmed.removeSuffix("{").trim())
@@ -150,7 +148,7 @@ class PlantUmlC4Parser {
             "UpdateRelStyle" -> parseUpdateRelStyle(call)
             "UpdateLayoutConfig" -> parseUpdateLayoutConfig(call)
             "SHOW_LEGEND", "ShowLegend", "LAYOUT_WITH_LEGEND" -> parseLegend()
-            in NOOP_NAMES -> IrPatchBatch(seq.value, emptyList())
+            in NOOP_NAMES -> IrPatchBatch(session.value, emptyList())
             else -> errorBatch("Unknown C4 statement '${call.name}'")
         }
     }
@@ -159,16 +157,16 @@ class PlantUmlC4Parser {
         val out = ArrayList<IrPatch>()
         if (boundaryStack.isNotEmpty()) {
             val d = Diagnostic(Severity.ERROR, "Unclosed C4 boundary block", "PLANTUML-E019")
-            diagnostics += d
+            session += d
             out += IrPatch.AddDiagnostic(d)
             boundaryStack.clear()
         }
         if (!blockClosed) {
             val d = Diagnostic(Severity.ERROR, "Missing @enduml closing delimiter for C4 diagram", "PLANTUML-E019")
-            diagnostics += d
+            session += d
             out += IrPatch.AddDiagnostic(d)
         }
-        return IrPatchBatch(seq.value, out)
+        return IrPatchBatch(session.value, out)
     }
 
     fun snapshot(): GraphIR =
@@ -181,7 +179,7 @@ class PlantUmlC4Parser {
             styleHints = StyleHints(direction = direction, extras = layoutExtras.toMap()),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     fun nodeLinkSnapshot(): Map<NodeId, String> = nodeLinks.toMap()
 
@@ -211,7 +209,7 @@ class PlantUmlC4Parser {
         if (tags.isNotEmpty()) boundaryTags[id] = tags
         named["link"]?.takeIf { it.isNotBlank() }?.let { nodeLinks[id] = it }
         boundaryStack += id
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseElement(call: ParsedCall): IrPatchBatch {
@@ -247,7 +245,7 @@ class PlantUmlC4Parser {
         nodes[id] = node
         if (tags.isNotEmpty()) elementTags[id] = tags
         named["link"]?.takeIf { it.isNotBlank() }?.let { nodeLinks[id] = it }
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddNode(node)))
+        return IrPatchBatch(session.value, listOf(IrPatch.AddNode(node)))
     }
 
     private fun parseRelation(call: ParsedCall): IrPatchBatch {
@@ -290,7 +288,7 @@ class PlantUmlC4Parser {
         if (relTagList.isNotEmpty()) relTags[key] = relTagList
         named["link"]?.takeIf { it.isNotBlank() }?.let { relLinks[key] = it }
         rebuildEdgePresentation()
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddEdge(edge)))
+        return IrPatchBatch(session.value, listOf(IrPatch.AddEdge(edge)))
     }
 
     private fun parseLayoutRelation(call: ParsedCall): IrPatchBatch {
@@ -312,7 +310,7 @@ class PlantUmlC4Parser {
         )
         edges += edge
         rebuildEdgePresentation()
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddEdge(edge)))
+        return IrPatchBatch(session.value, listOf(IrPatch.AddEdge(edge)))
     }
 
     private fun parseAddElementTag(call: ParsedCall): IrPatchBatch {
@@ -327,7 +325,7 @@ class PlantUmlC4Parser {
             shape = named["shape"]?.let(::parseNodeShapeHelper),
             legendText = named["legendText"]?.takeIf { it.isNotBlank() },
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseAddRelTag(call: ParsedCall): IrPatchBatch {
@@ -342,7 +340,7 @@ class PlantUmlC4Parser {
             dash = parseLineDash(named["lineStyle"]),
             legendText = named["legendText"]?.takeIf { it.isNotBlank() },
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseUpdateElementStyle(call: ParsedCall): IrPatchBatch {
@@ -360,7 +358,7 @@ class PlantUmlC4Parser {
         nodes[id]?.let { node ->
             nodes[id] = node.copy(shape = override.shape ?: node.shape, style = applyElementStyle(override, node.style))
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseUpdateRelStyle(call: ParsedCall): IrPatchBatch {
@@ -385,7 +383,7 @@ class PlantUmlC4Parser {
             }
         }
         rebuildEdgePresentation()
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseUpdateLayoutConfig(call: ParsedCall): IrPatchBatch {
@@ -400,7 +398,7 @@ class PlantUmlC4Parser {
                 else -> Direction.LR
             }
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseLegend(): IrPatchBatch {
@@ -413,7 +411,7 @@ class PlantUmlC4Parser {
             payload = mapOf(KIND_KEY to "Legend", STEREOTYPE_KEY to "Legend", LEGEND_KEY to "true"),
         )
         nodes[id] = node
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddNode(node)))
+        return IrPatchBatch(session.value, listOf(IrPatch.AddNode(node)))
     }
 
     private fun ensurePlaceholder(id: NodeId) {
@@ -740,7 +738,7 @@ class PlantUmlC4Parser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "PLANTUML-E019")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

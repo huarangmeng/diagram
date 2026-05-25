@@ -111,7 +111,7 @@ class DiagramSession internal constructor(
 
 /**
  * Snapshot of everything renderable at a given [seq]. Compose UIs `collectAsState()` this
- * and feed it into `DiagramView(snapshot = ...)`.
+ * through internal view plumbing; app-facing Compose code should prefer `DiagramView(source = ...)`.
  *
  * Invariants:
  * - `seq` is strictly increasing within one session.

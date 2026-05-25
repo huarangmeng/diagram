@@ -29,7 +29,7 @@ A Kotlin Multiplatform diagram rendering SDK with self-hosted parsing, layout, a
 - **Three Syntax Families**: Parses and renders Mermaid, PlantUML, and Graphviz DOT in one unified KMP codebase.
 - **Streaming-First Pipeline**: `Diagram.session()` supports append-only incremental parsing, layout, and draw updates for LLM and live-preview scenarios.
 - **Self-Hosted Engine**: Parser, IR, layout, and renderer are implemented in Kotlin without relying on ELK, dagre, Graphviz native, or JS interop shortcuts.
-- **Compose Multiplatform Rendering**: `DiagramView` is the app-facing Composable, while `DiagramCanvas` exposes the same draw-command pipeline on Android, iOS, Desktop, JS, and Wasm.
+- **Compose Multiplatform Rendering**: `DiagramView(source = ...)` is the app-facing Composable and owns language detection, snapshots, and incremental updates internally.
 - **Incremental Performance Hooks**: Includes cached text measurement, stable entity keys, dirty-edge routing, and viewport culling via `DrawCommandIndex`.
 - **Broad Syntax Coverage**: The demo gallery already exercises Mermaid, PlantUML, and DOT across dozens of diagram families and official-sample-style cases.
 
@@ -80,6 +80,19 @@ dependencies {
 
 ## Usage
 
+### Markdown Routing
+
+Markdown renderers can ask the SDK whether a code fence or streaming block should become a diagram before creating Compose UI.
+
+```kotlin
+import com.hrm.diagram.render.Diagram
+
+val detection = Diagram.detectSource(fenceBody, hint = fenceInfo)
+if (detection.shouldRouteToDiagram) {
+    // Render with DiagramView(source = fenceBody)
+}
+```
+
 ### Streaming Session
 
 The primary public workflow is a streaming session. Feed source chunks incrementally and finish when the stream ends.
@@ -101,30 +114,18 @@ println(snapshot.diagnostics)
 
 ### Compose Preview
 
-`rememberDiagramSession(...)` wires Compose text measurement into the layout pipeline, and `DiagramView(...)` stays as the only app-facing Composable entry point.
+`DiagramView(...)` accepts only source text at the app boundary. It wires Compose text measurement into the layout pipeline, detects Mermaid / PlantUML / DOT, and maintains the incremental snapshot internally.
 
 ```kotlin
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
-import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.render.compose.DiagramView
-import com.hrm.diagram.render.compose.rememberDiagramSession
 
 @Composable
 fun MermaidPreview(source: String) {
-    val session = rememberDiagramSession(
-        language = SourceLanguage.MERMAID,
-        key = source,
-    )
-    LaunchedEffect(session, source) {
-        session.append(source)
-        session.finish()
-    }
-
     DiagramView(
-        session = session,
+        source = source,
         modifier = Modifier.fillMaxSize(),
         zoomEnabled = true,
     )

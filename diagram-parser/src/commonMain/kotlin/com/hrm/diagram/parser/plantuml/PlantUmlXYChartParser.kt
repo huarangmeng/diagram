@@ -10,8 +10,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.ir.XYChartIR
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for PlantUML bar / line / scatter chart blocks.
@@ -37,7 +36,7 @@ import com.hrm.diagram.parser.common.ParserSessionSeq
 class PlantUmlXYChartParser(
     private val defaultKind: SeriesKind,
 ) {
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val explicitSeries: MutableList<ParsedSeries> = ArrayList()
     private val rowCategories: MutableList<String> = ArrayList()
     private val rowValues: MutableList<Double> = ArrayList()
@@ -74,7 +73,7 @@ class PlantUmlXYChartParser(
             "bordercolor" to STYLE_AXIS_COLOR_KEY,
         ),
         warnUnsupported = { warnUnsupportedSkinparam(it) },
-        emptyBatch = { seq.emptyBatch() },
+        emptyBatch = { session.emptyBatch() },
     )
     private var title: String? = null
     private var xAxisTitle: String? = null
@@ -84,16 +83,15 @@ class PlantUmlXYChartParser(
     private var yAxisTitle: String? = null
     private var yMin: Double? = null
     private var yMax: Double? = null
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
+        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return session.emptyBatch()
         if (skinparamSupport.pendingScope != null) {
             if (trimmed == "}") {
                 skinparamSupport.pendingScope = null
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return skinparamSupport.acceptScopedEntry(skinparamSupport.pendingScope!!, trimmed)
         }
@@ -104,51 +102,51 @@ class PlantUmlXYChartParser(
             trimmed.equals("line", ignoreCase = true) ||
             trimmed.equals("scatter", ignoreCase = true)
         ) {
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("title ", ignoreCase = true)) {
             title = trimmed.substringAfter(' ').trim().takeIf { it.isNotEmpty() }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("x-axis ", ignoreCase = true)) {
             parseXAxis(trimmed.substringAfter(' ').trim())
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("h-axis ", ignoreCase = true)) {
             parseXAxis(trimmed.substringAfter(' ').trim())
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("y-axis ", ignoreCase = true)) {
             parseYAxis(trimmed.substringAfter(' ').trim())
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("v-axis ", ignoreCase = true)) {
             parseYAxis(trimmed.substringAfter(' ').trim())
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("legend ", ignoreCase = true)) {
             val position = trimmed.substringAfter(' ').trim().lowercase()
             if (position in setOf("left", "right", "top", "bottom")) {
                 styleExtras[STYLE_LEGEND_KEY] = position
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
         }
         if (trimmed.equals("hide legend", ignoreCase = true) || trimmed.equals("legend off", ignoreCase = true)) {
             styleExtras[STYLE_LEGEND_KEY] = "none"
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (trimmed.startsWith("stackMode ", ignoreCase = true)) {
             val mode = trimmed.substringAfter(' ').trim().lowercase()
             if (mode in setOf("grouped", "stacked")) {
                 styleExtras[STYLE_STACK_MODE_KEY] = mode
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
         }
         if (trimmed.startsWith("orientation ", ignoreCase = true)) {
             val orientation = trimmed.substringAfter(' ').trim().lowercase()
             if (orientation in setOf("vertical", "horizontal")) {
                 styleExtras[STYLE_ORIENTATION_KEY] = orientation
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
         }
         if (trimmed.startsWith("bar ", ignoreCase = true)) {
@@ -163,13 +161,13 @@ class PlantUmlXYChartParser(
         parseCategoryValue(trimmed)?.let { (category, value) ->
             rowCategories += category
             rowValues += value
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         return errorBatch("Invalid PlantUML chart line '$trimmed'")
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
-        if (blockClosed) return seq.emptyBatch()
+        if (blockClosed) return session.emptyBatch()
         return errorBatch("Missing chart closing delimiter")
     }
 
@@ -205,7 +203,7 @@ class PlantUmlXYChartParser(
         )
     }
 
-    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
 
     private fun buildSeries(categories: List<String>): List<Series> {
         val xs = List(categories.size) { it.toDouble() }
@@ -261,7 +259,7 @@ class PlantUmlXYChartParser(
         explicitSeries += parsed
         val index = explicitSeries.lastIndex
         parsed.color?.let { styleExtras["$STYLE_SERIES_COLOR_PREFIX$index"] = it }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseSeriesSpec(kind: SeriesKind, spec: String): ParsedSeries? {
@@ -335,11 +333,11 @@ class PlantUmlXYChartParser(
         text.startsWith("#") || text.all { it.isLetter() }
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch {
-        return seq.diagnosticBatch(diagnostics.warning("Unsupported PlantUML chart skinparam '$line'", "PLANTUML-W001"))
+        return session.diagnosticBatch(session.warning("Unsupported PlantUML chart skinparam '$line'", "PLANTUML-W001"))
     }
 
     private fun errorBatch(message: String): IrPatchBatch {
-        return seq.diagnosticBatch(diagnostics.error(message, "PLANTUML-E022"))
+        return session.diagnosticBatch(session.error(message, "PLANTUML-E022"))
     }
 
     private data class ParsedSeries(

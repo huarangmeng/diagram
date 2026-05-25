@@ -20,8 +20,7 @@ import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.ir.Visibility
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -36,11 +35,10 @@ class MermaidClassParser {
     private val namespaces: MutableList<ClassNamespace> = ArrayList()
     private val notes: MutableList<ClassNote> = ArrayList()
     private val cssClasses: MutableList<CssClassDef> = ArrayList()
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private var direction: Direction? = null
 
     private var headerSeen: Boolean = false
-    private val seq = ParserSessionSeq()
 
     private sealed interface BodyContext {
         data class ClassBody(val id: NodeId) : BodyContext
@@ -50,10 +48,10 @@ class MermaidClassParser {
     private val bodyStack: ArrayDeque<BodyContext> = ArrayDeque()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
 
         val errs = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errs != null) return errorBatch("Lex error at ${errs.start}: ${errs.text}")
@@ -61,7 +59,7 @@ class MermaidClassParser {
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.CLASS_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'classDiagram' header")
         }
@@ -71,7 +69,7 @@ class MermaidClassParser {
         if (ctx is BodyContext.ClassBody) {
             if (toks.size == 1 && toks[0].kind == MermaidTokenKind.RBRACE) {
                 bodyStack.removeLast()
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return parseMemberInto(ctx.id, toks)
         }
@@ -79,7 +77,7 @@ class MermaidClassParser {
             if (toks.size == 1 && toks[0].kind == MermaidTokenKind.RBRACE) {
                 bodyStack.removeLast()
                 namespaces += ClassNamespace(id = ctx.name, members = ctx.members.toList())
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             // Inside namespace: only `class Foo` declarations supported.
             return parseStatementInNamespace(ctx, toks)
@@ -100,7 +98,7 @@ class MermaidClassParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     // --- statements ---
 
@@ -177,18 +175,18 @@ class MermaidClassParser {
                     // Inline content before newline (rare).
                     return parseMemberInto(id, toks.subList(idx, toks.size))
                 }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             } else {
                 // Inline: split body by ';' tokens? Mermaid allows multiple members separated by newlines.
                 // For inline single-line, treat the inner tokens as one member line if any.
                 if (rbraceIdx > idx) {
                     parseMemberInto(id, toks.subList(idx, rbraceIdx))
                 }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
         }
 
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun findClosingBraceIdx(toks: List<Token>, fromIdx: Int): Int {
@@ -208,7 +206,7 @@ class MermaidClassParser {
             return errorBatch("Expected '{' after namespace name")
         }
         bodyStack.addLast(BodyContext.NamespaceBody(name))
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseNote(toks: List<Token>): IrPatchBatch {
@@ -274,7 +272,7 @@ class MermaidClassParser {
             targetClass = target,
             placement = placement,
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseCssClass(toks: List<Token>): IrPatchBatch {
@@ -288,7 +286,7 @@ class MermaidClassParser {
             return errorBatch("Expected style name after cssClass targets")
         }
         cssClasses += CssClassDef(name = targets, style = styleTok.text.toString())
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseDirection(toks: List<Token>): IrPatchBatch {
@@ -303,7 +301,7 @@ class MermaidClassParser {
             else -> return errorBatch("Unknown direction '${toks[1].text}'")
         }
         direction = d
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseRelationOrDotted(toks: List<Token>): IrPatchBatch {
@@ -359,7 +357,7 @@ class MermaidClassParser {
             from = a, to = b, kind = kind,
             fromCardinality = fc, toCardinality = tc, label = label,
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private data class ListedFour(val a: NodeId, val b: NodeId, val c: String?, val d: String?)
@@ -382,7 +380,7 @@ class MermaidClassParser {
         //   [+|-|#|~] name (params) [: ReturnType] [$] [*]
         //   [+|-|#|~] type name [$] [*]
         //   [+|-|#|~] name : type [$] [*]
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
 
         // Stereotype line: <<text>>
         if (toks[0].kind == MermaidTokenKind.STEREOTYPE_OPEN) {
@@ -393,7 +391,7 @@ class MermaidClassParser {
                 i++
             }
             updateClass(classId) { it.copy(stereotype = sb.toString()) }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         var i = 0
@@ -405,7 +403,7 @@ class MermaidClassParser {
             toks[0].kind == MermaidTokenKind.HASH -> { visibility = Visibility.PROTECTED; i++ }
             toks[0].kind == MermaidTokenKind.TILDE -> { visibility = Visibility.PACKAGE; i++ }
         }
-        if (i >= toks.size) return seq.emptyBatch()
+        if (i >= toks.size) return session.emptyBatch()
 
         var isStatic = false
         var isAbstract = false
@@ -446,7 +444,7 @@ class MermaidClassParser {
                     isAbstract = isAbstract,
                 ),
             )
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         // Attribute form. Two shapes:
@@ -457,7 +455,7 @@ class MermaidClassParser {
             else if (it.kind == MermaidTokenKind.ASTERISK) { isAbstract = true; false }
             else true
         }
-        if (rest.isEmpty()) return seq.emptyBatch()
+        if (rest.isEmpty()) return session.emptyBatch()
 
         val colonIdx = rest.indexOfFirst { it.kind == MermaidTokenKind.COLON }
         val name: String; val type: String?
@@ -484,7 +482,7 @@ class MermaidClassParser {
                 isAbstract = isAbstract,
             ),
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseParamList(toks: List<Token>): List<ClassParam> {
@@ -541,7 +539,7 @@ class MermaidClassParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MMD-C001")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

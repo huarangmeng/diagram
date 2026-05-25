@@ -20,8 +20,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for the PlantUML ArchiMate slice.
@@ -65,23 +64,22 @@ class PlantUmlArchimateParser {
         val parent: NodeId?,
     )
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val relationTypes: MutableList<String> = ArrayList()
     private val groups: LinkedHashMap<NodeId, GroupDef> = LinkedHashMap()
     private val groupStack: MutableList<NodeId> = ArrayList()
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return seq.emptyBatch()
-        if (trimmed.startsWith("!")) return seq.emptyBatch()
+        if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) return session.emptyBatch()
+        if (trimmed.startsWith("!")) return session.emptyBatch()
         if (trimmed == "}") {
             if (groupStack.isEmpty()) return errorBatch("Unexpected '}' in PlantUML archimate diagram")
             groupStack.removeAt(groupStack.lastIndex)
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         GROUP.matchEntire(trimmed)?.let { m ->
@@ -89,7 +87,7 @@ class PlantUmlArchimateParser {
             val id = NodeId(m.groupValues[3].ifBlank { "arch_group_${PlantUmlTemporalSupport.slug(label)}" })
             groups[id] = GroupDef(id = id, label = label, parent = groupStack.lastOrNull())
             groupStack += id
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         ELEMENT.matchEntire(trimmed)?.let {
@@ -113,7 +111,7 @@ class PlantUmlArchimateParser {
                     groupStack.lastOrNull()?.let { put(PARENT_KEY, it.value) }
                 },
             )
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         REL.matchEntire(trimmed)?.let { m ->
@@ -124,12 +122,12 @@ class PlantUmlArchimateParser {
                 relationType = normalizeRelationType(m.groupValues[1].ifBlank { "association" }),
                 dashed = false,
             )
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         EDGE.matchEntire(trimmed)?.let { m ->
             addEdge(m.groupValues[1], m.groupValues[3], m.groupValues[4].ifBlank { null }, relationType = "directed", dashed = m.groupValues[2].contains('.'))
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         return errorBatch("Invalid PlantUML archimate line: $trimmed")
@@ -139,16 +137,16 @@ class PlantUmlArchimateParser {
         val out = ArrayList<IrPatch>()
         if (groupStack.isNotEmpty()) {
             val d = Diagnostic(Severity.ERROR, "Unclosed PlantUML archimate group block", "PLANTUML-E018")
-            diagnostics += d
+            session += d
             out += IrPatch.AddDiagnostic(d)
             groupStack.clear()
         }
         if (!blockClosed) {
             val d = Diagnostic(Severity.ERROR, "Missing @enduml closing delimiter for archimate diagram", "PLANTUML-E018")
-            diagnostics += d
+            session += d
             out += IrPatch.AddDiagnostic(d)
         }
-        return IrPatchBatch(seq.value, out)
+        return IrPatchBatch(session.value, out)
     }
 
     fun snapshot(): GraphIR =
@@ -160,7 +158,7 @@ class PlantUmlArchimateParser {
             styleHints = StyleHints(extras = mapOf("plantuml.graph.kind" to "archimate")),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     fun relationTypesSnapshot(): List<String> = relationTypes.toList()
 
@@ -245,8 +243,8 @@ class PlantUmlArchimateParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "PLANTUML-E018")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 
     private fun normalizeElementType(raw: String): String {

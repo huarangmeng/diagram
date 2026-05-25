@@ -11,8 +11,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -27,8 +26,7 @@ import com.hrm.diagram.core.streaming.Token
  * - `cherry-pick id: ...`
  */
 class MermaidGitGraphParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
     private var headerSeen = false
     private var title: String? = null
     private var autoCommit = 0
@@ -39,26 +37,26 @@ class MermaidGitGraphParser {
     private val commits: MutableList<GitCommit> = ArrayList()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.GITGRAPH_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'gitGraph' header")
         }
 
         val s = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (s.isBlank()) return seq.emptyBatch()
+        if (s.isBlank()) return session.emptyBatch()
         if (s.startsWith("title ")) {
             title = stripQuotes(s.removePrefix("title ").trim()).ifBlank { title }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         when {
             s.startsWith("branch ") -> parseBranch(s.removePrefix("branch ").trim())
@@ -67,9 +65,9 @@ class MermaidGitGraphParser {
             s.startsWith("commit") -> parseCommit(s.removePrefix("commit").trim())
             s.startsWith("merge ") -> parseMerge(s.removePrefix("merge ").trim())
             s.startsWith("cherry-pick ") -> parseCherryPick(s.removePrefix("cherry-pick ").trim())
-            else -> diagnostics += Diagnostic(Severity.WARNING, "Unsupported gitGraph line ignored: $s", "MERMAID-W012")
+            else -> session += Diagnostic(Severity.WARNING, "Unsupported gitGraph line ignored: $s", "MERMAID-W012")
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): GitGraphIR =
@@ -81,13 +79,13 @@ class MermaidGitGraphParser {
             styleHints = StyleHints(),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseBranch(spec: String) {
         val attrs = parseAttrs(spec)
         val name = stripQuotes(spec.substringBefore(" order:").trim()).ifBlank { stripQuotes(spec.trim()) }
         if (name.isBlank()) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid gitGraph branch syntax", "MERMAID-E210")
+            session += Diagnostic(Severity.ERROR, "Invalid gitGraph branch syntax", "MERMAID-E210")
             return
         }
         if (!branchHeads.containsKey(name)) {
@@ -100,7 +98,7 @@ class MermaidGitGraphParser {
     private fun parseCheckout(spec: String) {
         val name = stripQuotes(spec.trim())
         if (!branchHeads.containsKey(name)) {
-            diagnostics += Diagnostic(Severity.ERROR, "Unknown gitGraph branch '$name'", "MERMAID-E210")
+            session += Diagnostic(Severity.ERROR, "Unknown gitGraph branch '$name'", "MERMAID-E210")
             return
         }
         currentBranch = name
@@ -125,13 +123,13 @@ class MermaidGitGraphParser {
     private fun parseMerge(spec: String) {
         val branchName = stripQuotes(spec.substringBefore(' ').trim())
         if (branchName.isBlank() || !branchHeads.containsKey(branchName) || branchName == currentBranch) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid gitGraph merge syntax", "MERMAID-E210")
+            session += Diagnostic(Severity.ERROR, "Invalid gitGraph merge syntax", "MERMAID-E210")
             return
         }
         val sourceHead = branchHeads[branchName]
         val currentHead = branchHeads[currentBranch]
         if (sourceHead == null || currentHead == null) {
-            diagnostics += Diagnostic(Severity.ERROR, "gitGraph merge requires commits on both branches", "MERMAID-E210")
+            session += Diagnostic(Severity.ERROR, "gitGraph merge requires commits on both branches", "MERMAID-E210")
             return
         }
         val attrs = parseAttrs(spec.removePrefix(branchName).trim())
@@ -155,7 +153,7 @@ class MermaidGitGraphParser {
         val currentHead = branchHeads[currentBranch]
         val sourceCommit = commits.firstOrNull { it.id.value == sourceId }
         if (sourceId.isNullOrBlank() || sourceCommit == null || currentHead == null || sourceCommit.branch == currentBranch) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid gitGraph cherry-pick syntax", "MERMAID-E210")
+            session += Diagnostic(Severity.ERROR, "Invalid gitGraph cherry-pick syntax", "MERMAID-E210")
             return
         }
         val newId = nextCommitId()
@@ -221,7 +219,7 @@ class MermaidGitGraphParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E210")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

@@ -21,8 +21,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for the Phase-4 PlantUML `deployment` MVP.
@@ -97,7 +96,7 @@ class PlantUmlDeploymentParser {
         val lines: MutableList<String> = ArrayList(),
     )
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val clusters: LinkedHashMap<NodeId, ClusterDef> = LinkedHashMap()
@@ -232,19 +231,18 @@ class PlantUmlDeploymentParser {
             "arrowcolor" to STYLE_EDGE_COLOR_KEY,
         ),
         warnUnsupported = ::warnUnsupportedSkinparam,
-        emptyBatch = { seq.emptyBatch() },
+        emptyBatch = { session.emptyBatch() },
     )
 
-    private val seq = ParserSessionSeq()
     private var direction: Direction = Direction.LR
     private var pendingNote: PendingNote? = null
     private var noteSeq: Long = 0
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         pendingNote?.let { note ->
             if (trimmed.equals("end note", ignoreCase = true) || trimmed.equals("endnote", ignoreCase = true)) {
@@ -252,19 +250,19 @@ class PlantUmlDeploymentParser {
                 return flushPendingNote(note)
             }
             note.lines += trimmed
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         skinparamSupport.pendingScope?.let { scope ->
             if (trimmed == "}") {
                 skinparamSupport.pendingScope = null
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return skinparamSupport.acceptScopedEntry(scope, trimmed)
         }
         if (trimmed == "}") {
             if (clusterStack.isEmpty()) return errorBatch("Unmatched '}' in PlantUML deployment body")
             clusterStack.removeLast()
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val patches = ArrayList<IrPatch>()
@@ -289,7 +287,7 @@ class PlantUmlDeploymentParser {
             findRelationOperator(trimmed) != null -> parseEdge(trimmed, patches)
             else -> return errorBatch("Unsupported PlantUML deployment statement: $trimmed")
         }
-        return IrPatchBatch(seq.value, patches)
+        return IrPatchBatch(session.value, patches)
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
@@ -333,7 +331,7 @@ class PlantUmlDeploymentParser {
                 ),
             )
         }
-        return IrPatchBatch(seq.value, out)
+        return IrPatchBatch(session.value, out)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -344,14 +342,14 @@ class PlantUmlDeploymentParser {
         styleHints = StyleHints(direction = direction, extras = styleExtras),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseKeyword(line: String, keyword: String, out: MutableList<IrPatch>) {
         var body = line.substring(keyword.length).trim()
         val opens = body.endsWith("{")
         if (opens) body = body.removeSuffix("{").trim()
         val spec = parseAliasSpec(body) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML $keyword declaration", "PLANTUML-E009")
+            session += Diagnostic(Severity.ERROR, "Invalid PlantUML $keyword declaration", "PLANTUML-E009")
             return
         }
         if (opens) {
@@ -386,7 +384,7 @@ class PlantUmlDeploymentParser {
         val opens = body.endsWith("{")
         if (opens) body = body.removeSuffix("{").trim()
         val spec = parseAliasSpec(body) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML $keyword declaration", "PLANTUML-E009")
+            session += Diagnostic(Severity.ERROR, "Invalid PlantUML $keyword declaration", "PLANTUML-E009")
             return
         }
         val id = NodeId(spec.id)
@@ -422,13 +420,13 @@ class PlantUmlDeploymentParser {
         val label = parts.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }?.let(RichLabel::Plain)
         val regex = Regex("^(.*?)\\s*" + Regex.escape(op) + "\\s*(.*?)$")
         val match = regex.matchEntire(relText) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML deployment relation", "PLANTUML-E009")
+            session += Diagnostic(Severity.ERROR, "Invalid PlantUML deployment relation", "PLANTUML-E009")
             return
         }
         val left = parseEndpoint(match.groupValues[1].trim())
         val right = parseEndpoint(match.groupValues[2].trim())
         if (left == null || right == null) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML deployment relation endpoint", "PLANTUML-E009")
+            session += Diagnostic(Severity.ERROR, "Invalid PlantUML deployment relation endpoint", "PLANTUML-E009")
             return
         }
         ensureImplicitArtifact(left)
@@ -487,7 +485,7 @@ class PlantUmlDeploymentParser {
             pendingNote = PendingNote(target = null, placement = "standalone")
             return
         }
-        diagnostics += Diagnostic(Severity.ERROR, "Invalid PlantUML deployment note syntax", "PLANTUML-E009")
+        session += Diagnostic(Severity.ERROR, "Invalid PlantUML deployment note syntax", "PLANTUML-E009")
     }
 
     private fun flushPendingNote(note: PendingNote): IrPatchBatch {
@@ -500,7 +498,7 @@ class PlantUmlDeploymentParser {
         } else {
             addStandaloneNote(text, out)
         }
-        return IrPatchBatch(seq.value, out)
+        return IrPatchBatch(session.value, out)
     }
 
     private fun addAnchoredNote(target: NodeId, placement: String, text: String, out: MutableList<IrPatch>) {
@@ -604,7 +602,7 @@ class PlantUmlDeploymentParser {
     }
 
     private fun sanitizeId(text: String): String =
-        text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "node_$seq" }
+        text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "node_${session.value}" }
 
     private fun shapeFor(keyword: String): NodeShape = when (keyword.lowercase()) {
         "actor" -> NodeShape.Actor
@@ -685,13 +683,13 @@ class PlantUmlDeploymentParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E009"))))
+        IrPatchBatch(session.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E009"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
-        diagnostics += diagnostic
+        session += diagnostic
         return IrPatch.AddDiagnostic(diagnostic)
     }
 
     private fun warnUnsupportedSkinparam(line: String): IrPatchBatch =
-        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(session.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 }

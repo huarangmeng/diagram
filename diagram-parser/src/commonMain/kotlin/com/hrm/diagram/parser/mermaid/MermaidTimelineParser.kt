@@ -13,8 +13,7 @@ import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.ir.TimeTrack
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -35,8 +34,7 @@ import com.hrm.diagram.core.streaming.Token
  * - Each event becomes a [TimeItem] anchored to that slot, with distinct id per (section, period, event).
  */
 class MermaidTimelineParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
 
     private var headerSeen = false
     private var direction: Direction = Direction.LR
@@ -50,10 +48,10 @@ class MermaidTimelineParser {
     private var lastPeriodRef: Pair<Int, Int>? = null // (sectionIdx, periodIdx)
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
 
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
@@ -66,7 +64,7 @@ class MermaidTimelineParser {
                     direction = parseDirection(it.text.toString()) ?: direction
                 }
                 ensureDefaultSection()
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'timeline' header")
         }
@@ -75,7 +73,7 @@ class MermaidTimelineParser {
         if (toks.first().kind == MermaidTokenKind.IDENT && toks.first().text.toString() == "title") {
             val rest = toks.drop(1).joinToString(" ") { it.text.toString() }.trim()
             if (rest.isNotEmpty()) title = rest
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         // section <name...>
@@ -92,7 +90,7 @@ class MermaidTimelineParser {
                 currentSectionIdx = sections.lastIndex
             }
             lastPeriodRef = null
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         // continuation `: event`
@@ -102,7 +100,7 @@ class MermaidTimelineParser {
             if (ev.isNotEmpty()) {
                 sections[ref.first].periods[ref.second].events += ev
             }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         // period line: <period> : <event> (: <event>)*
@@ -116,7 +114,7 @@ class MermaidTimelineParser {
         val p = Period(label = periodText, events = events.toMutableList())
         sec.periods += p
         lastPeriodRef = currentSectionIdx to (sec.periods.lastIndex)
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): TimeSeriesIR {
@@ -164,7 +162,7 @@ class MermaidTimelineParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun ensureDefaultSection() {
         if (sections.isEmpty()) sections += Section(name = "default", periods = ArrayList())
@@ -207,7 +205,7 @@ class MermaidTimelineParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E202")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

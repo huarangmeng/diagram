@@ -11,8 +11,7 @@ import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.ir.XYChartIR
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for Mermaid `xychart` / `xychart-beta`.
@@ -29,8 +28,7 @@ import com.hrm.diagram.parser.common.ParserSessionSeq
  * - numeric x-axis => xs are evenly interpolated across declared min..max
  */
 class MermaidXYChartParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
     private var headerSeen = false
 
     private var title: String? = null
@@ -49,21 +47,21 @@ class MermaidXYChartParser {
     private val series: MutableList<Pair<SeriesKind, List<Double>>> = ArrayList()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
-            val first = toks.firstOrNull() ?: return seq.emptyBatch()
+            val first = toks.firstOrNull() ?: return session.emptyBatch()
             if (first.kind == MermaidTokenKind.XYCHART_HEADER) {
                 headerSeen = true
                 if (toks.any { it.kind == MermaidTokenKind.IDENT && it.text.toString() == "horizontal" }) {
                     orientation = "horizontal"
                 }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'xychart' header")
         }
@@ -79,9 +77,9 @@ class MermaidXYChartParser {
             s.startsWith("line ") -> parseSeries(SeriesKind.Line, s.removePrefix("line ").trim())
             s.startsWith("scatter ") -> parseSeries(SeriesKind.Scatter, s.removePrefix("scatter ").trim())
             s.startsWith("area ") -> parseSeries(SeriesKind.Area, s.removePrefix("area ").trim())
-            else -> diagnostics.warning("Unsupported xyChart line ignored: $s", "MERMAID-W012")
+            else -> session.warning("Unsupported xyChart line ignored: $s", "MERMAID-W012")
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): XYChartIR {
@@ -124,7 +122,7 @@ class MermaidXYChartParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseXAxis(spec: String) {
         // categorical: "title" [a,b,c]  OR [a,b,c]
@@ -153,7 +151,7 @@ class MermaidXYChartParser {
             }
             return
         }
-        diagnostics.warning("Unsupported x-axis spec ignored: $spec", "MERMAID-W012")
+        session.warning("Unsupported x-axis spec ignored: $spec", "MERMAID-W012")
     }
 
     private fun parseYAxis(spec: String) {
@@ -177,7 +175,7 @@ class MermaidXYChartParser {
 
     private fun parseSeries(kind: SeriesKind, spec: String) {
         if (!spec.startsWith("[") || !spec.endsWith("]")) {
-            diagnostics.error("Invalid ${kind.name.lowercase()} series syntax", "MERMAID-E206")
+            session.error("Invalid ${kind.name.lowercase()} series syntax", "MERMAID-E206")
             return
         }
         val values = parseNumbers(spec)
@@ -243,6 +241,6 @@ class MermaidXYChartParser {
             .trim()
 
     private fun errorBatch(message: String): IrPatchBatch {
-        return seq.diagnosticBatch(diagnostics.error(message, "MERMAID-E206"))
+        return session.diagnosticBatch(session.error(message, "MERMAID-E206"))
     }
 }

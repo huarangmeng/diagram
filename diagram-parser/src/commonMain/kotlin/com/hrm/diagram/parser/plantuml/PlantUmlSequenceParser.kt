@@ -14,8 +14,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Line-driven streaming parser for a small but useful subset of PlantUML `@startuml` sequence
@@ -86,7 +85,7 @@ class PlantUmlSequenceParser {
     private val messages: MutableList<com.hrm.diagram.core.ir.SequenceMessage> = ArrayList()
     private val fragments: MutableList<SequenceFragment> = ArrayList()
     private val fragmentStack: ArrayDeque<FragmentBuilder> = ArrayDeque()
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val boxes: MutableList<BoxBuilder> = ArrayList()
     private val boxStack: ArrayDeque<BoxBuilder> = ArrayDeque()
     private val decorationsByMessageIndex: MutableMap<Int, MessageDecoration> = LinkedHashMap()
@@ -148,10 +147,9 @@ class PlantUmlSequenceParser {
         },
         directKeys = mapOf("arrowcolor" to STYLE_EDGE_COLOR_KEY),
         warnUnsupported = { warnUnsupported(it) },
-        emptyBatch = { seq.emptyBatch() },
+        emptyBatch = { session.emptyBatch() },
     )
 
-    private val seq = ParserSessionSeq()
     private var finalized: Boolean = false
     private var autonumberStart: Int? = null
     private var autonumberStep: Int = 1
@@ -161,15 +159,15 @@ class PlantUmlSequenceParser {
     private var pendingDestroy: NodeId? = null
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         skinparamSupport.pendingScope?.let { scope ->
             if (trimmed == "}") {
                 skinparamSupport.pendingScope = null
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return skinparamSupport.acceptScopedEntry(scope, trimmed)
         }
@@ -180,7 +178,7 @@ class PlantUmlSequenceParser {
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
-        if (finalized) return seq.emptyBatch()
+        if (finalized) return session.emptyBatch()
         finalized = true
         val out = ArrayList<IrPatch>()
         if (!blockClosed) {
@@ -196,14 +194,14 @@ class PlantUmlSequenceParser {
             fragments += fragmentStack.removeLast().build()
         }
         skinparamSupport.pendingScope?.let { scope ->
-            diagnostics += Diagnostic(
+            session += Diagnostic(
                 severity = Severity.WARNING,
                 message = "Unsupported or unclosed 'skinparam $scope' block ignored",
                 code = "PLANTUML-W001",
             )
             skinparamSupport.pendingScope = null
         }
-        return IrPatchBatch(seq.value, out)
+        return IrPatchBatch(session.value, out)
     }
 
     fun snapshot(): SequenceIR {
@@ -237,7 +235,7 @@ class PlantUmlSequenceParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseStatement(line: String): IrPatchBatch {
         val lower = line.lowercase()
@@ -255,7 +253,7 @@ class PlantUmlSequenceParser {
             lower.startsWith("activate ") -> parseActivate(line, activate = true)
             lower.startsWith("deactivate ") -> parseActivate(line, activate = false)
             lower == "autonumber" || lower.startsWith("autonumber ") -> parseAutonumber(line)
-            lower == "newpage" -> IrPatchBatch(seq.value, emptyList())
+            lower == "newpage" -> IrPatchBatch(session.value, emptyList())
             lower.startsWith("create ") -> parseCreateDestroy(line, create = true)
             lower.startsWith("destroy ") -> parseCreateDestroy(line, create = false)
             lower.startsWith("box") -> parseBoxStart(line)
@@ -319,7 +317,7 @@ class PlantUmlSequenceParser {
             kind = kind,
         )
         boxStack.lastOrNull()?.participants?.add(id)
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseNote(line: String): IrPatchBatch {
@@ -336,7 +334,7 @@ class PlantUmlSequenceParser {
                     label = side.groupValues[3].toRichLabel(),
                 ),
             )
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val over = Regex(
@@ -356,7 +354,7 @@ class PlantUmlSequenceParser {
                     label = over.groupValues[3].toRichLabel(),
                 ),
             )
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         return errorBatch("Invalid note statement: $line")
@@ -380,7 +378,7 @@ class PlantUmlSequenceParser {
                 label = RichLabel.Plain("$REF_PREFIX$label"),
             ),
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseActivate(line: String, activate: Boolean): IrPatchBatch {
@@ -397,14 +395,14 @@ class PlantUmlSequenceParser {
                 deactivate = !activate,
             ),
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseAutonumber(line: String): IrPatchBatch {
         val parts = line.split(Regex("\\s+")).drop(1)
         if (parts.firstOrNull()?.equals("stop", ignoreCase = true) == true) {
             autonumberActive = false
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (parts.firstOrNull()?.equals("resume", ignoreCase = true) == true) {
             autonumberActive = true
@@ -413,7 +411,7 @@ class PlantUmlSequenceParser {
                 autonumberStart = it
             }
             parts.getOrNull(2)?.toIntOrNull()?.let { autonumberStep = it }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         autonumberStart = 1
         autonumberStep = 1
@@ -421,7 +419,7 @@ class PlantUmlSequenceParser {
         parts.getOrNull(1)?.toIntOrNull()?.let { autonumberStep = it }
         autonumberCurrent = autonumberStart ?: 1
         autonumberActive = true
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseCreateDestroy(line: String, create: Boolean): IrPatchBatch {
@@ -434,7 +432,7 @@ class PlantUmlSequenceParser {
         } else {
             pendingDestroy = id
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseBoxStart(line: String): IrPatchBatch {
@@ -444,13 +442,13 @@ class PlantUmlSequenceParser {
         val titleRaw = if (colorMatch != null) body.removeSuffix(colorMatch.value).trim() else body
         val title = titleRaw.removePrefix("\"").removeSuffix("\"").trim().ifEmpty { null }
         boxStack.addLast(BoxBuilder(title = title, color = color))
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseBoxEnd(): IrPatchBatch {
         val box = boxStack.removeLastOrNull() ?: return errorBatch("'end box' without matching 'box'")
         boxes += box
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseReturn(line: String): IrPatchBatch {
@@ -465,7 +463,7 @@ class PlantUmlSequenceParser {
                 label = label,
             ),
         )
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun parseMessage(line: String): IrPatchBatch {
@@ -518,7 +516,7 @@ class PlantUmlSequenceParser {
             ),
         )
         decorationFor(arrow, reversed, kind)?.let { decorationsByMessageIndex[messages.lastIndex] = it }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun arrowKindFor(arrow: String): MessageKind = when (arrow) {
@@ -529,19 +527,19 @@ class PlantUmlSequenceParser {
 
     private fun pushFragment(kind: FragmentKind, title: String?): IrPatchBatch {
         fragmentStack.addLast(FragmentBuilder(kind = kind, title = title))
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun addBranch(): IrPatchBatch {
         val top = fragmentStack.lastOrNull() ?: return errorBatch("'else'/'and'/'option' outside fragment")
         top.newBranch()
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun popFragment(): IrPatchBatch {
         val top = fragmentStack.removeLastOrNull() ?: return errorBatch("'end' without matching fragment")
         fragments += top.build()
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun ensureParticipant(id: NodeId) {
@@ -565,13 +563,13 @@ class PlantUmlSequenceParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E002"))))
+        IrPatchBatch(session.value, listOf(addDiagnostic(Diagnostic(Severity.ERROR, message, "PLANTUML-E002"))))
 
     private fun warnUnsupported(line: String): IrPatchBatch =
-        IrPatchBatch(seq.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
+        IrPatchBatch(session.value, listOf(addDiagnostic(Diagnostic(Severity.WARNING, "Unsupported '$line' ignored", "PLANTUML-W001"))))
 
     private fun addDiagnostic(diagnostic: Diagnostic): IrPatch {
-        diagnostics += diagnostic
+        session += diagnostic
         return IrPatch.AddDiagnostic(diagnostic)
     }
 

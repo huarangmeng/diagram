@@ -26,7 +26,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,14 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.gallery.DemoSample
 import com.hrm.diagram.gallery.DemoSamples
-import com.hrm.diagram.gallery.SourceLang
 import com.hrm.diagram.render.compose.DiagramView
-import com.hrm.diagram.render.compose.rememberDiagramSession
-import com.hrm.diagram.render.streaming.DiagramSnapshot
-import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.delay
 
 @Composable
@@ -65,39 +59,26 @@ private fun GalleryScaffold() {
     val samples = remember { DemoSamples.all }
     var selected by remember { mutableStateOf(samples.first()) }
     var sourceText by remember(selected) { mutableStateOf(selected.source) }
+    var previewSource by remember(selected) { mutableStateOf(selected.source) }
     // Feed mode for the diagram session. ONESHOT is the default (selection switch /
     // editor changes); STREAM is triggered by the "Stream this source" button and
-    // re-feeds the source in chunks from a *fresh* session.
+    // exposes a growing source string to DiagramView.
     var feedMode by remember(selected) { mutableStateOf(FeedMode.ONESHOT) }
-    // Bumping this epoch forces rememberDiagramSession to rebuild even if the source
-    // text and feed mode are identical to the previous run (e.g. clicking Stream
-    // twice in a row).
     var runEpoch by remember(selected) { mutableStateOf(0) }
 
-    // Per-(selection, source, feed-mode, epoch) DiagramSession: switching any of these
-    // disposes the previous session and creates a fresh one — there is no "append on
-    // top of finished session" path. One composable call wires the Compose text
-    // measurer into the layout pipeline and auto-disposes when leaving composition.
-    val session = rememberDiagramSession(
-        language = selected.lang.toCoreLanguage(),
-        key = listOf(selected, sourceText, feedMode, runEpoch),
-    )
-    LaunchedEffect(session) {
+    LaunchedEffect(selected, sourceText, feedMode, runEpoch) {
         when (feedMode) {
-            FeedMode.ONESHOT -> {
-                session.append(sourceText)
-                session.finish()
-            }
+            FeedMode.ONESHOT -> previewSource = sourceText
             FeedMode.STREAM -> {
+                previewSource = ""
                 sourceText.chunked(16).forEach { chunk ->
-                    session.append(chunk)
+                    previewSource += chunk
                     delay(40)
                 }
-                session.finish()
+                feedMode = FeedMode.ONESHOT
             }
         }
     }
-    val snapshot by session.state.collectAsState()
 
     Row(modifier = Modifier.fillMaxSize()) {
         SampleSidebar(
@@ -128,7 +109,7 @@ private fun GalleryScaffold() {
                 PreviewPane(
                     sample = selected,
                     sourceText = sourceText,
-                    snapshot = snapshot,
+                    previewSource = previewSource,
                     onStreamRequested = {
                         feedMode = FeedMode.STREAM
                         runEpoch += 1
@@ -137,15 +118,8 @@ private fun GalleryScaffold() {
                 )
             }
             HorizontalDivider()
-            DiagnosticsPane(snapshot = snapshot, modifier = Modifier.fillMaxWidth())
         }
     }
-}
-
-private fun SourceLang.toCoreLanguage(): SourceLanguage = when (this) {
-    SourceLang.MERMAID -> SourceLanguage.MERMAID
-    SourceLang.PLANTUML -> SourceLanguage.PLANTUML
-    SourceLang.DOT -> SourceLanguage.DOT
 }
 
 @Composable
@@ -256,7 +230,7 @@ private enum class FeedMode { ONESHOT, STREAM }
 private fun PreviewPane(
     sample: DemoSample,
     sourceText: String,
-    snapshot: DiagramSnapshot,
+    previewSource: String,
     onStreamRequested: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -278,7 +252,7 @@ private fun PreviewPane(
                             .background(MaterialTheme.colorScheme.surface),
                     ) {
                         DiagramView(
-                            snapshot = snapshot,
+                            source = previewSource,
                             modifier = Modifier.fillMaxSize().padding(16.dp),
                             zoomEnabled = false,
                         )
@@ -298,11 +272,7 @@ private fun PreviewPane(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = "session.seq = ${snapshot.seq}  ·  isFinal = ${snapshot.isFinal}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Text(
-                            text = "drawCommands = ${snapshot.drawCommands.size}  ·  diagnostics = ${snapshot.diagnostics.size}",
+                            text = "preview = ${previewSource.lines().size} lines · ${previewSource.length} chars",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -311,35 +281,6 @@ private fun PreviewPane(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiagnosticsPane(snapshot: DiagramSnapshot, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text = "Diagnostics",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (snapshot.diagnostics.isEmpty()) {
-            Text(
-                text = "(no diagnostics — stub pipeline; real parsers land in Phase 1)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        } else {
-            snapshot.diagnostics.forEach { d ->
-                Text(
-                    text = "[${d.severity}] ${d.code}  ${d.message}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
             }
         }
     }

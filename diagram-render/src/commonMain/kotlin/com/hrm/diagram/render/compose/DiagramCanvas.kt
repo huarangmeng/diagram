@@ -53,7 +53,7 @@ import kotlin.math.sin
  * DiagramCanvas(snapshot, viewportState = viewportState, panZoomEnabled = true)
  * ```
  */
-class DiagramViewportState(
+internal class DiagramViewportState(
     initialZoom: Float = 1f,
     initialPan: Offset = Offset.Zero,
 ) {

@@ -22,8 +22,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 data class C4EdgePresentation(
@@ -134,7 +133,7 @@ class MermaidC4Parser {
         val legendText: String? = null,
     )
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val baseEdges: MutableList<Edge> = ArrayList()
     private val boundaries: LinkedHashMap<NodeId, BoundaryDef> = LinkedHashMap()
@@ -156,13 +155,12 @@ class MermaidC4Parser {
     private var headerSeen = false
     private var diagramKind = "C4Context"
     private var title: String? = null
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}")
 
@@ -172,13 +170,13 @@ class MermaidC4Parser {
                 headerSeen = true
                 diagramKind = first.text.toString()
                 layoutExtras["c4.diagramKind"] = diagramKind
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected C4 header")
         }
 
         val text = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (text.isBlank()) return seq.emptyBatch()
+        if (text.isBlank()) return session.emptyBatch()
 
         val patches = ArrayList<IrPatch>()
         when {
@@ -188,7 +186,7 @@ class MermaidC4Parser {
             else -> parseStatement(text, patches)
         }
         flushPendingEdges(patches)
-        return IrPatchBatch(seq.value, patches)
+        return IrPatchBatch(session.value, patches)
     }
 
     fun snapshot(): GraphIR {
@@ -205,7 +203,7 @@ class MermaidC4Parser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     fun edgePresentationSnapshot(): Map<Int, C4EdgePresentation> = latestEdgePresentation
 
@@ -248,11 +246,11 @@ class MermaidC4Parser {
 
     private fun parseBoundary(text: String, out: MutableList<IrPatch>) {
         val parsed = parseCall(text.removeSuffix("{").trim()) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid C4 boundary syntax", "MERMAID-E213")
+            session += Diagnostic(Severity.ERROR, "Invalid C4 boundary syntax", "MERMAID-E213")
             return
         }
         if (parsed.name !in BOUNDARY_NAMES) {
-            diagnostics += Diagnostic(Severity.ERROR, "Unknown C4 boundary '${parsed.name}'", "MERMAID-E213")
+            session += Diagnostic(Severity.ERROR, "Unknown C4 boundary '${parsed.name}'", "MERMAID-E213")
             return
         }
         val parsedArgs = splitNamedArgs(parsed.args)
@@ -260,7 +258,7 @@ class MermaidC4Parser {
         val named = parsedArgs.named
         val alias = positional.getOrNull(0)?.trim().orEmpty()
         if (alias.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "C4 boundary alias is required", "MERMAID-E213")
+            session += Diagnostic(Severity.ERROR, "C4 boundary alias is required", "MERMAID-E213")
             return
         }
         val id = NodeId(alias)
@@ -279,8 +277,8 @@ class MermaidC4Parser {
 
     private fun closeBoundary(out: MutableList<IrPatch>) {
         if (boundaryStack.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "Unexpected '}' in C4 diagram", "MERMAID-E213")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "Unexpected '}' in C4 diagram", "MERMAID-E213")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         boundaryStack.removeAt(boundaryStack.lastIndex)
@@ -288,8 +286,8 @@ class MermaidC4Parser {
 
     private fun parseStatement(text: String, out: MutableList<IrPatch>) {
         val parsed = parseCall(text) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid C4 statement syntax", "MERMAID-E213")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "Invalid C4 statement syntax", "MERMAID-E213")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         when (parsed.name) {
@@ -301,8 +299,8 @@ class MermaidC4Parser {
             "UpdateRelStyle" -> parseUpdateRelStyle(parsed)
             "UpdateLayoutConfig" -> parseUpdateLayoutConfig(parsed)
             else -> {
-                diagnostics += Diagnostic(Severity.ERROR, "Unknown C4 statement '${parsed.name}'", "MERMAID-E213")
-                out += IrPatch.AddDiagnostic(diagnostics.last())
+                session += Diagnostic(Severity.ERROR, "Unknown C4 statement '${parsed.name}'", "MERMAID-E213")
+                out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             }
         }
     }
@@ -313,8 +311,8 @@ class MermaidC4Parser {
         val named = parsedArgs.named
         val alias = positional.getOrNull(0)?.trim().orEmpty()
         if (alias.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "C4 element alias is required", "MERMAID-E213")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "C4 element alias is required", "MERMAID-E213")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         val id = NodeId(alias)
@@ -369,8 +367,8 @@ class MermaidC4Parser {
             }
         }
         if (rel.from.isEmpty() || rel.to.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "C4 relationship endpoints are required", "MERMAID-E213")
-            out += IrPatch.AddDiagnostic(diagnostics.last())
+            session += Diagnostic(Severity.ERROR, "C4 relationship endpoints are required", "MERMAID-E213")
+            out += IrPatch.AddDiagnostic(session.lastDiagnostic())
             return
         }
         val ports = relationPorts(call.name)
@@ -397,7 +395,7 @@ class MermaidC4Parser {
         val positional = splitNamedArgs(call.args).positional
         val tag = positional.getOrNull(0)?.let(::unquote)?.trim().orEmpty()
         if (tag.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "AddElementTag requires tag name", "MERMAID-E213")
+            session += Diagnostic(Severity.ERROR, "AddElementTag requires tag name", "MERMAID-E213")
             return
         }
         val args = parseNamedAndPositional(
@@ -418,7 +416,7 @@ class MermaidC4Parser {
         val positional = splitNamedArgs(call.args).positional
         val tag = positional.getOrNull(0)?.let(::unquote)?.trim().orEmpty()
         if (tag.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "AddRelTag requires tag name", "MERMAID-E213")
+            session += Diagnostic(Severity.ERROR, "AddRelTag requires tag name", "MERMAID-E213")
             return
         }
         val args = parseNamedAndPositional(
@@ -438,7 +436,7 @@ class MermaidC4Parser {
     private fun parseUpdateElementStyle(call: ParsedCall) {
         val alias = call.args.getOrNull(0)?.trim().orEmpty()
         if (alias.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "UpdateElementStyle requires target alias", "MERMAID-E213")
+            session += Diagnostic(Severity.ERROR, "UpdateElementStyle requires target alias", "MERMAID-E213")
             return
         }
         val args = parseNamedAndPositional(call.args, startIndex = 1, positionalKeys = listOf("bgColor", "fontColor", "borderColor"))
@@ -458,7 +456,7 @@ class MermaidC4Parser {
         val from = call.args.getOrNull(0)?.trim().orEmpty()
         val to = call.args.getOrNull(1)?.trim().orEmpty()
         if (from.isEmpty() || to.isEmpty()) {
-            diagnostics += Diagnostic(Severity.ERROR, "UpdateRelStyle requires from/to aliases", "MERMAID-E213")
+            session += Diagnostic(Severity.ERROR, "UpdateRelStyle requires from/to aliases", "MERMAID-E213")
             return
         }
         val args = parseNamedAndPositional(call.args, startIndex = 2, positionalKeys = listOf("textColor", "lineColor", "offsetX", "offsetY"))
@@ -914,8 +912,8 @@ class MermaidC4Parser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val diagnostic = Diagnostic(Severity.ERROR, message, "MERMAID-E213")
-        diagnostics += diagnostic
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(diagnostic)))
+        session += diagnostic
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(diagnostic)))
     }
 
     private data class ParsedRel(

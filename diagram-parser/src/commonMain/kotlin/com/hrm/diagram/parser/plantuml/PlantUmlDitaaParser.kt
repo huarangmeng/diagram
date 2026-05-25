@@ -18,8 +18,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for a minimal PlantUML ditaa subset.
@@ -70,24 +69,23 @@ class PlantUmlDitaaParser {
     )
 
     private val lines: MutableList<String> = ArrayList()
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private var handwritten = false
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
         if (trimmed.startsWith("skinparam handwritten", ignoreCase = true)) {
             handwritten = trimmed.substringAfter("handwritten", "").trim().equals("true", ignoreCase = true)
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         lines += line.trimEnd()
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun finish(blockClosed: Boolean): IrPatchBatch {
-        if (blockClosed) return seq.emptyBatch()
-        return diagnostics.errorBatch(seq, "Missing @endditaa closing delimiter", "PLANTUML-E020")
+        if (blockClosed) return session.emptyBatch()
+        return session.errorBatch("Missing @endditaa closing delimiter", "PLANTUML-E020")
     }
 
     fun snapshot(): GraphIR {
@@ -124,7 +122,7 @@ class PlantUmlDitaaParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun detectBoxes(): List<Box> {
         val out = ArrayList<Box>()

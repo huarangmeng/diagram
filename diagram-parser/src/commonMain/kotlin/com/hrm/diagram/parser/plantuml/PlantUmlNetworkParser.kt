@@ -20,8 +20,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for the PlantUML `nwdiag` network diagram slice.
@@ -71,26 +70,25 @@ class PlantUmlNetworkParser {
         val children: MutableList<NodeId> = ArrayList(),
     )
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val networks: LinkedHashMap<NodeId, NetworkDef> = LinkedHashMap()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val firstNodeByName: MutableMap<String, NodeId> = LinkedHashMap()
-    private val seq = ParserSessionSeq()
     private var inNwdiag = false
     private var currentNetwork: NetworkDef? = null
     private var currentGroup: GroupDef? = null
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         if (!inNwdiag) {
             if (trimmed.equals("nwdiag {", ignoreCase = true) || trimmed.equals("nwdiag{", ignoreCase = true)) {
                 inNwdiag = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Invalid PlantUML nwdiag line before nwdiag block: $trimmed")
         }
@@ -102,7 +100,7 @@ class PlantUmlNetworkParser {
             } else {
                 inNwdiag = false
             }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val networkMatch = NETWORK_START.matchEntire(trimmed)
@@ -115,7 +113,7 @@ class PlantUmlNetworkParser {
             val id = NodeId(if (isInet) "nw_inet_${slug(name)}" else "nw_${slug(name)}")
             val network = networks.getOrPut(id) { NetworkDef(id, name, if (isInet) INET_KIND else NETWORK_KIND) }
             currentNetwork = network
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val activeNetwork = currentNetwork ?: return errorBatch("PlantUML nwdiag node must be inside a network block: $trimmed")
@@ -125,16 +123,16 @@ class PlantUmlNetworkParser {
             val id = NodeId("nw_${slug(activeNetwork.name)}_group_${slug(name)}")
             val group = activeNetwork.groups.firstOrNull { it.id == id } ?: GroupDef(id, name).also { activeNetwork.groups += it }
             currentGroup = group
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         ADDRESS.matchEntire(trimmed)?.let {
             activeNetwork.address = unquote(it.groupValues[1].trim().removeSuffix(";"))
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         EDGE_LINE.matchEntire(trimmed)?.let { m ->
             addExplicitEdge(unquote(m.groupValues[1]), unquote(m.groupValues[3]), m.groupValues[2], m.groupValues[4].ifBlank { null }?.trim()?.removeSuffix(";"))
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val nodeMatch = NODE_LINE.matchEntire(trimmed)
@@ -173,7 +171,7 @@ class PlantUmlNetworkParser {
         } ?: run {
             firstNodeByName[name] = nodeId
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun addExplicitEdge(fromName: String, toName: String, op: String, label: String?) {
@@ -214,12 +212,12 @@ class PlantUmlNetworkParser {
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
         if (!blockClosed || inNwdiag || currentNetwork != null) {
-            out += diagnostics.error("Missing closing delimiter for PlantUML nwdiag block", "PLANTUML-E014")
+            out += session.error("Missing closing delimiter for PlantUML nwdiag block", "PLANTUML-E014")
             inNwdiag = false
             currentNetwork = null
             currentGroup = null
         }
-        return IrPatchBatch(seq.value, out)
+        return IrPatchBatch(session.value, out)
     }
 
     fun snapshot(): GraphIR =
@@ -259,7 +257,7 @@ class PlantUmlNetworkParser {
             styleHints = StyleHints(),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun buildLabel(name: String, attrs: Map<String, String>, network: NetworkDef): String =
         listOfNotNull(
@@ -363,5 +361,5 @@ class PlantUmlNetworkParser {
         raw.lowercase().replace(Regex("[^a-z0-9_.:-]+"), "_").trim('_').ifBlank { "node" }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        diagnostics.errorBatch(seq, message, "PLANTUML-E014")
+        session.errorBatch(message, "PLANTUML-E014")
 }

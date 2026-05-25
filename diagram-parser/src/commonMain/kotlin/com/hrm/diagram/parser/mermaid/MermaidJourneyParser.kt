@@ -10,8 +10,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -24,8 +23,7 @@ import com.hrm.diagram.core.streaming.Token
  * - step lines: `Task: <score>: <actor1>, <actor2>`
  */
 class MermaidJourneyParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
     private var headerSeen = false
     private var title: String? = null
 
@@ -38,17 +36,17 @@ class MermaidJourneyParser {
     private var currentStage: MutableStage? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.JOURNEY_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'journey' header")
         }
@@ -61,7 +59,7 @@ class MermaidJourneyParser {
             s.startsWith("section ") -> {
                 val label = stripQuotes(s.removePrefix("section ").trim())
                 if (label.isBlank()) {
-                    diagnostics += Diagnostic(Severity.ERROR, "Journey section label cannot be empty", "MERMAID-E208")
+                    session += Diagnostic(Severity.ERROR, "Journey section label cannot be empty", "MERMAID-E208")
                 } else {
                     val stage = MutableStage(label)
                     stages += stage
@@ -70,7 +68,7 @@ class MermaidJourneyParser {
             }
             else -> parseStep(s)
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): JourneyIR =
@@ -86,7 +84,7 @@ class MermaidJourneyParser {
             styleHints = StyleHints(),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseStep(s: String) {
         val stage = currentStage ?: MutableStage("default").also {
@@ -96,14 +94,14 @@ class MermaidJourneyParser {
         val firstColon = s.indexOf(':')
         val secondColon = s.indexOf(':', startIndex = firstColon + 1)
         if (firstColon <= 0 || secondColon <= firstColon) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid journey step syntax", "MERMAID-E208")
+            session += Diagnostic(Severity.ERROR, "Invalid journey step syntax", "MERMAID-E208")
             return
         }
         val label = stripQuotes(s.substring(0, firstColon).trim())
         val score = s.substring(firstColon + 1, secondColon).trim().toIntOrNull()
         val actorsRaw = s.substring(secondColon + 1).trim()
         if (label.isBlank() || score == null || score !in 1..5) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid journey step syntax", "MERMAID-E208")
+            session += Diagnostic(Severity.ERROR, "Invalid journey step syntax", "MERMAID-E208")
             return
         }
         val actors = if (actorsRaw.isBlank()) {
@@ -128,7 +126,7 @@ class MermaidJourneyParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E208")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

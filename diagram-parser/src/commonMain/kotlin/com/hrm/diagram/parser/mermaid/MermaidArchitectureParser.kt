@@ -22,8 +22,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -61,33 +60,32 @@ class MermaidArchitectureParser {
         val arrow: ArrowEnds,
     )
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val nodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
     private val groups: LinkedHashMap<NodeId, GroupDef> = LinkedHashMap()
     private val pendingEdges: MutableList<PendingEdge> = ArrayList()
-    private val seq = ParserSessionSeq()
     private var headerSeen = false
     private var direction: Direction = Direction.LR
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.ARCHITECTURE_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'architecture-beta' header")
         }
 
         val text = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (text.isBlank()) return seq.emptyBatch()
+        if (text.isBlank()) return session.emptyBatch()
 
         val patches = ArrayList<IrPatch>()
         when {
@@ -97,7 +95,7 @@ class MermaidArchitectureParser {
             else -> parseEdge(text, patches)
         }
         flushPendingEdges(patches)
-        return IrPatchBatch(seq.value, patches)
+        return IrPatchBatch(session.value, patches)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -108,16 +106,16 @@ class MermaidArchitectureParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseGroup(spec: String, out: MutableList<IrPatch>) {
         val parsed = parseNamedIconLabel(spec) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid architecture group syntax", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Invalid architecture group syntax", "MERMAID-E212")
             return
         }
         val parent = parseOptionalParent(parsed.rest)
         if (parent != null && parent !in groups) {
-            diagnostics += Diagnostic(Severity.ERROR, "Unknown parent group '${parent.value}'", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Unknown parent group '${parent.value}'", "MERMAID-E212")
             return
         }
         val def = GroupDef(
@@ -131,12 +129,12 @@ class MermaidArchitectureParser {
 
     private fun parseService(spec: String, out: MutableList<IrPatch>) {
         val parsed = parseNamedIconLabel(spec) ?: run {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid architecture service syntax", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Invalid architecture service syntax", "MERMAID-E212")
             return
         }
         val parent = parseOptionalParent(parsed.rest)
         if (parent != null && parent !in groups) {
-            diagnostics += Diagnostic(Severity.ERROR, "Unknown parent group '${parent.value}'", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Unknown parent group '${parent.value}'", "MERMAID-E212")
             return
         }
         val id = NodeId(parsed.id)
@@ -164,12 +162,12 @@ class MermaidArchitectureParser {
     private fun parseJunction(spec: String, out: MutableList<IrPatch>) {
         val idText = spec.substringBefore(" in ").trim()
         if (idText.isBlank()) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid architecture junction syntax", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Invalid architecture junction syntax", "MERMAID-E212")
             return
         }
         val parent = parseOptionalParent(spec.removePrefix(idText).trim())
         if (parent != null && parent !in groups) {
-            diagnostics += Diagnostic(Severity.ERROR, "Unknown parent group '${parent.value}'", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Unknown parent group '${parent.value}'", "MERMAID-E212")
             return
         }
         val id = NodeId(idText)
@@ -196,7 +194,7 @@ class MermaidArchitectureParser {
     private fun parseEdge(text: String, out: MutableList<IrPatch>) {
         val opIndex = text.indexOf("--")
         if (opIndex <= 0) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid architecture edge syntax", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Invalid architecture edge syntax", "MERMAID-E212")
             return
         }
         val leftText = text.substring(0, opIndex).trim()
@@ -208,7 +206,7 @@ class MermaidArchitectureParser {
         val left = parseLeftEndpoint(leftSpec)
         val right = parseRightEndpoint(rightSpec)
         if (left == null || right == null) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid architecture edge syntax", "MERMAID-E212")
+            session += Diagnostic(Severity.ERROR, "Invalid architecture edge syntax", "MERMAID-E212")
             return
         }
         val arrow = when {
@@ -371,7 +369,7 @@ class MermaidArchitectureParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E212")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

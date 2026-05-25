@@ -10,8 +10,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -34,8 +33,7 @@ import com.hrm.diagram.core.streaming.Token
  * - `:::class` and `classDef` are ignored with warning.
  */
 class MermaidQuadrantChartParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
     private var headerSeen = false
     private var title: String? = null
     private var xMinLabel: String? = null
@@ -47,17 +45,17 @@ class MermaidQuadrantChartParser {
     private var autoId = 0
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.QUADRANT_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'quadrantChart' header")
         }
@@ -69,11 +67,11 @@ class MermaidQuadrantChartParser {
             s.startsWith("y-axis ") -> parseYAxis(s.removePrefix("y-axis ").trim())
             s.startsWith("quadrant-") -> parseQuadrantLabel(s)
             s.startsWith("classDef ") || s.contains(":::") -> {
-                diagnostics += Diagnostic(Severity.WARNING, "quadrantChart class styling is ignored in current renderer", "MERMAID-W010")
+                session += Diagnostic(Severity.WARNING, "quadrantChart class styling is ignored in current renderer", "MERMAID-W010")
             }
             else -> parsePoint(s)
         }
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): QuadrantChartIR =
@@ -89,7 +87,7 @@ class MermaidQuadrantChartParser {
             styleHints = StyleHints(),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseXAxis(spec: String) {
         val parts = spec.split("-->").map { stripQuotes(it.trim()) }
@@ -106,13 +104,13 @@ class MermaidQuadrantChartParser {
     private fun parseQuadrantLabel(s: String) {
         val m = Regex("""^quadrant-(\d)\s+(.+)$""").matchEntire(s)
         if (m == null) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid quadrant label syntax", "MERMAID-E207")
+            session += Diagnostic(Severity.ERROR, "Invalid quadrant label syntax", "MERMAID-E207")
             return
         }
         val idx = m.groupValues[1].toIntOrNull()
         val text = stripQuotes(m.groupValues[2].trim())
         if (idx !in 1..4 || text.isBlank()) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid quadrant label syntax", "MERMAID-E207")
+            session += Diagnostic(Severity.ERROR, "Invalid quadrant label syntax", "MERMAID-E207")
             return
         }
         quadrantLabels[idx!!] = text
@@ -123,13 +121,13 @@ class MermaidQuadrantChartParser {
         val lbr = s.indexOf('[', startIndex = if (colon >= 0) colon + 1 else 0)
         val rbr = s.indexOf(']', startIndex = if (lbr >= 0) lbr + 1 else 0)
         if (colon <= 0 || lbr <= colon || rbr <= lbr) {
-            diagnostics += Diagnostic(Severity.WARNING, "Unsupported quadrantChart line ignored: $s", "MERMAID-W012")
+            session += Diagnostic(Severity.WARNING, "Unsupported quadrantChart line ignored: $s", "MERMAID-W012")
             return
         }
         var rawLabel = s.substring(0, colon).trim()
         val classIdx = rawLabel.indexOf(":::")
         if (classIdx >= 0) {
-            diagnostics += Diagnostic(Severity.WARNING, "quadrantChart class styling is ignored in current renderer", "MERMAID-W010")
+            session += Diagnostic(Severity.WARNING, "quadrantChart class styling is ignored in current renderer", "MERMAID-W010")
             rawLabel = rawLabel.substring(0, classIdx).trim()
         }
         val label = stripQuotes(rawLabel)
@@ -138,11 +136,11 @@ class MermaidQuadrantChartParser {
         val x = xy.getOrNull(0)?.toDoubleOrNull()
         val y = xy.getOrNull(1)?.toDoubleOrNull()
         if (label.isBlank() || x == null || y == null) {
-            diagnostics += Diagnostic(Severity.ERROR, "Invalid quadrant point syntax", "MERMAID-E207")
+            session += Diagnostic(Severity.ERROR, "Invalid quadrant point syntax", "MERMAID-E207")
             return
         }
         if (x !in 0.0..1.0 || y !in 0.0..1.0) {
-            diagnostics += Diagnostic(Severity.ERROR, "Quadrant point values must be in 0..1", "MERMAID-E207")
+            session += Diagnostic(Severity.ERROR, "Quadrant point values must be in 0..1", "MERMAID-E207")
             return
         }
         val payload = parsePointStyle(s.substring(rbr + 1).trim())
@@ -168,16 +166,16 @@ class MermaidQuadrantChartParser {
                 "color", "stroke-color" -> {
                     val argb = MermaidCssColors.parseToArgbIntOrNull(v)
                     if (argb == null) {
-                        diagnostics += Diagnostic(Severity.WARNING, "Unrecognized color '$v' ignored", "MERMAID-W011")
+                        session += Diagnostic(Severity.WARNING, "Unrecognized color '$v' ignored", "MERMAID-W011")
                     } else out[k] = argb.toString()
                 }
                 "radius", "stroke-width" -> {
                     val px = parseCssPx(v)
                     if (px == null) {
-                        diagnostics += Diagnostic(Severity.WARNING, "Invalid size '$v' ignored", "MERMAID-W012")
+                        session += Diagnostic(Severity.WARNING, "Invalid size '$v' ignored", "MERMAID-W012")
                     } else out[k] = px.toString()
                 }
-                else -> diagnostics += Diagnostic(Severity.WARNING, "Unsupported point style '$k' ignored", "MERMAID-W012")
+                else -> session += Diagnostic(Severity.WARNING, "Unsupported point style '$k' ignored", "MERMAID-W012")
             }
         }
         return out
@@ -247,7 +245,7 @@ class MermaidQuadrantChartParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E207")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }

@@ -11,8 +11,7 @@ import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.ir.TreeNode
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -37,8 +36,7 @@ import com.hrm.diagram.core.streaming.Token
  * - Per-node shapes are stored alongside the parser state for render use; `TreeIR` remains shape-less.
  */
 class MermaidMindmapParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
     private var headerSeen = false
     private var autoId = 0
 
@@ -55,24 +53,24 @@ class MermaidMindmapParser {
     private var lastNode: MutableMindNode? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.MINDMAP_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'mindmap' header")
         }
 
         val indent = if (toks.firstOrNull()?.kind == MermaidTokenKind.INDENT) toks.first().text.toString().toIntOrNull() ?: 0 else 0
         val content = if (indent > 0) toks.drop(1) else toks
-        if (content.isEmpty()) return seq.emptyBatch()
+        if (content.isEmpty()) return session.emptyBatch()
 
         // :::class1 class2
         if (content.size >= 3 &&
@@ -80,14 +78,14 @@ class MermaidMindmapParser {
             content[1].kind == MermaidTokenKind.COLON &&
             content[2].kind == MermaidTokenKind.COLON
         ) {
-            diagnostics.warning("mindmap ::: classes are ignored in current renderer", "MERMAID-W010")
-            return seq.emptyBatch()
+            session.warning("mindmap ::: classes are ignored in current renderer", "MERMAID-W010")
+            return session.emptyBatch()
         }
 
         val parsed = parseNodeContent(content) ?: return errorBatch("Invalid mindmap node line")
         attachNode(indent, parsed)
         lastNode = parsed
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): TreeIR {
@@ -120,7 +118,7 @@ class MermaidMindmapParser {
         return out
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun attachNode(indent: Int, node: MutableMindNode) {
         if (root == null) {
@@ -224,5 +222,5 @@ class MermaidMindmapParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        diagnostics.errorBatch(seq, message, "MERMAID-E204")
+        session.errorBatch(message, "MERMAID-E204")
 }

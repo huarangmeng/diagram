@@ -11,8 +11,14 @@ import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.draw.Stroke
 import com.hrm.diagram.core.draw.Transform
+import com.hrm.diagram.core.export.ExportBackground
+import com.hrm.diagram.core.export.ExportScale
+import com.hrm.diagram.core.export.RenderedDiagram
+import com.hrm.diagram.core.export.SvgExportOptions
 import com.hrm.diagram.core.snapshot.Snapshot
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class SvgWriterTest {
 
@@ -138,5 +144,46 @@ class SvgWriterTest {
         ))
         check("""<a href="https://example.com/?q=1&amp;x=2">""" in svg) { svg }
         check("fill=\"transparent\"" in svg) { svg }
+    }
+
+    @Test
+    fun rendered_diagram_export_svg_uses_bounds_as_viewbox_and_scaled_output_size() {
+        val rendered = RenderedDiagram(
+            bounds = Rect.ltrb(10f, 20f, 110f, 70f),
+            drawCommands = listOf(
+                DrawCommand.FillRect(Rect.ltrb(10f, 20f, 110f, 70f), Color.Black),
+            ),
+            background = null,
+        )
+
+        val artifact = rendered.exportSvg(
+            SvgExportOptions(
+                scale = ExportScale.Width(200),
+                background = ExportBackground.Transparent,
+                includeXmlDeclaration = false,
+            ),
+        )
+
+        assertEquals("image/svg+xml", artifact.mimeType)
+        assertEquals(200, artifact.widthPx)
+        assertEquals(100, artifact.heightPx)
+        assertTrue("""<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="10 20 100 50">""" in artifact.value, artifact.value)
+        assertTrue(artifact.diagnostics.isEmpty(), "diagnostics: ${artifact.diagnostics}")
+    }
+
+    @Test
+    fun rendered_diagram_export_svg_warns_when_embed_fonts_requested() {
+        val rendered = RenderedDiagram(
+            bounds = Rect.ltrb(0f, 0f, 100f, 50f),
+            drawCommands = emptyList(),
+            background = null,
+        )
+
+        val artifact = rendered.exportSvg(
+            SvgExportOptions(embedFonts = true),
+        )
+
+        assertEquals(1, artifact.diagnostics.size)
+        assertEquals("EXPORT-W001", artifact.diagnostics.single().code)
     }
 }

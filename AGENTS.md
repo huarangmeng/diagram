@@ -85,7 +85,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 :diagram-core      // 通用 IR、几何、Theme、DrawCommand、SVG 导出（commonMain）+ PNG/JPEG（expect/actual）
 :diagram-layout    // 自研布局算法集合
 :diagram-parser    // 三家语法 lexer/parser/lowering，子包隔离：parser.{mermaid,plantuml,dot}
-:diagram-render    // Compose 渲染、交互 + 顶层门面 Diagram.session / rememberDiagramSession / DiagramView（底层保留 DiagramCanvas）
+:diagram-render    // Compose 渲染、交互 + 顶层门面 Diagram.session / DiagramView(source)（底层保留 DiagramCanvas）
 :diagram-bench     // 基准与性能实验（预留）
 :composeApp        // Demo gallery
 :androidApp        // Android 宿主壳

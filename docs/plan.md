@@ -76,8 +76,7 @@ fun App() {
     DiagramView(
         source = mermaidText,
         modifier = Modifier.fillMaxSize(),
-        interaction = DiagramInteraction(zoom = true, pan = true),
-        theme = DiagramTheme.Default,
+        zoomEnabled = true,
     )
 }
 
@@ -181,11 +180,9 @@ interface Layout<I : DiagramModel, O : LaidOutDiagram> {
 ```kotlin
 @Composable
 fun DiagramView(
-    model: LaidOutDiagram,
+    source: String,
     modifier: Modifier = Modifier,
-    theme: DiagramTheme = DiagramTheme.Default,
-    interaction: DiagramInteraction = DiagramInteraction(),
-    onNodeClick: ((NodeId) -> Unit)? = null,
+    zoomEnabled: Boolean = false,
 )
 ```
 
@@ -329,7 +326,7 @@ suspend fun LaidOutDiagram.toJpeg(
 
 已落地：
 - `:diagram-core` 的通用 IR / DrawCommand / Theme / LayoutOptions / SVG 导出骨架；
-- `:diagram-render` 的 `Diagram.session(...)`、Compose 侧 `rememberDiagramSession(...)`、`DiagramView`（底层保留 `DiagramCanvas`）；
+- `:diagram-render` 的 `Diagram.session(...)`、Compose 侧 `DiagramView(source = ...)`（内部维护 session / snapshot，底层保留 `DiagramCanvas`）；
 - `composeApp` 的多语法 demo gallery 骨架；当前已扩展为 70 个内置预览样例（Mermaid 32 / PlantUML 33 / DOT 5），并新增 gallery smoke test 确保所有样例走真实渲染链路且无 ERROR 诊断。
 
 ### Phase 1 — Mermaid 主力图（Sugiyama 体系） ✅ 已完成
@@ -382,8 +379,8 @@ timing（✅ 已完成）、wireframe、archimate、c4、gantt（✅ 已完成�
 
 当前状态：✅ 已完成 Phase 6 目标；`SourceLanguage.DOT` 已从 `StubSessionPipeline` 切换到真实 DOT parser + GraphIR/Sugiyama 渲染链路。当前已支持 `strict`、`graph/digraph`、节点/边语句、edge chain、`{a b} -> {c d}` 集合边展开、`subgraph cluster_*`、graph/node/edge attr 语句、quoted ID、注释、HTML-like label 纯文本清洗、`rankdir` 方向提示，以及 shape/style/color/fillcolor/label/penwidth/arrowhead/arrowtail/headlabel/taillabel 等属性映射；端口 `node:port:compass` 已保留到 payload 并用于渲染端点锚定；`nodesep/ranksep/bgcolor` 已映射到布局与背景渲染；`constraint=false` 已不参与分层；`rank=same/min/max/source/sink` 已在 full reflow 阶段强制调整 Sugiyama layer。DOT streaming 已改为 statement-level 增量 parser：按 `;` / `}` / 换行 safe point 推进完整 statement，append 阶段不再对累计源码做 `source.toString()` 全量解析。渲染链路新增 `DrawCommandStore`，`SessionPatch.addedDrawCommands` 只携带新增命令，空闲 append 不再重放整帧；DOT 主 GraphIR 渲染已迁移到 stable node/edge/cluster/background entity key 的 `updateEntities()`，Mermaid Flowchart / ER / Requirement / Architecture / C4 与 DOT 共用 `StreamingGraphPipelineKernel`，PlantUML Component / Deployment / Object / C4 / Archimate / Usecase 通过 Graph kernel 复用测量、布局、diff 与 DrawEntity 提交 seam；Mermaid / PlantUML 顶层共用 `StreamingFamilyPipelineKernel` 提交 DrawEntity；原生 renderer 直接输出实体，共享图族 renderer 通过 `FrameEntityRenderer.sink` 在绘制过程中即时写入稳定实体 bucket，稳定 key 门面是 `FamilyEntityKeyRegistry`，Pie / Tree / TimeSeries / Chart-like / Graph / Sequence / Structural / ClassState key 规则已拆到 family-specific registry；Mermaid/PlantUML 子流水线已继承统一 `StreamingSubPipeline` 能力接口，顶层图型选择统一走 `DiagramKindDispatcher` + `SubPipelineRegistry`，Mermaid header、PlantUML start directive、factory 与 lifecycle 不再散落在 session pipeline；Mermaid frontmatter/style 与 PlantUML skinparam/style block 的 session 状态统一归入 `LanguageStyleState`，并已抽出 `MermaidStylePreprocessor` / `PlantUmlStyleBlockRouter` 承载样式预处理 seam；不再走 full-frame seam、位置索引/轮转 fallback key、DrawCommand 语义派生 key、文本字符宽度估算 bounds 或子流水线边界 flat frame 再实体化；Mermaid 子流水线自身也不再把完整 frame 写入 `SessionPatch.addedDrawCommands`，新增 draw delta 统一由 Graph/Family kernel 的 `DrawCommandStore.updateEntities()` 计算；`diagram-parser` 已提供 `parser.common` 的 seq/diagnostic 组合件，Mermaid / PlantUML 可迁移的 streaming line parsers 已全面迁移到该组合件；DOT session 保持 statement-level 增量 parser，不机械套用 line-parser seq，禁止回退到 append 时全文 `source.toString()` 重解析。布局链路新增显式 `LayoutState` 与 `EdgeRouteKey` route index，Sugiyama incremental 只重算 dirty edge routes，避免 append 时全量 edge routing 与 O(E²) route 查找；`Diagram.session()` 默认注入 session-scoped `CachedTextMeasurer`，统一复用文本测量结果。UI 消费链路新增 `DiagramSnapshot.drawCommandIndex` 与 `DrawCommandIndex`，`DiagramCanvas` 支持 `DiagramViewportState` pan/zoom 并通过 quadtree viewport culling 查询可见命令；Mermaid / PlantUML / DOT 默认 pipeline 都会递归写入 `DrawText.measuredBounds`，文本可安全参与 quadtree。布局质量已参考 Graphviz/dagre 的 layered layout 思路增强：final reflow 在等距排布后按邻居重心居中较窄 rank，并且 DOT 渲染端会把 Sugiyama Bezier route 作为 `CubicTo` 消费，避免将控制点错误画成折线。HTML-like label 支持 TABLE/TR/TD/BR 多行文本化与 FONT/B/I 文本样式映射；PORT/IMG 作为文本兼容，不做嵌入图片/table cell layout。已补充 parser、layout 与 render 的 one-shot vs chunked / 菱形依赖图 / 单字符 chunk 增量 parser / DrawCommand delta / dirty route / measurement cache / viewport culling / measured text bounds / structured draw entity key 回归测试。
 
-后续 API 收口事项（待排期）：
-- Compose 对外门面保持 `DiagramView(..., zoomEnabled = ...)` 极简形态；缩放/平移状态管理、手势策略与可选控制接口后续单独设计，避免当前公开 API 暴露 viewport 等渲染层细节。
+API 收口事项：
+- ✅ Compose 对外门面已收口为 `DiagramView(source: String, zoomEnabled = ...)`；语法识别、缩放/平移状态、session、snapshot、文本测量与增量 append 由库内部接管，避免公开 API 暴露 viewport / session 等渲染层细节。
 
 ### Phase 7 — 导出与发布
 `toSvg()` / `toPng()` / `toJpeg()` 全图类型覆盖、Maven Central 发布、文档站。

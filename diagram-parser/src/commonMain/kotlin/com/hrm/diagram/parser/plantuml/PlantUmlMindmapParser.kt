@@ -11,8 +11,7 @@ import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.ir.TreeNode
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for the initial PlantUML `mindmap` slice.
@@ -116,8 +115,7 @@ class PlantUmlMindmapParser {
         val branchStyleMaximumWidth: String?,
     )
 
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
     private var autoId = 0
 
     private var root: MutableMindNode? = null
@@ -151,12 +149,12 @@ class PlantUmlMindmapParser {
     private var pendingMultiline: PendingMultiline? = null
 
     fun acceptLine(line: String): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
-        if (styleSupport.acceptLine(trimmed)) return seq.emptyBatch()
+        if (styleSupport.acceptLine(trimmed)) return session.emptyBatch()
 
         pendingMultiline?.let { pending ->
             if (trimmed == ";" || trimmed.contains(";")) {
@@ -192,7 +190,7 @@ class PlantUmlMindmapParser {
                 )
             }
             pending.lines += trimmed
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val parsed = PREFIX.matchEntire(trimmed)
@@ -286,7 +284,7 @@ class PlantUmlMindmapParser {
                 branchStyleMaximumWidth = decorations.branchStyleMaximumWidth,
             )
             if (firstLine.isNotEmpty()) pendingMultiline!!.lines += firstLine
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val label = normalizeLabel(normalizedRest)
@@ -330,13 +328,13 @@ class PlantUmlMindmapParser {
     fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
         if (pendingMultiline != null) {
-            out += diagnostics.error("Unclosed PlantUML mindmap multiline node before end of block", "PLANTUML-E011")
+            out += session.error("Unclosed PlantUML mindmap multiline node before end of block", "PLANTUML-E011")
             pendingMultiline = null
         }
         if (!blockClosed) {
-            out += diagnostics.error("Missing @endmindmap closing delimiter", "PLANTUML-E011")
+            out += session.error("Missing @endmindmap closing delimiter", "PLANTUML-E011")
         }
-        return IrPatchBatch(seq.value, out)
+        return IrPatchBatch(session.value, out)
     }
 
     fun snapshot(): TreeIR {
@@ -398,7 +396,7 @@ class PlantUmlMindmapParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun attachNode(
         depth: Int,
@@ -452,7 +450,7 @@ class PlantUmlMindmapParser {
             branchStyleMaximumWidth?.let { branchStyleMaximumWidthByNode[node.id] = it }
             stack.clear()
             stack += depth to node
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
         while (stack.isNotEmpty() && depth <= stack.last().first) stack.removeAt(stack.lastIndex)
         val parent = stack.lastOrNull()?.second
@@ -505,7 +503,7 @@ class PlantUmlMindmapParser {
         effectiveMaximumWidth?.let { styleMaximumWidthByNode[node.id] = it }
         (branchStyleMaximumWidth ?: inheritedBranchMaximumWidth)?.let { branchStyleMaximumWidthByNode[node.id] = it }
         if (boxless) boxlessNodeIds += node.id
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     private fun finalizePending(
@@ -629,5 +627,5 @@ class PlantUmlMindmapParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch =
-        diagnostics.errorBatch(seq, message, "PLANTUML-E011")
+        session.errorBatch(message, "PLANTUML-E011")
 }

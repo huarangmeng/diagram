@@ -31,15 +31,34 @@ import kotlin.math.sin
  *  - Hyperlink wraps a transparent rect — does not nest other commands yet.
  */
 class SvgWriter(
-    private val canvas: Size,
+    private val viewBox: Rect,
+    private val outputSize: Size = viewBox.size,
     private val background: Color? = null,
+    private val includeXmlDeclaration: Boolean = true,
 ) {
+    constructor(
+        canvas: Size,
+        background: Color? = null,
+        includeXmlDeclaration: Boolean = true,
+    ) : this(
+        viewBox = Rect(Point.Zero, canvas),
+        outputSize = canvas,
+        background = background,
+        includeXmlDeclaration = includeXmlDeclaration,
+    )
+
     fun write(commands: List<DrawCommand>): String = buildString {
-        append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
+        if (includeXmlDeclaration) {
+            append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
+        }
         append("""<svg xmlns="http://www.w3.org/2000/svg" """)
-        append("""width="""").append(fmt(canvas.width)).append("\" ")
-        append("""height="""").append(fmt(canvas.height)).append("\" ")
-        append("""viewBox="0 0 """).append(fmt(canvas.width)).append(' ').append(fmt(canvas.height)).append('"')
+        append("""width="""").append(fmt(outputSize.width)).append("\" ")
+        append("""height="""").append(fmt(outputSize.height)).append("\" ")
+        append("""viewBox="""")
+            .append(fmt(viewBox.left)).append(' ')
+            .append(fmt(viewBox.top)).append(' ')
+            .append(fmt(viewBox.size.width)).append(' ')
+            .append(fmt(viewBox.size.height)).append('"')
         append('>').append('\n')
         if (background != null && background.a != 0) {
             append("""  <rect width="100%" height="100%" fill="""")

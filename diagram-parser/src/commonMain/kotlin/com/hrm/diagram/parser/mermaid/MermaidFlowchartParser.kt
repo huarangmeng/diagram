@@ -13,8 +13,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -49,8 +48,7 @@ class MermaidFlowchartParser {
     /** Accumulated IR view (rebuilt from patches on each [snapshot] call for tests / consumers). */
     private val nodes: MutableList<Node> = ArrayList()
     private val edges: MutableList<Edge> = ArrayList()
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
 
     /**
      * Feed one logical line of tokens (already terminated; no NEWLINE/COMMENT/ERROR included
@@ -61,15 +59,15 @@ class MermaidFlowchartParser {
      * the splitter, ERROR tokens are surfaced as diagnostics.
      */
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         // Drop pure-comment lines silently; they are body content but contribute no IR.
-        if (line.all { it.kind == MermaidTokenKind.COMMENT }) return seq.emptyBatch()
+        if (line.all { it.kind == MermaidTokenKind.COMMENT }) return session.emptyBatch()
         val patches = ArrayList<IrPatch>()
 
         if (!headerSeen) {
             parseHeader(line, patches)
-            return IrPatchBatch(seq.value, patches)
+            return IrPatchBatch(session.value, patches)
         }
 
         // Body line.
@@ -88,11 +86,11 @@ class MermaidFlowchartParser {
             }
             is StmtParse.Error -> {
                 val diag = Diagnostic(Severity.ERROR, parsed.message, "MMD-E001")
-                diagnostics += diag
+                session += diag
                 patches += IrPatch.AddDiagnostic(diag)
             }
         }
-        return IrPatchBatch(seq.value, patches)
+        return IrPatchBatch(session.value, patches)
     }
 
     /** Build a fresh [GraphIR] from accumulated state. */
@@ -103,7 +101,7 @@ class MermaidFlowchartParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     // --- internals ---
 
@@ -130,7 +128,7 @@ class MermaidFlowchartParser {
         }
         for (msg in errs) {
             val d = Diagnostic(Severity.ERROR, msg, "MMD-E000")
-            diagnostics += d
+            session += d
             out += IrPatch.AddDiagnostic(d)
         }
     }

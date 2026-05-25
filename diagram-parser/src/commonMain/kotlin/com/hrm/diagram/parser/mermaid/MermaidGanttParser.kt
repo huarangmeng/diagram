@@ -10,8 +10,7 @@ import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.ir.TimeTrack
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import kotlin.math.floor
 import kotlin.math.max
 
@@ -35,8 +34,7 @@ import kotlin.math.max
  * - tasks -> [TimeItem] with [TimeRange] in epoch ms
  */
 class MermaidGanttParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
 
     private var headerSeen = false
     private var title: String? = null
@@ -72,22 +70,22 @@ class MermaidGanttParser {
     private val lastEndBySection: MutableMap<Int, Long> = HashMap()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
 
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         val normalized = normalizeTokens(toks)
-        if (normalized.isBlank()) return seq.emptyBatch()
+        if (normalized.isBlank()) return session.emptyBatch()
 
         if (!headerSeen) {
             if (normalized.startsWith("gantt")) {
                 headerSeen = true
                 ensureDefaultSection()
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'gantt' header")
         }
@@ -95,31 +93,31 @@ class MermaidGanttParser {
         when {
             normalized.startsWith("title ") -> {
                 title = normalized.removePrefix("title ").trim().ifBlank { title }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("dateFormat ") -> {
                 dateFormat = normalized.removePrefix("dateFormat ").trim().ifBlank { dateFormat }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("axisFormat ") -> {
                 axisFormat = normalized.removePrefix("axisFormat ").trim().ifBlank { axisFormat }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("tickInterval ") -> {
                 tickInterval = normalized.removePrefix("tickInterval ").trim().ifBlank { null }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("excludes ") -> {
                 parseExcludes(normalized.removePrefix("excludes ").trim())
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("weekend ") -> {
                 weekendStartsFriday = normalized.removePrefix("weekend ").trim().equals("friday", ignoreCase = true)
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("weekday ") -> {
                 weekdayStart = normalized.removePrefix("weekday ").trim().ifBlank { null }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("section ") -> {
                 val name = normalized.removePrefix("section ").trim().ifBlank { "section" }
@@ -131,11 +129,11 @@ class MermaidGanttParser {
                     sections += Section(name, ArrayList())
                     currentSectionIdx = sections.lastIndex
                 }
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("click ") -> {
                 parseClick(normalized.removePrefix("click ").trim())
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             normalized.startsWith("vert ") -> {
                 val parsed = parseVertLine(normalized)
@@ -143,7 +141,7 @@ class MermaidGanttParser {
                     sections[currentSectionIdx].tasks += parsed
                     startById[parsed.id] = parsed.startMs
                     endById[parsed.id] = parsed.endMs
-                    return seq.emptyBatch()
+                    return session.emptyBatch()
                 }
             }
             else -> {
@@ -155,12 +153,12 @@ class MermaidGanttParser {
                     if (!parsed.tags.contains("vert")) {
                         lastEndBySection[currentSectionIdx] = parsed.endMs
                     }
-                    return seq.emptyBatch()
+                    return session.emptyBatch()
                 }
             }
         }
 
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): TimeSeriesIR {
@@ -212,7 +210,7 @@ class MermaidGanttParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
 
     // --- parsing helpers ---
 
@@ -248,7 +246,7 @@ class MermaidGanttParser {
             if (dt != null) {
                 excludedDatesEpochDay += MermaidGanttTime.epochDay(dt)
             } else {
-                diagnostics.warning("Unsupported excludes token '$part' ignored", "MERMAID-W012")
+                session.warning("Unsupported excludes token '$part' ignored", "MERMAID-W012")
             }
         }
     }
@@ -398,7 +396,7 @@ class MermaidGanttParser {
         val id = spec.substringBefore(' ').trim()
         val tail = spec.substringAfter(' ', "").trim()
         if (id.isEmpty() || tail.isEmpty()) {
-            diagnostics.warning("Invalid gantt click directive ignored", "MERMAID-W012")
+            session.warning("Invalid gantt click directive ignored", "MERMAID-W012")
             return
         }
         when {
@@ -410,7 +408,7 @@ class MermaidGanttParser {
                 val js = tail.removePrefix("call ").trim()
                 if (js.isNotEmpty()) clickHrefById[id] = "javascript:$js"
             }
-            else -> diagnostics.warning("Unsupported gantt click directive '$tail' ignored", "MERMAID-W012")
+            else -> session.warning("Unsupported gantt click directive '$tail' ignored", "MERMAID-W012")
         }
     }
 
@@ -576,6 +574,6 @@ class MermaidGanttParser {
     }
 
     private fun errorBatch(message: String): IrPatchBatch {
-        return seq.diagnosticBatch(diagnostics.error(message, "MERMAID-E207"))
+        return session.diagnosticBatch(session.error(message, "MERMAID-E207"))
     }
 }

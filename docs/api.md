@@ -6,22 +6,32 @@
 
 ```kotlin
 object Diagram {
-    /** 自动识别语法（按首行 / @startxxx / digraph 等）。 */
-    fun parse(source: String): ParseResult
+    /** 判断 Markdown fence / 文本块是否应交给 Diagram 渲染。 */
+    fun detectSource(source: CharSequence, hint: String? = null): DiagramSourceDetection
 
-    /** 显式指定语法。 */
-    fun parse(source: String, language: SourceLanguage): ParseResult
+    /** 打开底层 streaming session；Compose 应用层通常直接用 DiagramView(source = ...)。 */
+    fun session(language: SourceLanguage): DiagramSession
 }
 
 enum class SourceLanguage { MERMAID, PLANTUML, DOT }
 
-data class ParseResult(
-    val model: DiagramModel?,
-    val diagnostics: List<Diagnostic>,
+data class DiagramSourceDetection(
+    val status: DiagramSourceStatus,
+    val language: SourceLanguage?,
+    val reason: String,
 ) {
-    val isSuccess: Boolean get() = model != null && diagnostics.none { it.severity == Severity.ERROR }
+    val isDiagram: Boolean
+    val isPending: Boolean
+    val shouldRouteToDiagram: Boolean
 }
+
+enum class DiagramSourceStatus { DIAGRAM, PENDING, NOT_DIAGRAM }
 ```
+
+- `hint` 建议传 Markdown code fence 的 info string，例如 `mermaid`、`plantuml`、`puml`、`dot`、`graphviz`。
+- `DIAGRAM` 表示可以立即交给 `DiagramView(source = ...)`。
+- `PENDING` 表示流式前缀已经强烈指向某种图表，但可能还缺少完整 header；Markdown/LLM 容器可以先预留图表渲染槽。
+- `NOT_DIAGRAM` 表示普通 Markdown / 代码块，不应交给本库。
 
 ## 2. 布局
 
@@ -43,30 +53,16 @@ data class LayoutOptions(
 ```kotlin
 @Composable
 fun DiagramView(
-    snapshot: DiagramSnapshot,
+    source: String,
     modifier: Modifier = Modifier,
     zoomEnabled: Boolean = false,
 )
-
-@Composable
-fun DiagramView(
-    session: DiagramSession,
-    modifier: Modifier = Modifier,
-    zoomEnabled: Boolean = false,
-)
-
-@Composable
-fun rememberDiagramSession(
-    language: SourceLanguage,
-    key: Any? = language,
-    theme: DiagramTheme = DiagramTheme.Default,
-    layoutOptions: LayoutOptions = LayoutOptions(),
-): DiagramSession
 ```
 
 - `DiagramView` 是对外推荐的 Compose 门面命名。
-- `DiagramView` 对外只暴露 `zoomEnabled` 这一项交互开关，缩放状态与 viewport 细节由库内部接管。
-- `rememberDiagramSession` 负责把 Compose `TextMeasurer` 接入 session 生命周期。
+- `DiagramView` 对外输入只接受 `source: String`；语法识别、`DiagramSession`、`DiagramSnapshot`、文本测量与增量 append 由库内部接管。
+- `DiagramView` 对外只额外暴露 `zoomEnabled` 这一项交互开关，缩放状态与 viewport 细节由库内部接管。
+- `DiagramSession` / `DiagramSnapshot` 仍作为 streaming 与导出链路的底层契约存在，但不是 Compose 应用层入口。
 
 ## 4. 导出（`:diagram-core` + `:diagram-render`）
 

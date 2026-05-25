@@ -17,8 +17,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -52,9 +51,8 @@ class MermaidRequirementParser {
 
     private val knownNodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
     private val edges: MutableList<Edge> = ArrayList()
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val pendingRelations: MutableList<ParsedRelation> = ArrayList()
-    private val seq = ParserSessionSeq()
     private var headerSeen = false
     private var direction: Direction? = null
 
@@ -74,23 +72,23 @@ class MermaidRequirementParser {
     private var openBlock: OpenBlock? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val lexErr = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (lexErr != null) return errorBatch("Lex error at ${lexErr.start}: ${lexErr.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.REQUIREMENT_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'requirementDiagram' header")
         }
 
         val lineText = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (lineText.isBlank()) return seq.emptyBatch()
+        if (lineText.isBlank()) return session.emptyBatch()
 
         val block = openBlock
         if (block != null) {
@@ -99,14 +97,14 @@ class MermaidRequirementParser {
                 registerNode(block, patches)
                 flushPendingRelations(patches)
                 openBlock = null
-                return IrPatchBatch(seq.value, patches)
+                return IrPatchBatch(session.value, patches)
             }
             val property = parseProperty(lineText)
             if (property == null) {
                 return errorBatch("Invalid requirementDiagram property line")
             }
             block.properties[property.first.lowercase()] = property.second
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         if (lineText.startsWith("direction ")) {
@@ -114,13 +112,13 @@ class MermaidRequirementParser {
             if (direction == null) {
                 return errorBatch("Invalid requirementDiagram direction")
             }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val open = parseOpenBlock(lineText)
         if (open != null) {
             openBlock = open
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val relation = parseRelation(lineText)
@@ -131,7 +129,7 @@ class MermaidRequirementParser {
         } else {
             pendingRelations += relation
         }
-        return IrPatchBatch(seq.value, patches)
+        return IrPatchBatch(session.value, patches)
     }
 
     fun snapshot(): GraphIR = GraphIR(
@@ -141,7 +139,7 @@ class MermaidRequirementParser {
         styleHints = StyleHints(direction = direction),
     )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseOpenBlock(line: String): OpenBlock? {
         if (!line.endsWith("{")) return null
@@ -351,8 +349,8 @@ class MermaidRequirementParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E211")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 
     private fun parseName(raw: String): String? = readName(raw, 0)?.first

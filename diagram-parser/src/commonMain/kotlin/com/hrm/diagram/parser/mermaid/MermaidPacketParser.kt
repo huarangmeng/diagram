@@ -5,8 +5,7 @@ import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.streaming.Token
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 
 /**
  * Streaming parser for Mermaid `packet-beta`.
@@ -20,32 +19,31 @@ import com.hrm.diagram.parser.common.ParserSessionSeq
 class MermaidPacketParser {
     private data class Field(val range: String?, val label: String)
 
-    private val diagnostics = ParserDiagnosticSink()
+    private val session = ParserSession()
     private val fields: MutableList<Field> = ArrayList()
     private var headerSeen = false
     private var title: String? = null
-    private val seq = ParserSessionSeq()
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
+        session.beginLine()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
         val s = toks.joinToString(" ") { it.text.toString() }.trim()
-        if (s.isBlank()) return seq.emptyBatch()
+        if (s.isBlank()) return session.emptyBatch()
 
         if (!headerSeen) {
             if (s == "packet-beta") {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'packet-beta' header")
         }
 
         if (s.startsWith("title ", ignoreCase = true)) {
             title = stripQuotes(s.substringAfter(' ').trim()).ifBlank { title }
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val rangeMatch = Regex("""^([0-9]+(?:\s*-\s*[0-9]+)?)\s*:\s*(.+)$""").matchEntire(s)
@@ -54,11 +52,11 @@ class MermaidPacketParser {
                 range = rangeMatch.groupValues[1].replace(Regex("\\s+"), ""),
                 label = stripQuotes(rangeMatch.groupValues[2].trim()),
             )
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         fields += Field(range = null, label = stripQuotes(s))
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): StructIR =
@@ -76,12 +74,12 @@ class MermaidPacketParser {
             sourceLanguage = SourceLanguage.MERMAID,
         )
 
-    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<com.hrm.diagram.core.ir.Diagnostic> = session.diagnosticsSnapshot()
 
     private fun stripQuotes(raw: String): String =
         raw.removeSurrounding("\"").removeSurrounding("'")
 
     private fun errorBatch(message: String): IrPatchBatch {
-        return seq.diagnosticBatch(diagnostics.error(message, "MERMAID-E215"))
+        return session.diagnosticBatch(session.error(message, "MERMAID-E215"))
     }
 }

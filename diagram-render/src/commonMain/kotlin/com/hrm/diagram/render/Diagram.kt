@@ -1,5 +1,6 @@
 package com.hrm.diagram.render
 
+import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
@@ -19,7 +20,18 @@ import com.hrm.diagram.render.streaming.plantuml.PlantUmlSessionPipeline
  *
  * See `docs/api.md` for the full surface contract.
  */
+@DiagramApi
 object Diagram {
+    /**
+     * Detect whether a Markdown block or streaming source prefix should be routed to diagram
+     * rendering.
+     *
+     * Pass a Markdown code-fence info string such as `"mermaid"`, `"plantuml"`, or `"dot"` as
+     * [hint] when available; otherwise the detector falls back to syntax headers.
+     */
+    fun detectSource(source: CharSequence, hint: String? = null): DiagramSourceDetection =
+        DiagramSourceDetector.detect(source = source, hint = hint)
+
     /**
      * Open a streaming session — the primary use case for LLM-driven incremental rendering.
      * See `docs/streaming.md`.

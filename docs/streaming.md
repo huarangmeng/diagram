@@ -60,7 +60,7 @@ data class SessionPatch(
 
 ```kotlin
 val session = Diagram.session(
-    language = SourceLanguage.MERMAID,        // 或 AUTO 让框架按首行猜
+    language = SourceLanguage.MERMAID,
     theme = DiagramTheme.Default,
 )
 flow.collect { chunk -> session.append(chunk) }
@@ -71,10 +71,12 @@ Compose 侧：
 
 ```kotlin
 @Composable
-fun StreamingDiagramView(session: DiagramSession, modifier: Modifier = Modifier) {
-    DiagramView(session = session, modifier = modifier)
+fun StreamingDiagramView(source: String, modifier: Modifier = Modifier) {
+    DiagramView(source = source, modifier = modifier)
 }
 ```
+
+`DiagramView(source = ...)` 是应用层入口：它内部按源码识别 Mermaid / PlantUML / DOT，维护 `DiagramSession` 与 `DiagramSnapshot`，并对 append-only 字符串更新复用增量链路。
 
 ---
 

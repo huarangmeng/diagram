@@ -11,8 +11,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
-import com.hrm.diagram.parser.common.ParserDiagnosticSink
-import com.hrm.diagram.parser.common.ParserSessionSeq
+import com.hrm.diagram.parser.common.ParserSession
 import com.hrm.diagram.core.streaming.Token
 
 /**
@@ -29,8 +28,7 @@ import com.hrm.diagram.core.streaming.Token
  * - `ticketBaseUrl` config is not consumed yet; metadata is stored in `payload`.
  */
 class MermaidKanbanParser {
-    private val diagnostics = ParserDiagnosticSink()
-    private val seq = ParserSessionSeq()
+    private val session = ParserSession()
     private var headerSeen = false
 
     private data class MutableColumn(
@@ -46,24 +44,24 @@ class MermaidKanbanParser {
     private var columnIndentBase: Int? = null
 
     fun acceptLine(line: List<Token>): IrPatchBatch {
-        seq.next()
-        if (line.isEmpty()) return seq.emptyBatch()
+        session.beginLine()
+        if (line.isEmpty()) return session.emptyBatch()
         val toks = line.filter { it.kind != MermaidTokenKind.COMMENT }
-        if (toks.isEmpty()) return seq.emptyBatch()
+        if (toks.isEmpty()) return session.emptyBatch()
         val errTok = toks.firstOrNull { it.kind == MermaidTokenKind.ERROR }
         if (errTok != null) return errorBatch("Lex error at ${errTok.start}: ${errTok.text}")
 
         if (!headerSeen) {
             if (toks.first().kind == MermaidTokenKind.KANBAN_HEADER) {
                 headerSeen = true
-                return seq.emptyBatch()
+                return session.emptyBatch()
             }
             return errorBatch("Expected 'kanban' header")
         }
 
         val indent = if (toks.firstOrNull()?.kind == MermaidTokenKind.INDENT) toks.first().text.toString().toIntOrNull() ?: 0 else 0
         val content = if (indent > 0) toks.drop(1) else toks
-        if (content.isEmpty()) return seq.emptyBatch()
+        if (content.isEmpty()) return session.emptyBatch()
 
         val base = columnIndentBase
         if (base == null || indent <= base) {
@@ -71,13 +69,13 @@ class MermaidKanbanParser {
             val col = parseColumn(content) ?: return errorBatch("Invalid kanban column line")
             columns += col
             currentColumn = col
-            return seq.emptyBatch()
+            return session.emptyBatch()
         }
 
         val parent = currentColumn ?: return errorBatch("Kanban card without a column")
         val card = parseCard(content) ?: return errorBatch("Invalid kanban card line")
         parent.cards += card
-        return seq.emptyBatch()
+        return session.emptyBatch()
     }
 
     fun snapshot(): KanbanIR =
@@ -93,7 +91,7 @@ class MermaidKanbanParser {
             styleHints = StyleHints(),
         )
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = diagnostics.snapshot()
+    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseColumn(toks: List<Token>): MutableColumn? {
         val (id, label) = parseBracketItem(toks, isColumn = true) ?: return null
@@ -202,7 +200,7 @@ class MermaidKanbanParser {
 
     private fun errorBatch(message: String): IrPatchBatch {
         val d = Diagnostic(Severity.ERROR, message, "MERMAID-E205")
-        diagnostics += d
-        return IrPatchBatch(seq.value, listOf(IrPatch.AddDiagnostic(d)))
+        session += d
+        return IrPatchBatch(session.value, listOf(IrPatch.AddDiagnostic(d)))
     }
 }
