@@ -20,6 +20,9 @@ import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.sequence.SequenceLayouts
+import com.hrm.diagram.parser.plantuml.PlantUmlParsing
+import com.hrm.diagram.parser.plantuml.PlantUmlParsingFactory
+import com.hrm.diagram.parser.plantuml.PlantUmlSequenceHints
 import com.hrm.diagram.parser.plantuml.PlantUmlSequenceParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import kotlin.math.sqrt
@@ -58,7 +61,7 @@ internal class PlantUmlSequenceSubPipeline(
         val edgeColor: ArgbColor?,
     )
 
-    private val parser = PlantUmlSequenceParser()
+    private val parser: PlantUmlParsing<SequenceIR> = PlantUmlParsingFactory.sequence()
     private val layout = SequenceLayouts.forSequence(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -161,7 +164,7 @@ internal class PlantUmlSequenceSubPipeline(
                 }
                 id.value.startsWith("note#") -> {
                     val noteMessage = noteMessages.getOrNull(noteStyleIndex++)
-                    val isRef = (noteMessage?.label as? RichLabel.Plain)?.text?.startsWith(PlantUmlSequenceParser.REF_PREFIX) == true
+                    val isRef = (noteMessage?.label as? RichLabel.Plain)?.text?.let(PlantUmlSequenceHints::isReferenceLabel) == true
                     val fill = palette.note.fill?.let { Color(it.argb) } ?: if (isRef) Color(0xFFE8EAF6.toInt()) else noteFill
                     val stroke = palette.note.stroke?.let { Color(it.argb) } ?: if (isRef) Color(0xFF3949AB.toInt()) else noteStroke
                     if (palette.note.shadowing == true) {
@@ -209,7 +212,7 @@ internal class PlantUmlSequenceSubPipeline(
                     if (msg.activate || msg.deactivate) continue
                     val rect = noteRectsByIndex[noteDrawIndex++] ?: continue
                     val rawText = (msg.label as? RichLabel.Plain)?.text.orEmpty()
-                    val labelText = rawText.removePrefix(PlantUmlSequenceParser.REF_PREFIX)
+                    val labelText = PlantUmlSequenceHints.stripReferenceLabel(rawText)
                     if (labelText.isNotEmpty()) {
                         out += DrawCommand.DrawText(
                             text = labelText,

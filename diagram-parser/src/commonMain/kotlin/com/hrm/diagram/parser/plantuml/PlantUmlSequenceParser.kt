@@ -21,7 +21,7 @@ import com.hrm.diagram.parser.common.ParserSession
  * diagrams. The parser is intentionally append-only and lenient: it keeps every successfully
  * parsed participant/message and reports mismatches as diagnostics instead of throwing.
  */
-class PlantUmlSequenceParser {
+class PlantUmlSequenceParser : PlantUmlParsing<SequenceIR> {
     companion object {
         const val REF_PREFIX = "__plantuml_sequence_ref__::"
         const val BOXES_KEY = "plantuml.sequence.boxes"
@@ -158,7 +158,7 @@ class PlantUmlSequenceParser {
     private var pendingCreate: NodeId? = null
     private var pendingDestroy: NodeId? = null
 
-    fun acceptLine(line: String): IrPatchBatch {
+    override fun acceptLine(line: String): IrPatchBatch {
         session.beginLine()
         val trimmed = line.trim()
         if (trimmed.isEmpty() || trimmed.startsWith("'") || trimmed.startsWith("//")) {
@@ -177,7 +177,7 @@ class PlantUmlSequenceParser {
         return parseStatement(trimmed)
     }
 
-    fun finish(blockClosed: Boolean): IrPatchBatch {
+    override fun finish(blockClosed: Boolean): IrPatchBatch {
         if (finalized) return session.emptyBatch()
         finalized = true
         val out = ArrayList<IrPatch>()
@@ -204,7 +204,7 @@ class PlantUmlSequenceParser {
         return IrPatchBatch(session.value, out)
     }
 
-    fun snapshot(): SequenceIR {
+    override fun snapshot(): SequenceIR {
         val extras = HashMap(styleExtras)
         autonumberStart?.let { extras["plantuml.autonumber"] = "$it,$autonumberStep" }
         if (boxes.isNotEmpty()) {
@@ -235,7 +235,7 @@ class PlantUmlSequenceParser {
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
+    override fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot()
 
     private fun parseStatement(line: String): IrPatchBatch {
         val lower = line.lowercase()

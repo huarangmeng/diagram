@@ -15,11 +15,14 @@ import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.struct.StructLayout
+import com.hrm.diagram.parser.plantuml.PlantUmlParsing
+import com.hrm.diagram.parser.plantuml.PlantUmlParsingFactory
+import com.hrm.diagram.parser.plantuml.PlantUmlStructFormat
 import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 
 internal class PlantUmlStructSubPipeline(
-    private val format: PlantUmlStructParser.Format,
+    private val format: PlantUmlStructFormat,
     private val textMeasurer: TextMeasurer,
 ) : PlantUmlSubPipeline {
     private companion object {
@@ -34,7 +37,7 @@ internal class PlantUmlStructSubPipeline(
         val edge = Color(0xFF8C959F.toInt())
     }
 
-    private val parser = PlantUmlStructParser(format)
+    private val parser: PlantUmlParsing<StructIR> = PlantUmlParsingFactory.struct(format)
     private val layout = StructLayout(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,

@@ -2,7 +2,7 @@ package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.ir.SeriesKind
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
+import com.hrm.diagram.parser.plantuml.PlantUmlStructFormat
 import com.hrm.diagram.render.streaming.dispatcher.SubPipelineRegistry
 
 internal enum class PlantUmlDiagramKind {
@@ -74,8 +74,8 @@ internal class PlantUmlSubPipelineRegistry(
             PlantUmlDiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer)
             PlantUmlDiagramKind.Mindmap -> PlantUmlMindmapSubPipeline(textMeasurer)
             PlantUmlDiagramKind.Wbs -> PlantUmlWbsSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Json -> PlantUmlStructSubPipeline(PlantUmlStructParser.Format.JSON, textMeasurer)
-            PlantUmlDiagramKind.Yaml -> PlantUmlStructSubPipeline(PlantUmlStructParser.Format.YAML, textMeasurer)
+            PlantUmlDiagramKind.Json -> PlantUmlStructSubPipeline(PlantUmlStructFormat.JSON, textMeasurer)
+            PlantUmlDiagramKind.Yaml -> PlantUmlStructSubPipeline(PlantUmlStructFormat.YAML, textMeasurer)
             PlantUmlDiagramKind.Network -> PlantUmlNetworkSubPipeline(textMeasurer)
             PlantUmlDiagramKind.Gantt -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Gantt, textMeasurer)
             PlantUmlDiagramKind.Timing -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Timing, textMeasurer)

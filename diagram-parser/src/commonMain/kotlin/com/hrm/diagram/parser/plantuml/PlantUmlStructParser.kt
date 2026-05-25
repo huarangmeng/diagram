@@ -21,7 +21,7 @@ import com.hrm.diagram.parser.common.ParserSession
 @DiagramApi
 class PlantUmlStructParser(
     private val format: Format,
-) {
+) : PlantUmlParsing<StructIR> {
     enum class Format { JSON, YAML }
 
     companion object {
@@ -33,7 +33,7 @@ class PlantUmlStructParser(
     private val session = ParserSession()
     private var finalParseDiagnostics: List<Diagnostic> = emptyList()
 
-    fun acceptLine(line: String): IrPatchBatch {
+    override fun acceptLine(line: String): IrPatchBatch {
         session.beginLine()
         val trimmed = line.trim()
         if (trimmed.startsWith("'") || trimmed.startsWith("//")) return session.emptyBatch()
@@ -41,7 +41,7 @@ class PlantUmlStructParser(
         return session.emptyBatch()
     }
 
-    fun finish(blockClosed: Boolean): IrPatchBatch {
+    override fun finish(blockClosed: Boolean): IrPatchBatch {
         val out = ArrayList<IrPatch>()
         if (!blockClosed) {
             out += session.error(
@@ -55,7 +55,7 @@ class PlantUmlStructParser(
         return IrPatchBatch(session.value, out)
     }
 
-    fun snapshot(): StructIR {
+    override fun snapshot(): StructIR {
         val root = parseBody(reportErrors = false).node
         return StructIR(
             root = root,
@@ -64,7 +64,7 @@ class PlantUmlStructParser(
         )
     }
 
-    fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot() + finalParseDiagnostics
+    override fun diagnosticsSnapshot(): List<Diagnostic> = session.diagnosticsSnapshot() + finalParseDiagnostics
 
     private fun parseBody(reportErrors: Boolean): ParseOutcome {
         val source = bodyLines.joinToString("\n").trim()
