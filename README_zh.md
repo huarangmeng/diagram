@@ -10,6 +10,12 @@
 
 [English Version](./README.md)
 
+## 图像预览
+
+| Mermaid | PlantUML | DOT |
+|---|---|---|
+| ![Mermaid 预览](./images/mermaid.png) | ![PlantUML 预览](./images/plantuml.png) | ![DOT 预览](./images/dot.png) |
+
 ## 核心特性
 
 - **三套语法统一支持**：在同一套 KMP 代码库中解析并渲染 Mermaid、PlantUML 和 Graphviz DOT。

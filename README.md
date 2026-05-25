@@ -10,6 +10,12 @@ A Kotlin Multiplatform diagram rendering SDK with self-hosted parsing, layout, a
 
 [中文版本](./README_zh.md)
 
+## Preview
+
+| Mermaid | PlantUML | DOT |
+|---|---|---|
+| ![Mermaid preview](./images/mermaid.png) | ![PlantUML preview](./images/plantuml.png) | ![DOT preview](./images/dot.png) |
+
 ## Key Features
 
 - **Three Syntax Families**: Parses and renders Mermaid, PlantUML, and Graphviz DOT in one unified KMP codebase.

@@ -17,8 +17,15 @@ kotlin {
     }
 
     jvm { }
-    iosArm64()
-    iosSimulatorArm64()
+    listOf(
+        iosArm64(),
+        iosSimulatorArm64()
+    ).forEach { iosTarget ->
+        iosTarget.binaries.framework {
+            baseName = "DiagramParser"
+            isStatic = true
+        }
+    }
     js { browser(); nodejs() }
     @OptIn(ExperimentalWasmDsl::class) wasmJs { browser(); nodejs() }
 
