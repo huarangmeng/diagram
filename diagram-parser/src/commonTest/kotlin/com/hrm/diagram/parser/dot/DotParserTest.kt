@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 class DotParserTest {
     @Test
     fun parses_digraph_nodes_edges_attrs_and_rankdir() {
-        val result = DotParser().parse(
+        val result = DotParsing.parse(
             """
             digraph G {
               graph [rankdir=LR, label="Pipeline"];
@@ -40,7 +40,7 @@ class DotParserTest {
 
     @Test
     fun parses_undirected_graph_and_cluster() {
-        val result = DotParser().parse(
+        val result = DotParsing.parse(
             """
             graph {
               subgraph cluster_api {
@@ -65,7 +65,7 @@ class DotParserTest {
 
     @Test
     fun parses_edge_chain_and_html_like_label_as_text() {
-        val result = DotParser().parse(
+        val result = DotParsing.parse(
             """
             strict digraph {
               a -> b -> c;
@@ -84,7 +84,7 @@ class DotParserTest {
 
     @Test
     fun expands_node_sets_ports_and_rank_groups() {
-        val result = DotParser().parse(
+        val result = DotParsing.parse(
             """
             digraph {
               { rank=same; a; b }
@@ -114,7 +114,7 @@ class DotParserTest {
 
     @Test
     fun preserves_html_table_label_as_multiline_text() {
-        val result = DotParser().parse(
+        val result = DotParsing.parse(
             """
             digraph {
               table [label=<
@@ -133,7 +133,7 @@ class DotParserTest {
 
     @Test
     fun extracts_html_label_font_hints_to_payload() {
-        val result = DotParser().parse(
+        val result = DotParsing.parse(
             """
             digraph {
               node [label=< <FONT FACE="serif" POINT-SIZE="18" COLOR="#336699"><B><I>Rich</I></B></FONT> >];
@@ -158,7 +158,7 @@ class DotParserTest {
 
     @Test
     fun warns_for_native_graphviz_layout_engines_but_preserves_graph() {
-        val result = DotParser().parse(
+        val result = DotParsing.parse(
             """
             graph {
               graph [layout=neato, overlap=false, root=a];
@@ -186,8 +186,8 @@ class DotParserTest {
               c:out:e -> sink:in:w [arrowtail=dot, arrowhead=vee];
             }
             """.trimIndent()
-        val expected = DotParser().parse(src)
-        val incremental = DotParser().incrementalSession()
+        val expected = DotParsing.parse(src)
+        val incremental = DotParsing.incrementalSession()
         var actual = incremental.feed("", eos = false)
         for (ch in src) {
             actual = incremental.feed(ch.toString(), eos = false)

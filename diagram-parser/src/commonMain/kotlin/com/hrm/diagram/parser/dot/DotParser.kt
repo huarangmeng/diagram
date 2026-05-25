@@ -1,6 +1,5 @@
 package com.hrm.diagram.parser.dot
 
-import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.ArgbColor
 import com.hrm.diagram.core.ir.ArrowEnds
 import com.hrm.diagram.core.ir.Cluster
@@ -27,13 +26,7 @@ import com.hrm.diagram.core.ir.StyleHints
  * graph/node/edge attributes, `subgraph cluster_*`, comments, quoted IDs, and HTML-like labels
  * as text-preserving labels. Unsupported attributes are preserved in payload maps.
  */
-@DiagramApi
-class DotParser {
-    data class Result(
-        val ir: GraphIR,
-        val diagnostics: List<Diagnostic>,
-    )
-
+internal class DotParser {
     private data class Token(val kind: Kind, val text: String, val offset: Int)
     private enum class Kind { Id, LBrace, RBrace, LBracket, RBracket, Equal, Semi, Comma, Colon, EdgeDirected, EdgeUndirected }
 
@@ -81,7 +74,7 @@ class DotParser {
         }
     }
 
-    fun parse(source: String): Result {
+    fun parse(source: String): DotParseResult {
         val diagnostics = ArrayList<Diagnostic>()
         val state = ParserState(tokenize(source, diagnostics), diagnostics)
         val clusters = parseGraph(state)
@@ -89,9 +82,9 @@ class DotParser {
         return buildResult(state, clusters, state.diagnostics + warnings)
     }
 
-    fun incrementalSession(): IncrementalSession = IncrementalSession()
+    fun incrementalSession(): DotIncrementalSession = IncrementalSession()
 
-    inner class IncrementalSession {
+    private inner class IncrementalSession : DotIncrementalSession {
         private val diagnostics = ArrayList<Diagnostic>()
         private val state = ParserState(emptyList(), diagnostics)
         private val root = ParseContext(
@@ -104,7 +97,7 @@ class DotParser {
         private var headerParsed: Boolean = false
         private var closed: Boolean = false
 
-        fun feed(chunk: CharSequence, eos: Boolean = false): Result {
+        override fun feed(chunk: CharSequence, eos: Boolean): DotParseResult {
             if (!closed) {
                 for (unit in splitter.feed(chunk, eos)) {
                     if (!headerParsed) {
@@ -121,7 +114,7 @@ class DotParser {
             return buildResult(state, root.clusters.toList(), diagnostics + warnings)
         }
 
-        fun reset() {
+        override fun reset() {
             diagnostics.clear()
             state.tokens = emptyList()
             state.index = 0
@@ -191,7 +184,7 @@ class DotParser {
         }
     }
 
-    private fun buildResult(state: ParserState, clusters: List<Cluster>, diagnostics: List<Diagnostic>): Result {
+    private fun buildResult(state: ParserState, clusters: List<Cluster>, diagnostics: List<Diagnostic>): DotParseResult {
         val graphAttrs = state.rootGraphAttrs
         val title = graphAttrs["label"] ?: state.title
         val direction = when (graphAttrs["rankdir"]?.uppercase()) {
@@ -200,7 +193,7 @@ class DotParser {
             "BT" -> Direction.BT
             else -> Direction.TB
         }
-        return Result(
+        return DotParseResult(
             ir = GraphIR(
                 nodes = state.nodes.values.toList(),
                 edges = state.edges.toList(),

@@ -31,7 +31,7 @@ import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 import kotlin.math.sqrt
 
 internal class MermaidArchitectureSubPipeline(
@@ -69,11 +69,10 @@ internal class MermaidArchitectureSubPipeline(
         fontOf = { labelFont },
         customSizeOf = ::measureNodeSize,
     )
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.MERMAID,
+        defaultNodeSize = Size(172f, 72f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(172f, 72f), measurePolicy),
         postLayout = { ir, laid ->
             val clusterRects = LinkedHashMap<NodeId, Rect>()
             for (cluster in ir.clusters) {
@@ -81,6 +80,9 @@ internal class MermaidArchitectureSubPipeline(
             }
             normalizeVisibleArea(laid, clusterRects, laid.seq)
         },
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
         renderEntities = { ir, laid -> renderer.render(ir, laid) },
     )
     private val graphPipeline = MermaidGraphSubPipelineKernel(

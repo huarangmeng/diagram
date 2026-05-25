@@ -9,13 +9,9 @@ import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.parser.mermaid.MermaidLexer
-import com.hrm.diagram.parser.mermaid.MermaidLexerState
+import com.hrm.diagram.parser.mermaid.MermaidFrontend
 import com.hrm.diagram.parser.mermaid.MermaidStyleConfig
 import com.hrm.diagram.parser.mermaid.MermaidStyleDecl
-import com.hrm.diagram.parser.mermaid.MermaidStyleExtrasCodec
-import com.hrm.diagram.parser.mermaid.MermaidStyleParsers
-import com.hrm.diagram.parser.mermaid.MermaidTokenKind
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -38,10 +34,9 @@ internal class MermaidSessionPipeline(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
 ) : SessionPipeline {
 
-    private val lexer = MermaidLexer()
+    private val lexer = MermaidFrontend.createLexingSession()
     private val familyKernel = StreamingFamilyPipelineKernel(textMeasurer)
-    private var lexState: MermaidLexerState = lexer.initialState()
-    private val tokenLines = TokenLineDrain<Token> { it.kind == MermaidTokenKind.NEWLINE }
+    private val tokenLines = TokenLineDrain<Token>(MermaidFrontend::isNewlineToken)
     private val pendingLines: MutableList<List<Token>> = ArrayList()
     private val subPipelineRegistry = MermaidSubPipelineRegistry(textMeasurer)
     private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
@@ -64,25 +59,16 @@ internal class MermaidSessionPipeline(
 
         if (pre.lexerFeeds.isEmpty()) {
             // Still need to advance lexer state on EOS so pending is flushed deterministically.
-            val step = lexer.feed(lexState, "", absoluteOffset, eos = isFinal)
-            lexState = step.newState
-            tokenLines.add(step.tokens)
+            tokenLines.add(lexer.feed("", absoluteOffset, eos = isFinal))
         } else {
             for ((i, feed) in pre.lexerFeeds.withIndex()) {
-                // Safety: if we skipped any bytes between feeds, ensure the lexer does not carry
-                // pending across gaps. Our preprocessor only cuts on NEWLINE boundaries, but keep
-                // this guard to avoid accidental token corruption.
-                if (i > 0 && feed.absoluteOffset != pre.lexerFeeds[i - 1].endAbsoluteOffset && lexState.pending.isNotEmpty()) {
-                    lexState = lexState.copy(pending = "")
-                }
-                val step = lexer.feed(
-                    lexState,
-                    feed.text,
-                    feed.absoluteOffset,
-                    eos = isFinal && i == pre.lexerFeeds.lastIndex,
+                tokenLines.add(
+                    lexer.feed(
+                        chunk = feed.text,
+                        absoluteOffset = feed.absoluteOffset,
+                        eos = isFinal && i == pre.lexerFeeds.lastIndex,
+                    ),
                 )
-                lexState = step.newState
-                tokenLines.add(step.tokens)
             }
         }
 
@@ -91,12 +77,15 @@ internal class MermaidSessionPipeline(
         // Decide the sub-pipeline using either: (a) lexer mode (after header was lexed) or
         // (b) the first non-blank line we have buffered so far.
         if (sub == null) {
+            headerHint?.let { dispatcher.attach(it) }
+        }
+        if (sub == null) {
             // Look for header in pendingLines + new lines.
             val all = pendingLines + lines
             for (line in all) {
-                val firstSig = line.firstOrNull { it.kind != MermaidTokenKind.COMMENT }
+                val firstSig = line.firstOrNull { !MermaidFrontend.isCommentToken(it) }
                 if (firstSig == null) continue
-                val kind = subPipelineRegistry.kindForHeader(firstSig.kind)
+                val kind = subPipelineRegistry.kindForHeaderText(firstSig.text.toString())
                 if (kind != null) {
                     dispatcher.attach(kind)
                     break
@@ -193,7 +182,7 @@ internal class MermaidSessionPipeline(
                 styleState.frontmatterStripped = true
                 startIdx = fm.endIdxExclusive
                 // Always strip frontmatter from lexer input; if it contains theme config, parse it.
-                val r = MermaidStyleParsers.parseFrontmatterThemeConfig(fm.text)
+                val r = MermaidFrontend.parseFrontmatterThemeConfig(fm.text)
                 if (r != null) {
                     styleState.styleConfig = r.config
                     newDiags += r.diagnostics
@@ -241,7 +230,7 @@ internal class MermaidSessionPipeline(
                         endAbsoluteOffset = baseOffset + lineStart,
                     )
                 }
-                val parsed = MermaidStyleParsers.parseClassDefLine(trimmedLeading.trimEnd())
+                val parsed = MermaidFrontend.parseClassDefLine(trimmedLeading.trimEnd())
                 if (parsed != null) {
                     for (cls in parsed.classes) styleState.styleClasses[cls.name] = cls.decl
                     newDiags += parsed.diagnostics
@@ -259,7 +248,7 @@ internal class MermaidSessionPipeline(
                         endAbsoluteOffset = baseOffset + lineStart,
                     )
                 }
-                val parsed = MermaidStyleParsers.parseClassAssignLine(trimmedLeading.trimEnd())
+                val parsed = MermaidFrontend.parseClassAssignLine(trimmedLeading.trimEnd())
                 if (parsed != null) {
                     for (rawId in parsed.nodeIds) {
                         val id = NodeId(rawId)
@@ -280,7 +269,7 @@ internal class MermaidSessionPipeline(
                         endAbsoluteOffset = baseOffset + lineStart,
                     )
                 }
-                val parsed = MermaidStyleParsers.parseNodeStyleLine(trimmedLeading.trimEnd())
+                val parsed = MermaidFrontend.parseNodeStyleLine(trimmedLeading.trimEnd())
                 if (parsed != null) {
                     for (rawId in parsed.nodeIds) {
                         styleState.nodeInlineStyles[NodeId(rawId)] = parsed.decl
@@ -299,7 +288,7 @@ internal class MermaidSessionPipeline(
                         endAbsoluteOffset = baseOffset + lineStart,
                     )
                 }
-                val parsed = MermaidStyleParsers.parseLinkStyleLine(trimmedLeading.trimEnd())
+                val parsed = MermaidFrontend.parseLinkStyleLine(trimmedLeading.trimEnd())
                 if (parsed != null) {
                     if (parsed.isDefault) {
                         styleState.linkStyleDefault = parsed.decl
@@ -356,7 +345,7 @@ internal class MermaidSessionPipeline(
                 val allowTripleColonRewrite = stylePreprocessor.supportsTripleColonRewrite(headerHint)
 
                 if (allowStyleDirectives && trimmedLeading.startsWith("classDef ")) {
-                    val parsed = MermaidStyleParsers.parseClassDefLine(trimmedLeading.trimEnd())
+                    val parsed = MermaidFrontend.parseClassDefLine(trimmedLeading.trimEnd())
                     if (parsed != null) {
                         for (cls in parsed.classes) styleState.styleClasses[cls.name] = cls.decl
                         newDiags += parsed.diagnostics
@@ -364,7 +353,7 @@ internal class MermaidSessionPipeline(
                     }
                     // Do not feed to lexer.
                 } else if (allowClassAssignDirective && trimmedLeading.startsWith("class ")) {
-                    val parsed = MermaidStyleParsers.parseClassAssignLine(trimmedLeading.trimEnd())
+                    val parsed = MermaidFrontend.parseClassAssignLine(trimmedLeading.trimEnd())
                     if (parsed != null) {
                         for (rawId in parsed.nodeIds) {
                             val id = NodeId(rawId)
@@ -375,14 +364,14 @@ internal class MermaidSessionPipeline(
                         styleState.cachedStyleExtras = emptyMap()
                     }
                 } else if (allowStyleDirectives && trimmedLeading.startsWith("style ")) {
-                    val parsed = MermaidStyleParsers.parseNodeStyleLine(trimmedLeading.trimEnd())
+                    val parsed = MermaidFrontend.parseNodeStyleLine(trimmedLeading.trimEnd())
                     if (parsed != null) {
                         for (rawId in parsed.nodeIds) styleState.nodeInlineStyles[NodeId(rawId)] = parsed.decl
                         newDiags += parsed.diagnostics
                         styleState.cachedStyleExtras = emptyMap()
                     }
                 } else if (allowStyleDirectives && trimmedLeading.startsWith("linkStyle ")) {
-                    val parsed = MermaidStyleParsers.parseLinkStyleLine(trimmedLeading.trimEnd())
+                    val parsed = MermaidFrontend.parseLinkStyleLine(trimmedLeading.trimEnd())
                     if (parsed != null) {
                         if (parsed.isDefault) {
                             styleState.linkStyleDefault = parsed.decl
@@ -508,11 +497,11 @@ internal class MermaidSessionPipeline(
         if (cfg != null) {
             out["mermaid.styleModelVersion"] = "1"
             cfg.theme?.let { out["mermaid.theme"] = it.name.lowercase() }
-            cfg.themeTokens?.let { out["mermaid.themeTokens"] = MermaidStyleExtrasCodec.encodeThemeTokens(it) }
+            cfg.themeTokens?.let { out["mermaid.themeTokens"] = MermaidFrontend.encodeThemeTokens(it) }
             for ((k, v) in cfg.chartConfig) out["mermaid.config.$k"] = v
         }
         if (styleState.styleClasses.isNotEmpty()) {
-            out["mermaid.classDefs"] = MermaidStyleExtrasCodec.encodeClassDefs(styleState.styleClasses)
+            out["mermaid.classDefs"] = MermaidFrontend.encodeClassDefs(styleState.styleClasses)
         }
         styleState.cachedStyleExtras = out
         return styleState.cachedStyleExtras

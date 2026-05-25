@@ -35,7 +35,7 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 import kotlin.math.sqrt
 
 internal class MermaidRequirementSubPipeline(
@@ -66,11 +66,13 @@ internal class MermaidRequirementSubPipeline(
             }
         },
     )
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.MERMAID,
+        defaultNodeSize = Size(180f, 96f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(180f, 96f), measurePolicy),
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
         renderEntities = { graph, laid -> flowchartRender(graph, laid) },
     )
     private val graphPipeline = MermaidGraphSubPipelineKernel(

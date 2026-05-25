@@ -30,7 +30,7 @@ import kotlin.math.sin
  *  - Markdown / HTML rich labels are not yet parsed; callers must lower them to plain DrawText.
  *  - Hyperlink wraps a transparent rect — does not nest other commands yet.
  */
-class SvgWriter(
+internal class SvgWriter(
     private val viewBox: Rect,
     private val outputSize: Size = viewBox.size,
     private val background: Color? = null,

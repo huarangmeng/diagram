@@ -31,7 +31,7 @@ import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.plantuml.PlantUmlComponentParser
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 import kotlin.math.sqrt
 
 internal class PlantUmlComponentSubPipeline(
@@ -72,11 +72,10 @@ internal class PlantUmlComponentSubPipeline(
             measureNodeSize(node, currentPalette, currentPortCountByHost).also { nodeSizes[node.id] = it }
         },
     )
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.PLANTUML,
+        defaultNodeSize = Size(172f, 72f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(172f, 72f), measurePolicy),
         layoutModel = ::primaryLayoutIr,
         layoutOptions = { ir, isFinal ->
             LayoutOptions(
@@ -94,6 +93,9 @@ internal class PlantUmlComponentSubPipeline(
             val routedLaid = routeDecoratedEdges(ir, notesLaid)
             withClusterRects(ir, routedLaid, currentPalette, routedLaid.seq)
         },
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
         renderEntities = { ir, laid ->
             val edgeLabelRects = layoutEdgeLabels(ir, laid)
             render(ir, laid, currentPalette, edgeLabelRects)

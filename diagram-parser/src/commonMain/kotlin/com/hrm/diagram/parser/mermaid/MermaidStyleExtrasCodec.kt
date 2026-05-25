@@ -16,7 +16,7 @@ import com.hrm.diagram.core.ir.ArgbColor
  * Escaping:
  * - Backslash, newline, carriage return, '=', ';', '|' are escaped with a preceding backslash.
  */
-object MermaidStyleExtrasCodec {
+internal object MermaidStyleExtrasCodec {
     fun encodeThemeTokens(tokens: MermaidThemeTokens): String {
         val lines = ArrayList<String>()
 
@@ -119,4 +119,3 @@ object MermaidStyleExtrasCodec {
         return out.toString()
     }
 }
-

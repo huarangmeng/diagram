@@ -19,7 +19,7 @@ package com.hrm.diagram.parser.mermaid
  * Token kinds are intentionally a flat `Int` table (per the [Token] contract in
  * `:diagram-core/streaming/Lexer.kt`) so `:diagram-core` stays language-agnostic.
  */
-object MermaidTokenKind {
+internal object MermaidTokenKind {
     const val NEWLINE: Int = 1
     const val KEYWORD_HEADER: Int = 2
     const val DIRECTION: Int = 3

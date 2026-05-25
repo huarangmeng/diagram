@@ -1,7 +1,6 @@
 package com.hrm.diagram.render.streaming.mermaid
 
 import com.hrm.diagram.core.text.TextMeasurer
-import com.hrm.diagram.parser.mermaid.MermaidTokenKind
 import com.hrm.diagram.render.streaming.dispatcher.SubPipelineRegistry
 
 internal enum class MermaidDiagramKind {
@@ -58,32 +57,6 @@ internal class MermaidSubPipelineRegistry(
             MermaidDiagramKind.Packet -> MermaidPacketSubPipeline(textMeasurer)
         }
 
-    fun kindForHeader(kind: Int): MermaidDiagramKind? =
-        when (kind) {
-            MermaidTokenKind.SEQUENCE_HEADER -> MermaidDiagramKind.Sequence
-            MermaidTokenKind.CLASS_HEADER -> MermaidDiagramKind.Class
-            MermaidTokenKind.STATE_HEADER -> MermaidDiagramKind.State
-            MermaidTokenKind.ER_HEADER -> MermaidDiagramKind.Er
-            MermaidTokenKind.KEYWORD_HEADER -> MermaidDiagramKind.Flowchart
-            MermaidTokenKind.PIE_HEADER -> MermaidDiagramKind.Pie
-            MermaidTokenKind.GAUGE_HEADER -> MermaidDiagramKind.Gauge
-            MermaidTokenKind.TIMELINE_HEADER -> MermaidDiagramKind.Timeline
-            MermaidTokenKind.GANTT_HEADER -> MermaidDiagramKind.Gantt
-            MermaidTokenKind.MINDMAP_HEADER -> MermaidDiagramKind.Mindmap
-            MermaidTokenKind.KANBAN_HEADER -> MermaidDiagramKind.Kanban
-            MermaidTokenKind.XYCHART_HEADER -> MermaidDiagramKind.XYChart
-            MermaidTokenKind.QUADRANT_HEADER -> MermaidDiagramKind.Quadrant
-            MermaidTokenKind.JOURNEY_HEADER -> MermaidDiagramKind.Journey
-            MermaidTokenKind.SANKEY_HEADER -> MermaidDiagramKind.Sankey
-            MermaidTokenKind.GITGRAPH_HEADER -> MermaidDiagramKind.GitGraph
-            MermaidTokenKind.REQUIREMENT_HEADER -> MermaidDiagramKind.Requirement
-            MermaidTokenKind.ARCHITECTURE_HEADER -> MermaidDiagramKind.Architecture
-            MermaidTokenKind.C4_HEADER -> MermaidDiagramKind.C4
-            MermaidTokenKind.BLOCK_HEADER -> MermaidDiagramKind.Block
-            MermaidTokenKind.PACKET_HEADER -> MermaidDiagramKind.Packet
-            else -> null
-        }
-
     fun kindForHeaderText(trimmed: String): MermaidDiagramKind? =
         when {
             trimmed.startsWith("flowchart") || trimmed.startsWith("graph") -> MermaidDiagramKind.Flowchart
@@ -109,7 +82,7 @@ internal class MermaidSubPipelineRegistry(
                 trimmed.startsWith("C4Component") ||
                 trimmed.startsWith("C4Dynamic") ||
                 trimmed.startsWith("C4Deployment") -> MermaidDiagramKind.C4
-            trimmed.startsWith("block-beta") -> MermaidDiagramKind.Block
+            trimmed == "block" || trimmed.startsWith("block:") || trimmed.startsWith("block-beta") -> MermaidDiagramKind.Block
             trimmed.startsWith("packet-beta") -> MermaidDiagramKind.Packet
             else -> null
         }

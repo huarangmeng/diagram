@@ -31,7 +31,7 @@ import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -70,11 +70,10 @@ internal class PlantUmlC4SubPipeline(
         fontOf = { labelFont },
         customSizeOf = ::measureNodeSize,
     )
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.PLANTUML,
+        defaultNodeSize = Size(188f, 96f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(188f, 96f), measurePolicy),
         postLayout = { ir, base ->
             val clusterRects = LinkedHashMap<NodeId, Rect>()
             for (cluster in ir.clusters) computeClusterRect(cluster, base.nodePositions, clusterRects)
@@ -85,6 +84,9 @@ internal class PlantUmlC4SubPipeline(
                 bounds = computeBounds(base.nodePositions.values + clusterRects.values + edgeLabelRects.values),
             )
         },
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
         renderEntities = { ir, laid -> renderer.render(ir, laid) },
     )
 

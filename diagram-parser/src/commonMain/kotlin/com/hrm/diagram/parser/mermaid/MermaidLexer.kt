@@ -13,7 +13,7 @@ import com.hrm.diagram.core.streaming.Token
  *  - [LexMode.Sequence]  : Phase-2 sequenceDiagram tokens (arrows ->>/-->/-x, COLON-LABEL, keywords).
  *  - [LexMode.Er]        : Mermaid `erDiagram` tokens (relationship operators + entity blocks).
  */
-enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block, Packet }
+internal enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Timeline, Gantt, Mindmap, Kanban, XYChart, Quadrant, Journey, Sankey, GitGraph, Requirement, Architecture, C4, Block, Packet }
 
 /**
  * Resumable lexer for the Mermaid Phase 1 + 2 subset (see [MermaidTokenKind]).
@@ -29,7 +29,7 @@ enum class LexMode { Auto, Flowchart, Sequence, Class, State, Er, Pie, Gauge, Ti
  * - **EOS flushing.** When `eos = true`, any unfinished bracketed label or arrow becomes an
  *   [MermaidTokenKind.ERROR] token plus a [LexDiagnostic] — never silently dropped.
  */
-class MermaidLexer : ResumableLexer<MermaidLexerState> {
+internal class MermaidLexer : ResumableLexer<MermaidLexerState> {
 
     override fun initialState(): MermaidLexerState = MermaidLexerState()
 
@@ -1144,7 +1144,7 @@ class MermaidLexer : ResumableLexer<MermaidLexerState> {
  * Streaming continuation state: holds the unconsumed prefix of the previous chunk and
  * the active [LexMode] (so chunk boundaries don't reset the mode).
  */
-data class MermaidLexerState(
+internal data class MermaidLexerState(
     val pending: String = "",
     val mode: LexMode = LexMode.Auto,
 ) : LexerState {

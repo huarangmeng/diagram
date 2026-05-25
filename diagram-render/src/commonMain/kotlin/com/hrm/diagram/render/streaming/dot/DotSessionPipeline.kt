@@ -15,7 +15,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.layout.LaidOutDiagram
-import com.hrm.diagram.parser.dot.DotParser
+import com.hrm.diagram.parser.dot.DotParsing
 import com.hrm.diagram.render.graph.GraphClusterLayout
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
@@ -29,8 +29,7 @@ import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 internal class DotSessionPipeline(
     private val textMeasurer: TextMeasurer,
 ) : SessionPipeline {
-    private val parser = DotParser()
-    private val parserSession = parser.incrementalSession()
+    private val parserSession = DotParsing.incrementalSession()
     private val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)

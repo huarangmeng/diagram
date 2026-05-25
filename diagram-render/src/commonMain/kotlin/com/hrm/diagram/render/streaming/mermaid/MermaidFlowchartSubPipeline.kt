@@ -9,7 +9,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.parser.mermaid.MermaidFlowchartParser
-import com.hrm.diagram.parser.mermaid.MermaidTokenKind
+import com.hrm.diagram.parser.mermaid.MermaidFrontend
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
@@ -126,4 +126,4 @@ internal interface MermaidSubPipeline : DrawEntitySnapshotProvider, BatchLineStr
 
 /** Helper kept here to avoid duplicating across sub-pipelines. */
 internal fun isLineNonBlank(line: List<Token>): Boolean =
-    line.any { it.kind != MermaidTokenKind.COMMENT && it.kind != MermaidTokenKind.NEWLINE }
+    line.any { !MermaidFrontend.isCommentToken(it) && !MermaidFrontend.isNewlineToken(it) }

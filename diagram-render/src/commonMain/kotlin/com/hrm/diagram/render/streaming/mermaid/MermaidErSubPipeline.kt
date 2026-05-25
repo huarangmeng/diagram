@@ -30,7 +30,7 @@ import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 import kotlin.math.sqrt
 
 /** Sub-pipeline for Mermaid `erDiagram` sources (Phase 1 subset). */
@@ -62,11 +62,13 @@ internal class MermaidErSubPipeline(
             size
         },
     )
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.MERMAID,
+        defaultNodeSize = Size(140f, 56f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(140f, 56f), measurePolicy),
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
         renderEntities = { graph, laid -> renderDraw(graph, laid, isFinal = currentIsFinal) },
     )
     private val graphPipeline = MermaidGraphSubPipelineKernel(

@@ -27,7 +27,7 @@ import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.plantuml.PlantUmlDeploymentParser
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
-import com.hrm.diagram.render.streaming.kernel.StreamingGraphPipelineKernel
+import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -65,11 +65,10 @@ internal class PlantUmlDeploymentSubPipeline(
         fontOf = { node -> scopedFont(currentPalette.scopes[node.payload[PlantUmlDeploymentParser.KIND_KEY]], labelFont) },
         customSizeOf = { node -> measureNodeSize(node, currentPalette) },
     )
-    private val kernel = StreamingGraphPipelineKernel(
-        textMeasurer = textMeasurer,
+    private val profile = GraphPipelineProfile(
         sourceLanguage = SourceLanguage.PLANTUML,
+        defaultNodeSize = Size(176f, 76f),
         measurePolicy = measurePolicy,
-        layout = StreamingGraphPipelineKernel.sugiyamaLayout(Size(176f, 76f), measurePolicy),
         postLayout = { ir, laid ->
             val clusterRects = LinkedHashMap<NodeId, Rect>()
             for (cluster in ir.clusters) computeClusterRect(cluster, laid.nodePositions, clusterRects, currentPalette)
@@ -81,6 +80,9 @@ internal class PlantUmlDeploymentSubPipeline(
                 ),
             )
         },
+    )
+    private val kernel = profile.kernel(
+        textMeasurer = textMeasurer,
         renderEntities = { ir, laid -> render(ir, laid, currentPalette) },
     )
 
