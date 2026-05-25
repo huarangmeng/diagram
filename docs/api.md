@@ -61,7 +61,7 @@ fun DiagramView(
 
 - `DiagramView` 是对外推荐的 Compose 门面命名。
 - `DiagramView` 对外输入只接受 `source: String`；语法识别、`DiagramSession`、`DiagramSnapshot`、文本测量与增量 append 由库内部接管。
-- `DiagramView` 对外只额外暴露 `zoomEnabled` 这一项交互开关，缩放状态与 viewport 细节由库内部接管。
+- `DiagramView` 对外只额外暴露 `zoomEnabled` 这一项交互开关，缩放状态与 viewport 细节由库内部接管；开启后支持移动端多指缩放 / 平移，以及 PC 鼠标滚轮或触控板缩放。
 - `DiagramSession` / `DiagramSnapshot` 仍作为 streaming 与导出链路的底层契约存在，但不是 Compose 应用层入口。
 
 ## 4. 导出（`:diagram-core` + `:diagram-render`）

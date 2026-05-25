@@ -400,7 +400,7 @@ API 收口事项：
 5. 落地 PNG / JPEG expect/actual：JVM、Android、iOS、JS/Wasm 共用同一份 `RenderedDiagram` 遍历语义。
 6. 补齐导出黄金样例、跨平台回归、README / 文档站 / 发布流水线。
 
-当前状态：🟡 设计已明确；`RenderedDiagram` / `ExportArtifact` / `ExportScale` / `ExportBackground` 与 `toSvg()` / `toPng()` / `toJpeg()` 的桥接形状已在文档定稿。SVG 目前仍以骨架能力为主，PNG/JPEG expect/actual 尚未进入交付态，Maven Central 发布与文档站仍待 Phase 7 实现完成。
+当前状态：🟡 设计与首批实现已完成；`RenderedDiagram` / `ExportArtifact` / `ExportScale` / `ExportBackground` 及 `DiagramSnapshot` / `LaidOutDiagram` 的 `toSvg()` 桥接已落地，`RenderedDiagram.exportPng()` / `exportJpeg()` 已补 `expect/actual` 骨架并完成 JVM 首版实现与回归测试。当前 one-shot 导出对 `LaidOutDiagram` 仍优先覆盖 `GraphIR`，Android / iOS / JS / Wasm 的位图 actual 仍为占位实现，Maven Central 发布与文档站也仍待 Phase 7 完整收尾。
 
 ---
 

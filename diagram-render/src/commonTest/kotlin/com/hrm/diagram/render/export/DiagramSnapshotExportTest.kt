@@ -3,9 +3,12 @@ package com.hrm.diagram.render.export
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.export.ExportBackground
 import com.hrm.diagram.core.export.ExportScale
+import com.hrm.diagram.core.export.JpegExportOptions
+import com.hrm.diagram.core.export.RasterExportOptions
 import com.hrm.diagram.core.export.SvgExportOptions
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.render.Diagram
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -52,6 +55,46 @@ class DiagramSnapshotExportTest {
             assertTrue("edge" in svg, svg)
             assertTrue("viewBox=" in svg, svg)
             assertTrue("width=\"320\"" in svg, svg)
+        } finally {
+            session.close()
+        }
+    }
+
+    @Test
+    fun snapshot_to_png_exports_current_frame() = runTest {
+        val session = Diagram.session(SourceLanguage.DOT)
+        try {
+            session.append("digraph { a [label=\"Alpha\"]; a -> b [label=\"edge\"]; }\n")
+            val snapshot = session.finish()
+
+            val png = snapshot.toPng(
+                RasterExportOptions(
+                    scale = ExportScale.Width(240),
+                    background = ExportBackground.Solid(Color.White),
+                ),
+            )
+
+            assertTrue(png.isNotEmpty())
+        } finally {
+            session.close()
+        }
+    }
+
+    @Test
+    fun snapshot_to_jpeg_exports_current_frame() = runTest {
+        val session = Diagram.session(SourceLanguage.DOT)
+        try {
+            session.append("digraph { a [label=\"Alpha\"]; a -> b; }\n")
+            val snapshot = session.finish()
+
+            val jpeg = snapshot.toJpeg(
+                JpegExportOptions(
+                    scale = ExportScale.Width(220),
+                    quality = 80,
+                ),
+            )
+
+            assertTrue(jpeg.isNotEmpty())
         } finally {
             session.close()
         }

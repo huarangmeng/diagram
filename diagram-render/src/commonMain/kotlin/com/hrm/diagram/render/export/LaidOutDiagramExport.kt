@@ -4,8 +4,12 @@ import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.FontSpec
 import com.hrm.diagram.core.export.ExportBackground
+import com.hrm.diagram.core.export.JpegExportOptions
+import com.hrm.diagram.core.export.RasterExportOptions
 import com.hrm.diagram.core.export.RenderedDiagram
 import com.hrm.diagram.core.export.SvgExportOptions
+import com.hrm.diagram.core.export.exportJpeg
+import com.hrm.diagram.core.export.exportPng
 import com.hrm.diagram.core.export.svg.exportSvg
 import com.hrm.diagram.core.ir.DiagramModel
 import com.hrm.diagram.core.ir.GraphIR
@@ -52,6 +56,18 @@ fun LaidOutDiagram.toSvg(
     theme: DiagramTheme = DiagramTheme.Default,
     options: SvgExportOptions = SvgExportOptions(),
 ): String = prepareExport(theme = theme, background = options.background).exportSvg(options).value
+
+@DiagramApi
+suspend fun LaidOutDiagram.toPng(
+    theme: DiagramTheme = DiagramTheme.Default,
+    options: RasterExportOptions = RasterExportOptions(),
+): ByteArray = prepareExport(theme = theme, background = options.background).exportPng(options).value
+
+@DiagramApi
+suspend fun LaidOutDiagram.toJpeg(
+    theme: DiagramTheme = DiagramTheme.Default,
+    options: JpegExportOptions = JpegExportOptions(),
+): ByteArray = prepareExport(theme = theme, background = options.background).exportJpeg(options).value
 
 private fun renderGraphDiagram(
     graph: GraphIR,

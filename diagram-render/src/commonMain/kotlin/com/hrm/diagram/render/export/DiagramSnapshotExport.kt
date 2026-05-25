@@ -6,8 +6,12 @@ import com.hrm.diagram.core.draw.Point
 import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.export.ExportBackground
+import com.hrm.diagram.core.export.JpegExportOptions
+import com.hrm.diagram.core.export.RasterExportOptions
 import com.hrm.diagram.core.export.RenderedDiagram
 import com.hrm.diagram.core.export.SvgExportOptions
+import com.hrm.diagram.core.export.exportJpeg
+import com.hrm.diagram.core.export.exportPng
 import com.hrm.diagram.core.export.svg.exportSvg
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 
@@ -40,6 +44,16 @@ fun DiagramSnapshot.prepareExport(
 fun DiagramSnapshot.toSvg(
     options: SvgExportOptions = SvgExportOptions(),
 ): String = prepareExport(background = options.background).exportSvg(options).value
+
+@DiagramApi
+suspend fun DiagramSnapshot.toPng(
+    options: RasterExportOptions = RasterExportOptions(),
+): ByteArray = prepareExport(background = options.background).exportPng(options).value
+
+@DiagramApi
+suspend fun DiagramSnapshot.toJpeg(
+    options: JpegExportOptions = JpegExportOptions(),
+): ByteArray = prepareExport(background = options.background).exportJpeg(options).value
 
 private fun DiagramSnapshot.resolveSnapshotBackground(
     background: ExportBackground,

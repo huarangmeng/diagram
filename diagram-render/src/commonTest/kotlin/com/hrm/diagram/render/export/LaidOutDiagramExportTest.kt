@@ -6,6 +6,8 @@ import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Size
 import com.hrm.diagram.core.export.ExportBackground
 import com.hrm.diagram.core.export.ExportScale
+import com.hrm.diagram.core.export.JpegExportOptions
+import com.hrm.diagram.core.export.RasterExportOptions
 import com.hrm.diagram.core.export.SvgExportOptions
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
@@ -15,6 +17,7 @@ import com.hrm.diagram.core.ir.SequenceIR
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -89,5 +92,48 @@ class LaidOutDiagramExportTest {
         assertEquals(laidOut.bounds, rendered.bounds)
         assertEquals(Color.White, rendered.background)
         assertTrue(rendered.drawCommands.isEmpty(), "non-graph families should not fake one-shot export yet")
+    }
+
+    @Test
+    fun laid_out_to_png_exports_graph_ir_frame() = runTest {
+        val laidOut = sampleGraphLaidOut()
+
+        val png = laidOut.toPng(
+            theme = DiagramTheme.Default,
+            options = RasterExportOptions(
+                scale = ExportScale.Width(240),
+                background = ExportBackground.Solid(Color.White),
+            ),
+        )
+
+        assertTrue(png.isNotEmpty())
+    }
+
+    @Test
+    fun laid_out_to_jpeg_exports_graph_ir_frame() = runTest {
+        val laidOut = sampleGraphLaidOut()
+
+        val jpeg = laidOut.toJpeg(
+            theme = DiagramTheme.Default,
+            options = JpegExportOptions(
+                scale = ExportScale.Width(240),
+                quality = 82,
+            ),
+        )
+
+        assertTrue(jpeg.isNotEmpty())
+    }
+
+    private fun sampleGraphLaidOut(): LaidOutDiagram {
+        val graph = GraphIR(
+            nodes = listOf(Node(id = NodeId("a"), label = RichLabel.of("Alpha"))),
+            sourceLanguage = SourceLanguage.DOT,
+        )
+        return LaidOutDiagram(
+            source = graph,
+            nodePositions = mapOf(NodeId("a") to Rect(Point(20f, 16f), Size(120f, 48f))),
+            edgeRoutes = emptyList(),
+            bounds = Rect(Point.Zero, Size(180f, 96f)),
+        )
     }
 }

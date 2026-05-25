@@ -19,12 +19,15 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke as ComposeStroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.draw.ArrowHead
@@ -42,6 +45,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 
 /**
@@ -69,10 +73,16 @@ internal class DiagramViewportState(
     }
 
     internal fun applyGesture(centroid: Offset, panDelta: Offset, zoomChange: Float) {
+        pan += panDelta
+        applyZoom(centroid, zoomChange)
+    }
+
+    internal fun applyZoom(anchor: Offset, zoomChange: Float) {
+        if (zoomChange == 1f) return
         val oldZoom = zoom
         val newZoom = (oldZoom * zoomChange).coerceIn(MIN_ZOOM, MAX_ZOOM)
         val scaleChange = if (oldZoom == 0f) 1f else newZoom / oldZoom
-        pan = (pan + panDelta - centroid) * scaleChange + centroid
+        pan = (pan - anchor) * scaleChange + anchor
         zoom = newZoom
     }
 
@@ -96,6 +106,7 @@ internal fun rememberDiagramViewportState(): DiagramViewportState =
  * [TextMeasurer]; no platform shaping API is touched.
  */
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 internal fun DiagramCanvas(
     snapshot: DiagramSnapshot,
     modifier: Modifier = Modifier,
@@ -108,11 +119,37 @@ internal fun DiagramCanvas(
         snapshot.drawCommands.sortedBy { it.z }
     }
     val canvasModifier = if (panZoomEnabled) {
-        modifier.pointerInput(viewportState) {
-            detectTransformGestures { centroid, pan, zoom, _ ->
-                viewportState.applyGesture(centroid, pan, zoom)
+        val bounds = snapshot.laidOut?.bounds
+        modifier
+            .pointerInput(viewportState, bounds) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Scroll) {
+                            val change = event.changes.firstOrNull()
+                            if (change != null) {
+                                val scroll = change.scrollDelta
+                                if (scroll.y != 0f) {
+                                    viewportState.applyZoom(
+                                        anchor = viewportAnchor(change.position, bounds, size),
+                                        zoomChange = scrollToZoomChange(scroll.y),
+                                    )
+                                    change.consume()
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
+            .pointerInput(viewportState, bounds) {
+                detectTransformGestures { centroid, pan, zoom, _ ->
+                    viewportState.applyGesture(
+                        centroid = viewportAnchor(centroid, bounds, size),
+                        panDelta = pan,
+                        zoomChange = zoom,
+                    )
+                }
+            }
     } else {
         modifier
     }
@@ -140,6 +177,26 @@ internal fun DiagramCanvas(
             for (cmd in visibleCommands) execute(cmd, measurer)
         }
     }
+}
+
+private fun viewportAnchor(
+    screenPosition: Offset,
+    bounds: DiagramRect?,
+    canvasSize: IntSize,
+): Offset {
+    if (bounds == null || bounds.size.width <= 0f || bounds.size.height <= 0f) return screenPosition
+    val fitScale = min(canvasSize.width / bounds.size.width, canvasSize.height / bounds.size.height)
+        .coerceAtMost(1f)
+    val contentOrigin = Offset(
+        x = (canvasSize.width - bounds.size.width * fitScale) / 2f,
+        y = (canvasSize.height - bounds.size.height * fitScale) / 2f,
+    )
+    return screenPosition - contentOrigin
+}
+
+private fun scrollToZoomChange(scrollDeltaY: Float): Float {
+    val exponent = (-scrollDeltaY / 400f).coerceIn(-1f, 1f)
+    return 2.0.pow(exponent.toDouble()).toFloat()
 }
 
 private fun visibleDiagramViewport(

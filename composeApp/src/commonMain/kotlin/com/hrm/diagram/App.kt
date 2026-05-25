@@ -254,7 +254,7 @@ private fun PreviewPane(
                         DiagramView(
                             source = previewSource,
                             modifier = Modifier.fillMaxSize().padding(16.dp),
-                            zoomEnabled = false,
+                            zoomEnabled = true,
                         )
                     }
                     HorizontalDivider()
