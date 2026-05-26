@@ -22,18 +22,21 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.plantuml.PlantUmlDeploymentParser
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
 internal class PlantUmlDeploymentSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private data class ScopePalette(
         val fill: ArgbColor?,
@@ -51,6 +54,7 @@ internal class PlantUmlDeploymentSubPipeline(
     )
 
     private val parser = PlantUmlDeploymentParser()
+    private val colors = ThemeResolver.resolvePlantUmlDeployment(theme)
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -164,7 +168,7 @@ internal class PlantUmlDeploymentSubPipeline(
     private fun render(ir: GraphIR, laidOut: LaidOutDiagram, palette: DeploymentPalette): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val bounds = laidOut.bounds
-        out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
+        out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), colors.canvas, z = 0)
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)
         for (node in ir.nodes) drawNode(node, laidOut, out, palette)
         for ((index, route) in laidOut.edgeRoutes.withIndex()) {
@@ -176,8 +180,8 @@ internal class PlantUmlDeploymentSubPipeline(
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>, palette: DeploymentPalette) {
         val rect = clusterRects[cluster.id] ?: return
-        val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF1F8E9.toInt())
-        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF558B2F.toInt())
+        val fill = cluster.style.fill?.let { Color(it.argb) } ?: colors.clusterFill
+        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: colors.clusterStroke
         val (kind, title) = parseClusterLabel(cluster)
         val scoped = palette.scopes[kind.lowercase()]
         if (kind.equals("node", ignoreCase = true)) {
@@ -187,7 +191,7 @@ internal class PlantUmlDeploymentSubPipeline(
                 fill = fill,
                 strokeColor = strokeColor,
                 stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f),
-                textColor = scoped?.text?.let { Color(it.argb) } ?: strokeColor,
+                textColor = scoped?.text?.let { Color(it.argb) } ?: colors.clusterText,
                 font = scopedFont(scoped, groupFont),
                 shadowing = scoped?.shadowing == true,
                 out = out,
@@ -206,10 +210,10 @@ internal class PlantUmlDeploymentSubPipeline(
         }
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 14f, z = 0)
         out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = 14f, z = 1)
-        val textColor = palette.scopes[kind.lowercase()]?.text?.let { Color(it.argb) } ?: strokeColor
+        val textColor = palette.scopes[kind.lowercase()]?.text?.let { Color(it.argb) } ?: colors.clusterText
         val chipWidth = min(160f, rect.size.width - 24f)
         val chipRect = Rect.ltrb(rect.left + 12f, rect.top + 10f, rect.left + chipWidth, rect.top + 34f)
-        out += DrawCommand.FillRect(rect = chipRect, color = Color(0xFFFFFFFF.toInt()), corner = 12f, z = 2)
+        out += DrawCommand.FillRect(rect = chipRect, color = colors.clusterChipFill, corner = 12f, z = 2)
         out += DrawCommand.StrokeRect(rect = chipRect, stroke = Stroke(width = 1f), color = strokeColor, corner = 12f, z = 3)
         out += DrawCommand.DrawText(
             text = "${kind.uppercase()}  ${title.ifBlank { cluster.id.value }}",
@@ -283,11 +287,14 @@ internal class PlantUmlDeploymentSubPipeline(
 
     private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>, palette: DeploymentPalette) {
         val rect = laidOut.nodePositions[node.id] ?: return
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE8F5E9.toInt())
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF2E7D32.toInt())
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF1B5E20.toInt())
-        val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
         val kind = node.payload[PlantUmlDeploymentParser.KIND_KEY]
+        val defaultFill = if (kind == "note") colors.noteFill else colors.nodeFill
+        val defaultStroke = if (kind == "note") colors.noteStroke else colors.nodeStroke
+        val defaultText = if (kind == "note") colors.noteText else colors.nodeText
+        val fill = node.style.fill?.let { Color(it.argb) } ?: defaultFill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: defaultStroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: defaultText
+        val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
         val scoped = palette.scopes[kind]
         val nodeFont = scopedFont(scoped, labelFont)
         when (kind) {
@@ -471,7 +478,7 @@ internal class PlantUmlDeploymentSubPipeline(
             }
             else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
         }
-        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF546E7A.toInt())
+        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: colors.edge
         val stroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
         out += DrawCommand.StrokePath(path = PathCmd(ops), stroke = stroke, color = edgeColor, z = 2)
         val tail = pts[pts.size - 2]
@@ -494,7 +501,7 @@ internal class PlantUmlDeploymentSubPipeline(
                 text = text,
                 origin = Point(mid.x, mid.y - 4f),
                 font = edgeLabelFont,
-                color = Color(0xFF263238.toInt()),
+                color = colors.edgeLabelText,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Bottom,
                 z = 5,
@@ -503,8 +510,8 @@ internal class PlantUmlDeploymentSubPipeline(
     }
 
     private fun drawActor(node: Node, rect: Rect, out: MutableList<DrawCommand>, shadowing: Boolean, font: FontSpec) {
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF455A64.toInt())
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF263238.toInt())
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
         val cx = (rect.left + rect.right) / 2f
         val top = rect.top + 8f
@@ -565,9 +572,9 @@ internal class PlantUmlDeploymentSubPipeline(
     }
 
     private fun drawNote(node: Node, rect: Rect, out: MutableList<DrawCommand>, shadowing: Boolean, font: FontSpec) {
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFFFF8E1.toInt())
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFFFFA000.toInt())
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF5D4037.toInt())
+        val fill = node.style.fill?.let { Color(it.argb) } ?: colors.noteFill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: colors.noteStroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: colors.noteText
         if (shadowing) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),

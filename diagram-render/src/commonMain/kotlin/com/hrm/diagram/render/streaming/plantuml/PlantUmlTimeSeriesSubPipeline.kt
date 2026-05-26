@@ -18,15 +18,18 @@ import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.timeseries.GanttLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlGanttParser
 import com.hrm.diagram.parser.plantuml.PlantUmlTimingParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 
 internal class PlantUmlTimeSeriesSubPipeline(
     private val kind: Kind,
     textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     enum class Kind { Gantt, Timing }
 
@@ -36,6 +39,8 @@ internal class PlantUmlTimeSeriesSubPipeline(
 
     private val ganttParser = if (kind == Kind.Gantt) PlantUmlGanttParser() else null
     private val timingParser = if (kind == Kind.Timing) PlantUmlTimingParser() else null
+    private val colors = ThemeResolver.resolveTimeSeries(theme)
+    private val criticalStrokeColor = Color(0xFFD32F2F.toInt())
     private val layout = GanttLayout(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = {
@@ -74,13 +79,13 @@ internal class PlantUmlTimeSeriesSubPipeline(
 
     private fun render(ir: TimeSeriesIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
-        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
-        val text = Color(0xFF263238.toInt())
+        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), colors.slotFill, z = 0)
+        val text = colors.labelText
         val isTiming = ir.styleHints.extras["plantuml.timeseries.kind"] == "timing"
         val hideTimingAxis = isTiming && ir.styleHints.extras["timing.hideAxis"] == "true"
         val axis = laid.nodePositions[NodeId("gantt:axis")]
         if (axis != null && !hideTimingAxis) {
-            out += DrawCommand.StrokeRect(axis, Stroke(width = 1f), Color(0xFFB0BEC5.toInt()), z = 1)
+            out += DrawCommand.StrokeRect(axis, Stroke(width = 1f), colors.axis, z = 1)
             if (isTiming) drawTimingScale(ir, axis, out) else drawDefaultGrid(axis, out)
             if (!isTiming) drawGanttClosedBands(ir, axis, out)
         }
@@ -138,7 +143,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
                     label,
                     Point((bar.left + bar.right) / 2f, (bar.top + bar.bottom) / 2f),
                     itemFont,
-                    Color(0xFFFFFFFF.toInt()),
+                    colors.slotFill,
                     maxWidth = bar.size.width - 8f,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Middle,
@@ -158,12 +163,12 @@ internal class PlantUmlTimeSeriesSubPipeline(
         val progress = item.payload["gantt.progress"]?.toIntOrNull()?.coerceIn(0, 100) ?: return
         if (progress <= 0) return
         val width = bar.size.width * progress / 100f
-        out += DrawCommand.FillRect(Rect(Point(bar.left, bar.top), Size(width, bar.size.height)), Color(0x662E7D32), corner = 4f, z = 5)
+        out += DrawCommand.FillRect(Rect(Point(bar.left, bar.top), Size(width, bar.size.height)), colors.doneFill, corner = 4f, z = 5)
         out += DrawCommand.DrawText(
             "$progress%",
             Point((bar.left + bar.right) / 2f, (bar.top + bar.bottom) / 2f),
             itemFont,
-            Color(0xFFFFFFFF.toInt()),
+            colors.slotFill,
             maxWidth = bar.size.width - 8f,
             anchorX = TextAnchorX.Center,
             anchorY = TextAnchorY.Middle,
@@ -192,7 +197,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
         out += DrawCommand.FillPath(path, fill, z = 4)
         out += DrawCommand.StrokePath(path, ganttStroke(item), ganttStrokeColor(item), z = 5)
         labelRect?.let {
-            out += DrawCommand.DrawText(labelText(item.label), Point(it.left, it.top), itemFont, Color(0xFF263238.toInt()), maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
+            out += DrawCommand.DrawText(labelText(item.label), Point(it.left, it.top), itemFont, colors.labelText, maxWidth = it.size.width, anchorY = TextAnchorY.Top, z = 10)
         }
         drawGanttNote(item, bar, out)
     }
@@ -207,7 +212,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
             note,
             Point(bar.right + 6f, (bar.top + bar.bottom) / 2f),
             itemFont,
-            Color(0xFF6D4C41.toInt()),
+            colors.milestoneFill,
             maxWidth = 180f,
             anchorY = TextAnchorY.Middle,
             z = 10,
@@ -223,7 +228,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
         }
 
     private fun ganttStrokeColor(item: com.hrm.diagram.core.ir.TimeItem): Color =
-        if (item.payload["gantt.style"] == "critical") Color(0xFFD32F2F.toInt()) else Color(0xFF78909C.toInt())
+        if (item.payload["gantt.style"] == "critical") criticalStrokeColor else colors.border
 
     private fun drawDefaultGrid(axis: Rect, out: MutableList<DrawCommand>) {
         for (i in 0..4) {
@@ -231,7 +236,7 @@ internal class PlantUmlTimeSeriesSubPipeline(
             out += DrawCommand.StrokePath(
                 PathCmd(listOf(PathOp.MoveTo(Point(x, axis.top)), PathOp.LineTo(Point(x, axis.bottom)))),
                 Stroke.Hairline,
-                Color(0xFFE0E0E0.toInt()),
+                colors.border,
                 z = 1,
             )
         }

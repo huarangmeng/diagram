@@ -23,6 +23,7 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
@@ -32,13 +33,16 @@ import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.min
 import kotlin.math.sqrt
 
 internal class PlantUmlC4SubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlC4Parser()
+    private val colors = ThemeResolver.resolvePlantUmlComponent(theme)
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -50,11 +54,16 @@ internal class PlantUmlC4SubPipeline(
             nodeFont = labelFont,
             edgeFont = edgeFont,
             clusterFont = clusterFont,
-            nodeFill = Color(0xFFE3F2FD.toInt()),
-            nodeStroke = Color(0xFF1E88E5.toInt()),
-            nodeText = Color(0xFF0D47A1.toInt()),
-            edgeColor = Color(0xFF546E7A.toInt()),
-            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            nodeFill = colors.nodeFill,
+            nodeStroke = colors.nodeStroke,
+            nodeText = colors.nodeText,
+            edgeColor = colors.edgeColor,
+            edgeLabelText = colors.edgeLabelText,
+            edgeLabelBg = colors.clusterChipFill,
+            clusterFill = colors.clusterFill,
+            clusterStroke = colors.clusterStroke,
+            clusterText = colors.clusterText,
+            graphBackground = { _, _ -> colors.canvas },
             customNodeCommands = { node, rect -> nodeCommands(node, rect, parser.nodeLinkSnapshot()[node.id]) },
             customClusterCommands = { cluster, rect -> clusterCommands(cluster, rect, parser.nodeLinkSnapshot()) },
             customEdgeCommands = ::edgeCommands,
@@ -148,7 +157,7 @@ internal class PlantUmlC4SubPipeline(
         val out = ArrayList<DrawCommand>()
         val clusterTitleRects = clusterTitleRects(laid.clusterRects.values)
         val edgeLabelRects = computeEdgeLabelRects(ir, laid.edgeRoutes, laid.nodePositions.values, clusterTitleRects)
-        out += DrawCommand.FillRect(laid.bounds, Color(0xFFFFFFFF.toInt()), z = -1)
+        out += DrawCommand.FillRect(laid.bounds, colors.canvas, z = -1)
         val nodeLinks = parser.nodeLinkSnapshot()
         val edgeLinks = parser.edgeLinkSnapshot()
         val edgePresentation = parser.edgePresentationSnapshot()
@@ -274,13 +283,13 @@ internal class PlantUmlC4SubPipeline(
 
     private fun clusterCommands(cluster: Cluster, rect: Rect, links: Map<NodeId, String>): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90A4AE.toInt())
-        out += DrawCommand.FillRect(rect, cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FBFF.toInt()), corner = 14f, z = 0)
+        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: colors.clusterStroke
+        out += DrawCommand.FillRect(rect, cluster.style.fill?.let { Color(it.argb) } ?: colors.clusterFill, corner = 14f, z = 0)
         out += DrawCommand.StrokeRect(rect, Stroke(width = cluster.style.strokeWidth ?: 1.4f, dash = listOf(8f, 5f)), strokeColor, corner = 14f, z = 1)
         val chip = Rect.ltrb(rect.left + 10f, rect.top + 10f, min(rect.right - 10f, rect.left + 190f), rect.top + 42f)
-        out += DrawCommand.FillRect(chip, Color(0xFFFFFFFF.toInt()), corner = 10f, z = 2)
+        out += DrawCommand.FillRect(chip, colors.clusterChipFill, corner = 10f, z = 2)
         out += DrawCommand.StrokeRect(chip, Stroke(width = 1f), strokeColor, corner = 10f, z = 3)
-        out += DrawCommand.DrawText(clusterTitle(cluster), Point(chip.left + 10f, chip.top + 10f), clusterFont, strokeColor, maxWidth = chip.size.width - 20f, anchorY = TextAnchorY.Top, z = 4)
+        out += DrawCommand.DrawText(clusterTitle(cluster), Point(chip.left + 10f, chip.top + 10f), clusterFont, colors.clusterText, maxWidth = chip.size.width - 20f, anchorY = TextAnchorY.Top, z = 4)
         links[cluster.id]?.let { href ->
             out += DrawCommand.Hyperlink(href, rect, z = 9)
             drawLinkBadge(rect, strokeColor, out)
@@ -294,9 +303,9 @@ internal class PlantUmlC4SubPipeline(
 
     private fun nodeCommands(node: Node, rect: Rect, link: String?): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1E88E5.toInt())
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
+        val fill = node.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
         val shape = node.shape
         when (shape) {
             is NodeShape.Actor, is NodeShape.Stadium -> drawActorNode(rect, fill, strokeColor, out)
@@ -337,7 +346,7 @@ internal class PlantUmlC4SubPipeline(
 
     private fun drawLinkBadge(rect: Rect, strokeColor: Color, out: MutableList<DrawCommand>) {
         val badge = Rect.ltrb(rect.right - 28f, rect.bottom - 24f, rect.right - 8f, rect.bottom - 6f)
-        out += DrawCommand.FillRect(badge, Color(0xEEFFFFFF.toInt()), corner = 9f, z = 7)
+        out += DrawCommand.FillRect(badge, colors.clusterChipFill, corner = 9f, z = 7)
         out += DrawCommand.StrokeRect(badge, Stroke(width = 1f), strokeColor, corner = 9f, z = 8)
         out += DrawCommand.DrawText("L", Point((badge.left + badge.right) / 2f, (badge.top + badge.bottom) / 2f), stereoFont, strokeColor, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 9)
     }
@@ -420,15 +429,15 @@ internal class PlantUmlC4SubPipeline(
             }
             else -> for (i in 1 until pts.size) ops += PathOp.LineTo(pts[i])
         }
-        val color = edge?.style?.color?.let { Color(it.argb) } ?: Color(0xFF546E7A.toInt())
+        val color = edge?.style?.color?.let { Color(it.argb) } ?: colors.edgeColor
         out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = edge?.style?.width ?: 1.5f, dash = edge?.style?.dash), color, z = 2)
         if (edge?.arrow == ArrowEnds.ToOnly || edge?.arrow == ArrowEnds.Both) out += openArrowHead(pts[pts.size - 2], pts.last(), color)
         if (edge?.arrow == ArrowEnds.Both) out += openArrowHead(pts[1], pts.first(), color)
         val label = edge?.label?.let(::labelTextOf).orEmpty()
         if (label.isNotBlank() && labelRect != null) {
             val origin = Point((labelRect.left + labelRect.right) / 2f, (labelRect.top + labelRect.bottom) / 2f)
-            out += DrawCommand.FillRect(labelRect, Color(0xEEFFFFFF.toInt()), corner = 4f, z = 3)
-            val labelColor = presentation?.textColor?.let { Color(it.argb) } ?: Color(0xFF37474F.toInt())
+            out += DrawCommand.FillRect(labelRect, colors.clusterChipFill, corner = 4f, z = 3)
+            val labelColor = presentation?.textColor?.let { Color(it.argb) } ?: colors.edgeLabelText
             out += DrawCommand.DrawText(
                 label,
                 origin,

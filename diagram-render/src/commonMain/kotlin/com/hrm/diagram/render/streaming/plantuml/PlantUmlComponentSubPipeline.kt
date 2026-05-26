@@ -25,6 +25,7 @@ import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
@@ -32,10 +33,12 @@ import com.hrm.diagram.parser.plantuml.PlantUmlComponentParser
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlComponentSubPipeline(
     private val textMeasurer: TextMeasurer,
+    private val theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private data class ScopePalette(
         val fill: ArgbColor?,
@@ -53,6 +56,7 @@ internal class PlantUmlComponentSubPipeline(
     )
 
     private val parser = PlantUmlComponentParser()
+    private val resolvedColors = ThemeResolver.resolvePlantUmlComponent(theme)
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
@@ -284,22 +288,29 @@ internal class PlantUmlComponentSubPipeline(
         palette: ComponentPalette,
         edgeLabelRects: Map<Int, Rect>,
     ): List<com.hrm.diagram.render.cache.DrawEntity> {
+        val colors = resolvedColors
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val bounds = laidOut.bounds
-        out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
-        for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette)
-        for (node in ir.nodes) drawNode(node, ir, laidOut, out, palette)
+        out += DrawCommand.FillRect(Rect(Point(bounds.left, bounds.top), Size(bounds.size.width, bounds.size.height)), colors.canvas, z = 0)
+        for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out, palette, colors)
+        for (node in ir.nodes) drawNode(node, ir, laidOut, out, palette, colors)
         for ((index, route) in laidOut.edgeRoutes.withIndex()) {
             val edge = ir.edges.getOrNull(index) ?: continue
-            drawEdge(edge, route, edgeLabelRects[index], out)
+            drawEdge(edge, route, edgeLabelRects[index], out, colors)
         }
         return out.entities()
     }
 
-    private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>, palette: ComponentPalette) {
+    private fun drawCluster(
+        cluster: Cluster,
+        clusterRects: Map<NodeId, Rect>,
+        out: MutableList<DrawCommand>,
+        palette: ComponentPalette,
+        colors: com.hrm.diagram.render.theme.ResolvedPlantUmlComponentColors,
+    ) {
         val rect = clusterRects[cluster.id] ?: return
-        val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF5F5F5.toInt())
-        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF78909C.toInt())
+        val fill = cluster.style.fill?.let { Color(it.argb) } ?: colors.clusterFill
+        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: colors.clusterStroke
         val stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f, dash = listOf(7f, 5f))
         val scoped = palette.scopes[parseClusterLabel(cluster).first.lowercase()]
         if (scoped?.shadowing == true) {
@@ -314,14 +325,14 @@ internal class PlantUmlComponentSubPipeline(
         out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = 14f, z = 1)
 
         val (kind, title) = parseClusterLabel(cluster)
-        val textColor = palette.scopes[kind.lowercase()]?.text?.let { Color(it.argb) } ?: strokeColor
+        val textColor = palette.scopes[kind.lowercase()]?.text?.let { Color(it.argb) } ?: colors.clusterText
         val headerText = clusterHeaderText(kind, title, cluster.id)
         val headerFont = clusterHeaderFont(scoped)
         val headerMetrics = textMeasurer.measure(headerText, headerFont)
         val chipWidth = (headerMetrics.width + 22f).coerceAtMost(rect.size.width - 24f).coerceAtLeast(40f)
         val chipHeight = (headerMetrics.height + 10f).coerceAtLeast(22f)
         val chipRect = Rect.ltrb(rect.left + 12f, rect.top + 8f, rect.left + 12f + chipWidth, rect.top + 8f + chipHeight)
-        out += DrawCommand.FillRect(rect = chipRect, color = Color(0xFFFFFFFF.toInt()), corner = 12f, z = 2)
+        out += DrawCommand.FillRect(rect = chipRect, color = colors.clusterChipFill, corner = 12f, z = 2)
         out += DrawCommand.StrokeRect(rect = chipRect, stroke = Stroke(width = 1f), color = strokeColor, corner = 12f, z = 3)
         out += DrawCommand.DrawText(
             text = headerText,
@@ -333,14 +344,24 @@ internal class PlantUmlComponentSubPipeline(
             anchorY = TextAnchorY.Middle,
             z = 4,
         )
-        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out, palette)
+        for (nested in cluster.nestedClusters) drawCluster(nested, clusterRects, out, palette, colors)
     }
 
-    private fun drawNode(node: Node, ir: GraphIR, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>, palette: ComponentPalette) {
+    private fun drawNode(
+        node: Node,
+        ir: GraphIR,
+        laidOut: LaidOutDiagram,
+        out: MutableList<DrawCommand>,
+        palette: ComponentPalette,
+        colors: com.hrm.diagram.render.theme.ResolvedPlantUmlComponentColors,
+    ) {
         val rect = laidOut.nodePositions[node.id] ?: return
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE8EAF6.toInt())
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF3949AB.toInt())
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF1A237E.toInt())
+        val defaultFill = if (node.payload[PlantUmlComponentParser.KIND_KEY] == "note") colors.noteFill else colors.nodeFill
+        val defaultStroke = if (node.payload[PlantUmlComponentParser.KIND_KEY] == "note") colors.noteStroke else colors.nodeStroke
+        val defaultText = if (node.payload[PlantUmlComponentParser.KIND_KEY] == "note") colors.noteText else colors.nodeText
+        val fill = node.style.fill?.let { Color(it.argb) } ?: defaultFill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: defaultStroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: defaultText
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
         val label = labelTextOf(node)
         val kind = node.payload[PlantUmlComponentParser.KIND_KEY]
@@ -779,7 +800,13 @@ internal class PlantUmlComponentSubPipeline(
         }
     }
 
-    private fun drawEdge(edge: com.hrm.diagram.core.ir.Edge, route: com.hrm.diagram.layout.EdgeRoute, labelRect: Rect?, out: MutableList<DrawCommand>) {
+    private fun drawEdge(
+        edge: com.hrm.diagram.core.ir.Edge,
+        route: com.hrm.diagram.layout.EdgeRoute,
+        labelRect: Rect?,
+        out: MutableList<DrawCommand>,
+        colors: com.hrm.diagram.render.theme.ResolvedPlantUmlComponentColors,
+    ) {
         val pts = route.points
         if (pts.size < 2) return
         val ops = ArrayList<PathOp>(pts.size)
@@ -795,7 +822,7 @@ internal class PlantUmlComponentSubPipeline(
             }
             else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
         }
-        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF546E7A.toInt())
+        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: colors.edgeColor
         val stroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
         out += DrawCommand.StrokePath(path = PathCmd(ops), stroke = stroke, color = edgeColor, z = 2)
         val tail = pts[pts.size - 2]
@@ -818,7 +845,7 @@ internal class PlantUmlComponentSubPipeline(
             text = text,
             origin = Point(rect.left + rect.size.width / 2f, rect.top + rect.size.height / 2f),
             font = edgeLabelFont,
-            color = Color(0xFF263238.toInt()),
+            color = colors.edgeLabelText,
             maxWidth = rect.size.width,
             anchorX = TextAnchorX.Center,
             anchorY = TextAnchorY.Middle,

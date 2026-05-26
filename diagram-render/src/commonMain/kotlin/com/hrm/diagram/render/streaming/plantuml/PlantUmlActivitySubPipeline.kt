@@ -30,16 +30,19 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlActivityParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlActivitySubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     companion object {
         private const val LANE_KEY = "plantuml.activity.lane"
@@ -48,6 +51,7 @@ internal class PlantUmlActivitySubPipeline(
     }
 
     private val parser = PlantUmlActivityParser()
+    private val colors = ThemeResolver.resolvePlantUmlActivity(theme)
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
         defaultNodeSize = Size(160f, 72f),
@@ -347,12 +351,12 @@ internal class PlantUmlActivitySubPipeline(
         fillOverride: ArgbColor? = null,
         palette: ActivityPalette,
     ): NodeStyle = when {
-        start -> NodeStyle(fill = palette.startFill ?: ArgbColor(0xFF263238.toInt()), stroke = palette.startFill ?: ArgbColor(0xFF263238.toInt()), strokeWidth = palette.startLineThickness ?: 1.5f)
-        stop -> NodeStyle(fill = ArgbColor(0xFFFFFFFF.toInt()), stroke = palette.stopStroke ?: ArgbColor(0xFF263238.toInt()), strokeWidth = palette.stopLineThickness ?: 1.5f)
-        fork -> NodeStyle(fill = palette.barFill ?: ArgbColor(0xFF263238.toInt()), stroke = palette.barFill ?: ArgbColor(0xFF263238.toInt()), strokeWidth = palette.barLineThickness ?: 1.5f, textColor = palette.barText)
-        note -> NodeStyle(fill = palette.noteFill ?: ArgbColor(0xFFFFF8E1.toInt()), stroke = palette.noteStroke ?: ArgbColor(0xFFFFA000.toInt()), strokeWidth = palette.noteLineThickness ?: 1.5f, textColor = palette.noteText ?: ArgbColor(0xFF5D4037.toInt()))
-        decision -> NodeStyle(fill = palette.decisionFill ?: ArgbColor(0xFFE8F5E9.toInt()), stroke = palette.decisionStroke ?: ArgbColor(0xFF2E7D32.toInt()), strokeWidth = palette.decisionLineThickness ?: 1.5f, textColor = palette.decisionText ?: ArgbColor(0xFF1B5E20.toInt()))
-        action -> NodeStyle(fill = fillOverride ?: palette.actionFill ?: ArgbColor(0xFFE3F2FD.toInt()), stroke = palette.actionStroke ?: ArgbColor(0xFF1565C0.toInt()), strokeWidth = palette.actionLineThickness ?: 1.5f, textColor = palette.actionText ?: ArgbColor(0xFF0D47A1.toInt()))
+        start -> NodeStyle(fill = palette.startFill ?: ArgbColor(colors.startFill.argb), stroke = palette.startFill ?: ArgbColor(colors.startFill.argb), strokeWidth = palette.startLineThickness ?: 1.5f)
+        stop -> NodeStyle(fill = ArgbColor(Color.White.argb), stroke = palette.stopStroke ?: ArgbColor(colors.stopStroke.argb), strokeWidth = palette.stopLineThickness ?: 1.5f)
+        fork -> NodeStyle(fill = palette.barFill ?: ArgbColor(colors.barFill.argb), stroke = palette.barFill ?: ArgbColor(colors.barFill.argb), strokeWidth = palette.barLineThickness ?: 1.5f, textColor = palette.barText ?: ArgbColor(colors.barText.argb))
+        note -> NodeStyle(fill = palette.noteFill ?: ArgbColor(colors.noteFill.argb), stroke = palette.noteStroke ?: ArgbColor(colors.noteStroke.argb), strokeWidth = palette.noteLineThickness ?: 1.5f, textColor = palette.noteText ?: ArgbColor(colors.noteText.argb))
+        decision -> NodeStyle(fill = palette.decisionFill ?: ArgbColor(colors.decisionFill.argb), stroke = palette.decisionStroke ?: ArgbColor(colors.decisionStroke.argb), strokeWidth = palette.decisionLineThickness ?: 1.5f, textColor = palette.decisionText ?: ArgbColor(colors.decisionText.argb))
+        action -> NodeStyle(fill = fillOverride ?: palette.actionFill ?: ArgbColor(colors.actionFill.argb), stroke = palette.actionStroke ?: ArgbColor(colors.actionStroke.argb), strokeWidth = palette.actionLineThickness ?: 1.5f, textColor = palette.actionText ?: ArgbColor(colors.actionText.argb))
         else -> NodeStyle.Default
     }
 
@@ -361,7 +365,7 @@ internal class PlantUmlActivitySubPipeline(
         to = to,
         kind = EdgeKind.Solid,
         arrow = ArrowEnds.ToOnly,
-        style = EdgeStyle(color = palette.edgeColor ?: ArgbColor(0xFF546E7A.toInt()), width = 1.5f),
+        style = EdgeStyle(color = palette.edgeColor ?: ArgbColor(colors.edge.argb), width = 1.5f),
         label = label?.takeIf { it.isNotEmpty() }?.let(RichLabel::Plain),
     )
 
@@ -403,9 +407,9 @@ internal class PlantUmlActivitySubPipeline(
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out)
         for (node in ir.nodes) {
             val rect = laidOut.nodePositions[node.id] ?: continue
-            val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
-            val stroke = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1565C0.toInt())
-            val text = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
+            val fill = node.style.fill?.let { Color(it.argb) } ?: colors.actionFill
+            val stroke = node.style.stroke?.let { Color(it.argb) } ?: colors.actionStroke
+            val text = node.style.textColor?.let { Color(it.argb) } ?: colors.actionText
             val scope = scopeFor(node, palette)
             val bodyFont = scopedFont(scope, labelFont)
             val barFont = scopedFont(scope, edgeLabelFont)
@@ -545,7 +549,7 @@ internal class PlantUmlActivitySubPipeline(
                 }
                 else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
             }
-            val color = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF546E7A.toInt())
+            val color = edge.style.color?.let { Color(it.argb) } ?: colors.edge
             out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash), color, z = 1)
             out += openArrowHead(pts[pts.size - 2], pts.last(), color)
             val text = (edge.label as? RichLabel.Plain)?.text.orEmpty()
@@ -555,7 +559,7 @@ internal class PlantUmlActivitySubPipeline(
                     text = text,
                     origin = Point(mid.x, mid.y - 4f),
                     font = edgeLabelFont,
-                    color = Color(0xFF263238.toInt()),
+                    color = colors.actionText,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Bottom,
                     z = 4,
@@ -567,8 +571,8 @@ internal class PlantUmlActivitySubPipeline(
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {
         val rect = clusterRects[cluster.id] ?: return
-        val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0x0D90CAF9)
-        val stroke = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90CAF9.toInt())
+        val fill = cluster.style.fill?.let { Color(it.argb) } ?: colors.laneFill
+        val stroke = cluster.style.stroke?.let { Color(it.argb) } ?: colors.laneStroke
         out += DrawCommand.FillRect(rect, fill, corner = 12f, z = 0)
         out += DrawCommand.StrokeRect(rect, Stroke(width = cluster.style.strokeWidth ?: 1f), stroke, corner = 12f, z = 0)
         val label = (cluster.label as? RichLabel.Plain)?.text.orEmpty()
@@ -577,7 +581,7 @@ internal class PlantUmlActivitySubPipeline(
                 text = label,
                 origin = Point(rect.left + 12f, rect.top + 10f),
                 font = edgeLabelFont,
-                color = Color(0xFF1565C0.toInt()),
+                color = colors.laneText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 1,
@@ -673,8 +677,8 @@ internal class PlantUmlActivitySubPipeline(
                     label = RichLabel.Plain(lane),
                     children = laneNodes.map { it.id },
                     style = ClusterStyle(
-                        fill = fill ?: ArgbColor(0x1490CAF9),
-                        stroke = fill?.let(::darkerStroke) ?: ArgbColor(0xFF90CAF9.toInt()),
+                        fill = fill ?: ArgbColor(colors.laneFill.argb),
+                        stroke = fill?.let(::darkerStroke) ?: ArgbColor(colors.laneStroke.argb),
                         strokeWidth = 1f,
                     ),
                 )

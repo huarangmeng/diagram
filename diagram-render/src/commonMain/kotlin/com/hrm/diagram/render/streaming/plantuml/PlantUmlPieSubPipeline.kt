@@ -17,10 +17,12 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.pie.PieLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlPieParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -29,8 +31,10 @@ import kotlin.math.tan
 
 internal class PlantUmlPieSubPipeline(
     textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlPieParser()
+    private val colors = ThemeResolver.resolvePie(theme)
     private val layout = PieLayout(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -59,11 +63,11 @@ internal class PlantUmlPieSubPipeline(
         val palette = ir.slices.indices.map { idx ->
             parseColor(ir.styleHints.extras["${PlantUmlPieParser.STYLE_SLICE_COLOR_PREFIX}$idx"])
         }.mapIndexed { index, color ->
-            color ?: defaultPalette()[index % defaultPalette().size]
+            color ?: colors.slices[index % colors.slices.size]
         }
         val border = Stroke(width = ir.styleHints.extras[PlantUmlPieParser.STYLE_LINE_THICKNESS_KEY]?.toFloatOrNull() ?: 1f)
-        val borderColor = parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_BORDER_KEY]) ?: Color(0xFF263238.toInt())
-        val textColor = parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_TEXT_KEY]) ?: borderColor
+        val borderColor = parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_BORDER_KEY]) ?: colors.border
+        val textColor = parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_TEXT_KEY]) ?: colors.titleText
         parseColor(ir.styleHints.extras[PlantUmlPieParser.STYLE_BACKGROUND_KEY])?.let {
             out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), it, z = -1)
         }
@@ -132,16 +136,6 @@ internal class PlantUmlPieSubPipeline(
         )
         return out.entities()
     }
-
-    private fun defaultPalette(): List<Color> =
-        listOf(
-            Color(0xFF42A5F5.toInt()),
-            Color(0xFF66BB6A.toInt()),
-            Color(0xFFFFCA28.toInt()),
-            Color(0xFFEF5350.toInt()),
-            Color(0xFFAB47BC.toInt()),
-            Color(0xFF26C6DA.toInt()),
-        )
 
     private fun wedgePath(center: Point, radius: Float, start: Double, end: Double): PathCmd {
         val ops = ArrayList<PathOp>()

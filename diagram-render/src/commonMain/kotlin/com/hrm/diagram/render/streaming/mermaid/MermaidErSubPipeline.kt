@@ -22,6 +22,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
 import com.hrm.diagram.core.text.TextMetrics
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.mermaid.MermaidErParser
@@ -31,13 +32,16 @@ import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 /** Sub-pipeline for Mermaid `erDiagram` sources (Phase 1 subset). */
 internal class MermaidErSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidErParser()
+    private val colors = ThemeResolver.resolveGraph(theme)
     private val entityFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val flagFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
@@ -174,11 +178,11 @@ internal class MermaidErSubPipeline(
 
     private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<DrawEntity> {
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
-        val fallbackEntityFill = Color(0xFFE8F5E9U.toInt())
-        val fallbackEntityStroke = Color(0xFF2E7D32U.toInt())
-        val fallbackEntityText = Color(0xFF1B5E20U.toInt())
-        val relationLabelText = Color(0xFF263238U.toInt())
-        val fallbackRelationLabelBg = Color(0xFFF5F5F5U.toInt())
+        val fallbackEntityFill = colors.nodeFill
+        val fallbackEntityStroke = colors.nodeStroke
+        val fallbackEntityText = colors.nodeText
+        val relationLabelText = colors.edgeLabelText
+        val fallbackRelationLabelBg = colors.edgeLabelBackground
         val attributeLinkStroke = Stroke(width = 1f, dash = listOf(5f, 5f))
         val relationStroke = Stroke(width = 1.5f)
         val relationBadgePadX = 6f
@@ -241,7 +245,7 @@ internal class MermaidErSubPipeline(
             val edge = ir.edges.getOrNull(idx) ?: continue
             val isAttributeLink = edge.label == null
             if (isFinal && isAttributeLink) continue
-            val edgeColor = colorOf(edge.style.color, Color(0xFF455A64U.toInt()))
+            val edgeColor = colorOf(edge.style.color, colors.edge)
             val edgeStroke = if (isAttributeLink) {
                 attributeLinkStroke
             } else {

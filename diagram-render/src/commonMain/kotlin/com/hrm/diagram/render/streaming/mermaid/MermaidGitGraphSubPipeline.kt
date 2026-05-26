@@ -17,6 +17,7 @@ import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.gitgraph.GitGraphLayout
 import com.hrm.diagram.parser.mermaid.MermaidGitGraphParser
@@ -24,11 +25,14 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 
 internal class MermaidGitGraphSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidGitGraphParser()
+    private val colors = ThemeResolver.resolveGitGraph(theme)
     private val layout = GitGraphLayout(textMeasurer)
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
@@ -52,15 +56,12 @@ internal class MermaidGitGraphSubPipeline(
     private fun render(ir: GitGraphIR, laid: LaidOutDiagram): List<DrawEntity> {
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
-        val text = Color(0xFF263238.toInt())
-        val lane = Color(0xFFE0E0E0.toInt())
-        val border = Color(0xFF455A64.toInt())
         val branchColors = ir.branches.mapIndexed { index, name -> name to palette(index) }.toMap()
 
-        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
+        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), colors.background, z = 0)
         val titleRect = laid.nodePositions[NodeId("gitgraph:title")]
         if (titleRect != null && !ir.title.isNullOrBlank()) {
-            out += DrawCommand.DrawText(ir.title!!, Point(titleRect.left, titleRect.top), titleFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+            out += DrawCommand.DrawText(ir.title!!, Point(titleRect.left, titleRect.top), titleFont, colors.text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
         }
 
         for (branch in ir.branches) {
@@ -69,15 +70,15 @@ internal class MermaidGitGraphSubPipeline(
             out += DrawCommand.StrokePath(
                 path = PathCmd(listOf(PathOp.MoveTo(Point(90f, y)), PathOp.LineTo(Point(bounds.right - 20f, y)))),
                 stroke = Stroke(width = 1f),
-                color = lane,
+                color = colors.lane,
                 z = 1,
             )
-            out += DrawCommand.DrawText(branch, Point(rect.left, rect.top), branchFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+            out += DrawCommand.DrawText(branch, Point(rect.left, rect.top), branchFont, colors.text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
         }
 
         for (route in laid.edgeRoutes) {
             val child = ir.commits.firstOrNull { it.id == route.to } ?: continue
-            val color = branchColors[child.branch] ?: Color(0xFF90A4AE.toInt())
+            val color = branchColors[child.branch] ?: colors.border
             out += DrawCommand.StrokePath(
                 path = PathCmd(route.points.mapIndexed { index, point ->
                     if (index == 0) PathOp.MoveTo(point) else PathOp.LineTo(point)
@@ -90,11 +91,11 @@ internal class MermaidGitGraphSubPipeline(
 
         for (commit in ir.commits) {
             val rect = laid.nodePositions[NodeId("gitgraph:commit:${commit.id.value}")] ?: continue
-            val fill = branchColors[commit.branch] ?: Color(0xFF78909C.toInt())
+            val fill = branchColors[commit.branch] ?: colors.border
             when (commit.type) {
                 GitCommitType.Highlight -> {
                     out += DrawCommand.FillRect(rect, fill, corner = 4f, z = 4)
-                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), border, corner = 4f, z = 5)
+                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), colors.border, corner = 4f, z = 5)
                 }
                 GitCommitType.Reverse -> {
                     out += DrawCommand.StrokeRect(rect, Stroke(width = 2f), fill, corner = rect.size.width / 2f, z = 5)
@@ -114,49 +115,41 @@ internal class MermaidGitGraphSubPipeline(
                 }
                 GitCommitType.Merge -> {
                     out += DrawCommand.FillRect(rect, fill, corner = rect.size.width / 2f, z = 4)
-                    out += DrawCommand.StrokeRect(rect, Stroke(width = 2f), border, corner = rect.size.width / 2f, z = 5)
+                    out += DrawCommand.StrokeRect(rect, Stroke(width = 2f), colors.border, corner = rect.size.width / 2f, z = 5)
                     val inner = Rect.ltrb(rect.left + 4f, rect.top + 4f, rect.right - 4f, rect.bottom - 4f)
                     out += DrawCommand.StrokeRect(inner, Stroke(width = 1f), Color(0xFFFFFFFF.toInt()), corner = inner.size.width / 2f, z = 6)
                 }
                 GitCommitType.CherryPick -> {
                     out += DrawCommand.FillRect(rect, fill, corner = rect.size.width / 2f, z = 4)
-                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), border, corner = rect.size.width / 2f, z = 5)
+                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), colors.border, corner = rect.size.width / 2f, z = 5)
                     val source = (commit.label as? RichLabel.Plain)?.text.orEmpty()
                     if (source.isNotBlank()) {
-                        out += DrawCommand.DrawText("pick:$source", Point((rect.left + rect.right) / 2f, rect.bottom + 10f), labelFont, text, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
+                        out += DrawCommand.DrawText("pick:$source", Point((rect.left + rect.right) / 2f, rect.bottom + 10f), labelFont, colors.text, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
                     }
                 }
                 else -> {
                     out += DrawCommand.FillRect(rect, fill, corner = rect.size.width / 2f, z = 4)
-                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), border, corner = rect.size.width / 2f, z = 5)
+                    out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), colors.border, corner = rect.size.width / 2f, z = 5)
                 }
             }
 
             val labelRect = laid.nodePositions[NodeId("gitgraph:label:${commit.id.value}")]
             val label = (commit.label as? RichLabel.Plain)?.text.orEmpty()
             if (labelRect != null && label.isNotBlank()) {
-                out += DrawCommand.DrawText(label, Point(labelRect.left, labelRect.top), labelFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+                out += DrawCommand.DrawText(label, Point(labelRect.left, labelRect.top), labelFont, colors.text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
             }
             val tagRect = laid.nodePositions[NodeId("gitgraph:tag:${commit.id.value}")]
             if (tagRect != null && !commit.tag.isNullOrBlank()) {
-                out += DrawCommand.FillRect(tagRect, Color(0xFFFFF59D.toInt()), corner = 10f, z = 7)
-                out += DrawCommand.StrokeRect(tagRect, Stroke(width = 1f), border, corner = 10f, z = 8)
-                out += DrawCommand.DrawText(commit.tag!!, Point((tagRect.left + tagRect.right) / 2f, tagRect.top + 3f), tagFont, text, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
+                out += DrawCommand.FillRect(tagRect, colors.tagFill, corner = 10f, z = 7)
+                out += DrawCommand.StrokeRect(tagRect, Stroke(width = 1f), colors.border, corner = 10f, z = 8)
+                out += DrawCommand.DrawText(commit.tag!!, Point((tagRect.left + tagRect.right) / 2f, tagRect.top + 3f), tagFont, colors.tagText, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
             }
         }
         return out.entities()
     }
 
-    private fun palette(index: Int): Color = listOf(
-        Color(0xFF42A5F5.toInt()),
-        Color(0xFF66BB6A.toInt()),
-        Color(0xFFFF7043.toInt()),
-        Color(0xFFAB47BC.toInt()),
-        Color(0xFF26C6DA.toInt()),
-        Color(0xFFFFCA28.toInt()),
-        Color(0xFF8D6E63.toInt()),
-        Color(0xFFEC407A.toInt()),
-    )[index % 8]
+    private fun palette(index: Int): Color =
+        colors.branchPalette[index % colors.branchPalette.size.coerceAtLeast(1)]
 
     override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
 

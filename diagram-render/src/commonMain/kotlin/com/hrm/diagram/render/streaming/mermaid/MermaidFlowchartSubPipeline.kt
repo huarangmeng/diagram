@@ -8,6 +8,7 @@ import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.parser.mermaid.MermaidFlowchartParser
 import com.hrm.diagram.parser.mermaid.MermaidFrontend
 import com.hrm.diagram.render.cache.DrawEntity
@@ -20,6 +21,7 @@ import com.hrm.diagram.render.streaming.DrawEntitySnapshotProvider
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 
 /**
  * Sub-pipeline for Mermaid flowchart. Syntax and style adaptation stay here; GraphIR
@@ -27,7 +29,9 @@ import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
  */
 internal class MermaidFlowchartSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
+    private val colors = ThemeResolver.resolveMermaidFlowchart(theme)
     private val parser = MermaidFlowchartParser()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -53,12 +57,16 @@ internal class MermaidFlowchartSubPipeline(
             prefix = "mermaid",
             nodeFont = labelFont,
             edgeFont = edgeLabelFont,
-            nodeFill = Color(0xFFE3F2FDU.toInt()),
-            nodeStroke = Color(0xFF1565C0U.toInt()),
-            nodeText = Color(0xFF0D47A1U.toInt()),
-            edgeColor = Color(0xFF455A64U.toInt()),
-            edgeLabelText = Color(0xFF263238U.toInt()),
-            edgeLabelBg = Color(0xF0FFFFFFU.toInt()),
+            nodeFill = colors.nodeFill,
+            nodeStroke = colors.nodeStroke,
+            nodeText = colors.nodeText,
+            edgeColor = colors.edge,
+            edgeLabelText = colors.edgeLabelText,
+            edgeLabelBg = colors.edgeLabelBackground,
+            clusterFill = colors.clusterFill,
+            clusterStroke = colors.clusterStroke,
+            clusterText = colors.nodeText,
+            graphBackground = { _, _ -> colors.background },
             nodeCorner = { node, rect ->
                 when (node.shape) {
                     NodeShape.Circle, NodeShape.Stadium -> minOf(rect.size.width, rect.size.height) / 2f

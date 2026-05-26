@@ -25,6 +25,7 @@ import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -39,9 +40,7 @@ private fun buildPieFrame(
     laid: LaidOutDiagram,
     theme: DiagramTheme,
 ): List<DrawCommand> {
-    val palette = piePalette(theme)
-    val textColor = theme.palette.onSurface
-    val borderColor = theme.palette.outline
+    val colors = ThemeResolver.resolvePie(theme)
     val titleFont = theme.typography.titleFont.copy(sizeSp = 14f)
     val legendFont = theme.typography.bodyFont.copy(sizeSp = 12f)
     val border = Stroke(width = 1f)
@@ -58,7 +57,7 @@ private fun buildPieFrame(
                 text = title,
                 origin = Point(titleRect.left, titleRect.top),
                 font = titleFont,
-                color = textColor,
+                color = colors.titleText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -72,23 +71,23 @@ private fun buildPieFrame(
         val start = angle
         val end = angle + sweep
         val path = wedgePath(center, radius, start, end)
-        val fill = palette[index % palette.size]
+        val fill = colors.slices[index % colors.slices.size]
         out += DrawCommand.FillPath(path = path, color = fill, z = 1)
-        out += DrawCommand.StrokePath(path = path, stroke = border, color = borderColor, z = 2)
+        out += DrawCommand.StrokePath(path = path, stroke = border, color = colors.border, z = 2)
         angle = end
     }
 
     for ((index, slice) in ir.slices.withIndex()) {
         val row = laid.nodePositions[NodeId("pie:legend:$index")] ?: continue
         val swatch = Rect.ltrb(row.left, row.top + 3f, row.left + 14f, row.bottom - 3f)
-        out += DrawCommand.FillRect(rect = swatch, color = palette[index % palette.size], corner = 3f, z = 5)
-        out += DrawCommand.StrokeRect(rect = swatch, stroke = Stroke.Hairline, color = borderColor, corner = 3f, z = 6)
+        out += DrawCommand.FillRect(rect = swatch, color = colors.slices[index % colors.slices.size], corner = 3f, z = 5)
+        out += DrawCommand.StrokeRect(rect = swatch, stroke = Stroke.Hairline, color = colors.border, corner = 3f, z = 6)
         val label = slice.label.plainText("slice$index")
         out += DrawCommand.DrawText(
             text = label,
             origin = Point(swatch.right + 8f, (row.top + row.bottom) / 2f),
             font = legendFont,
-            color = textColor,
+            color = colors.legendText,
             anchorX = TextAnchorX.Start,
             anchorY = TextAnchorY.Middle,
             z = 7,
@@ -97,7 +96,7 @@ private fun buildPieFrame(
             text = formatNumber(slice.value),
             origin = Point(row.right, (row.top + row.bottom) / 2f),
             font = legendFont,
-            color = textColor,
+            color = colors.legendText,
             anchorX = TextAnchorX.End,
             anchorY = TextAnchorY.Middle,
             z = 7,
@@ -118,12 +117,7 @@ private fun buildTreeFrame(
     theme: DiagramTheme,
 ): List<DrawCommand> {
     val out = ArrayList<DrawCommand>()
-    val nodeFill = theme.nodeDefaults.fill?.let { Color(it.argb) } ?: theme.palette.surface
-    val nodeStroke = theme.nodeDefaults.stroke?.let { Color(it.argb) } ?: theme.palette.outline
-    val rootFill = theme.palette.primary.copy(alpha = 0.12f)
-    val rootStroke = theme.palette.primary
-    val textColor = theme.nodeDefaults.textColor?.let { Color(it.argb) } ?: theme.palette.onSurface
-    val edgeColor = theme.palette.outline
+    val colors = ThemeResolver.resolveTree(theme)
     val font = theme.typography.bodyFont.copy(sizeSp = 12f)
 
     fun drawEdges(parent: TreeNode) {
@@ -140,22 +134,22 @@ private fun buildTreeFrame(
                     PathOp.CubicTo(Point(midX, from.y), Point(midX, to.y), to),
                 ),
             )
-            out += DrawCommand.StrokePath(path = path, stroke = Stroke(width = 1.5f), color = edgeColor, z = 0)
+            out += DrawCommand.StrokePath(path = path, stroke = Stroke(width = 1.5f), color = colors.edge, z = 0)
             drawEdges(child)
         }
     }
 
     fun drawNode(node: TreeNode, isRoot: Boolean) {
         val rect = laid.nodePositions[node.id] ?: return
-        val fill = node.style.fill?.let { Color(it.argb) } ?: if (isRoot) rootFill else nodeFill
-        val stroke = node.style.stroke?.let { Color(it.argb) } ?: if (isRoot) rootStroke else nodeStroke
+        val fill = node.style.fill?.let { Color(it.argb) } ?: if (isRoot) colors.rootFill else colors.nodeFill
+        val stroke = node.style.stroke?.let { Color(it.argb) } ?: if (isRoot) colors.rootStroke else colors.nodeStroke
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = if (isRoot) 14f else 10f, z = 1)
         out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = if (isRoot) 2f else 1.5f), color = stroke, corner = if (isRoot) 14f else 10f, z = 2)
         out += DrawCommand.DrawText(
             text = node.label.plainText(node.id.value),
             origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
             font = font,
-            color = node.style.textColor?.let { Color(it.argb) } ?: textColor,
+            color = node.style.textColor?.let { Color(it.argb) } ?: if (isRoot) colors.rootText else colors.nodeText,
             anchorX = TextAnchorX.Center,
             anchorY = TextAnchorY.Middle,
             maxWidth = rect.size.width - 12f,
@@ -182,16 +176,7 @@ private fun buildSequenceFrame(
     theme: DiagramTheme,
 ): List<DrawCommand> {
     val out = ArrayList<DrawCommand>()
-    val headerFill = theme.palette.primary.copy(alpha = 0.12f)
-    val headerStroke = theme.palette.primary
-    val headerText = theme.palette.onSurface
-    val lifelineColor = theme.palette.muted
-    val msgColor = theme.edgeDefaults.color?.let { Color(it.argb) } ?: theme.palette.onSurface
-    val noteFill = theme.palette.warning.copy(alpha = 0.12f)
-    val noteStroke = theme.palette.warning
-    val activationFill = theme.palette.surface
-    val activationStroke = theme.palette.primary
-    val fragStroke = theme.palette.secondary
+    val colors = ThemeResolver.resolveSequence(theme)
     val labelFont = theme.typography.bodyFont.copy(sizeSp = 13f)
     val msgFont = theme.typography.bodyFont.copy(sizeSp = 11f)
     val bottomY = laid.bounds.bottom
@@ -202,13 +187,13 @@ private fun buildSequenceFrame(
         val rect = laid.nodePositions[participant.id] ?: continue
         val cx = (rect.left + rect.right) / 2f
         val cy = (rect.top + rect.bottom) / 2f
-        out += DrawCommand.FillRect(rect = rect, color = headerFill, corner = 6f, z = 2)
-        out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = headerStroke, corner = 6f, z = 3)
+        out += DrawCommand.FillRect(rect = rect, color = colors.headerFill, corner = 6f, z = 2)
+        out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = colors.headerStroke, corner = 6f, z = 3)
         out += DrawCommand.DrawText(
             text = participant.label.plainText(participant.id.value),
             origin = Point(cx, cy),
             font = labelFont,
-            color = headerText,
+            color = colors.headerText,
             anchorX = TextAnchorX.Center,
             anchorY = TextAnchorY.Middle,
             z = 4,
@@ -217,7 +202,7 @@ private fun buildSequenceFrame(
         out += DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(Point(cx, rect.bottom)), PathOp.LineTo(Point(cx, bottomY)))),
             stroke = dashedStroke,
-            color = lifelineColor,
+            color = colors.lifeline,
             z = 0,
         )
     }
@@ -226,15 +211,15 @@ private fun buildSequenceFrame(
         val key = id.value
         when {
             key.contains("#act#") -> {
-                out += DrawCommand.FillRect(rect = rect, color = activationFill, z = 5)
-                out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = activationStroke, z = 6)
+                out += DrawCommand.FillRect(rect = rect, color = colors.activationFill, z = 5)
+                out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = colors.activationStroke, z = 6)
             }
             key.startsWith("note#") -> {
-                out += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 7)
-                out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = noteStroke, corner = 4f, z = 8)
+                out += DrawCommand.FillRect(rect = rect, color = colors.noteFill, corner = 4f, z = 7)
+                out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = colors.noteStroke, corner = 4f, z = 8)
             }
             key.startsWith("frag#") -> {
-                out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = fragStroke, corner = 4f, z = 9)
+                out += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = colors.fragmentStroke, corner = 4f, z = 9)
             }
         }
     }
@@ -253,7 +238,7 @@ private fun buildSequenceFrame(
                         text = label,
                         origin = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f),
                         font = msgFont,
-                        color = headerText,
+                        color = colors.noteText,
                         anchorX = TextAnchorX.Center,
                         anchorY = TextAnchorY.Middle,
                         z = 10,
@@ -270,13 +255,13 @@ private fun buildSequenceFrame(
                 out += DrawCommand.StrokePath(
                     path = PathCmd(listOf(PathOp.MoveTo(from), PathOp.LineTo(to))),
                     stroke = stroke,
-                    color = msgColor,
+                    color = colors.message,
                     z = 1,
                 )
                 out += when (message.kind) {
-                    MessageKind.Async -> openArrowHead(from, to, msgColor)
-                    MessageKind.Destroy -> xMark(to, msgColor)
-                    else -> filledArrowHead(from, to, msgColor)
+                    MessageKind.Async -> openArrowHead(from, to, colors.message)
+                    MessageKind.Destroy -> xMark(to, colors.message)
+                    else -> filledArrowHead(from, to, colors.message)
                 }
                 val label = message.label.plainText("")
                 if (label.isNotEmpty()) {
@@ -284,7 +269,7 @@ private fun buildSequenceFrame(
                         text = label,
                         origin = Point((from.x + to.x) / 2f, from.y - 4f),
                         font = msgFont,
-                        color = headerText,
+                        color = colors.messageText,
                         anchorX = TextAnchorX.Center,
                         anchorY = TextAnchorY.Bottom,
                         z = 10,
@@ -319,19 +304,11 @@ private fun buildGanttFrame(
     theme: DiagramTheme,
 ): List<DrawCommand> {
     val out = ArrayList<DrawCommand>()
+    val colors = ThemeResolver.resolveTimeSeries(theme)
     val titleFont = theme.typography.titleFont.copy(sizeSp = 14f)
     val trackFont = theme.typography.bodyFont.copy(sizeSp = 12f, weight = 600)
     val itemFont = theme.typography.bodyFont.copy(sizeSp = 12f)
     val axisFont = theme.typography.bodyFont.copy(sizeSp = 11f)
-    val text = theme.palette.onSurface
-    val axisStroke = theme.palette.outline
-    val barStroke = theme.palette.outline
-    val doneFill = theme.palette.success.copy(alpha = 0.8f)
-    val activeFill = theme.palette.primary.copy(alpha = 0.8f)
-    val critFill = theme.palette.danger.copy(alpha = 0.82f)
-    val normalFill = theme.palette.muted.copy(alpha = 0.45f)
-    val milestoneFill = theme.palette.warning.copy(alpha = 0.82f)
-    val rowAltBg = theme.palette.onSurface.copy(alpha = 0.03f)
 
     laid.nodePositions[NodeId("gantt:title")]?.let { titleRect ->
         ir.title?.takeIf { it.isNotBlank() }?.let { title ->
@@ -339,7 +316,7 @@ private fun buildGanttFrame(
                 text = title,
                 origin = Point(titleRect.left, titleRect.top),
                 font = titleFont,
-                color = text,
+                color = colors.titleText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -348,7 +325,7 @@ private fun buildGanttFrame(
         }
     }
     laid.nodePositions[NodeId("gantt:axis")]?.let { axis ->
-        out += DrawCommand.StrokeRect(rect = axis, stroke = Stroke(width = 1f), color = axisStroke, z = 1)
+        out += DrawCommand.StrokeRect(rect = axis, stroke = Stroke(width = 1f), color = colors.axis, z = 1)
     }
 
     for ((trackIndex, track) in ir.tracks.withIndex()) {
@@ -358,7 +335,7 @@ private fun buildGanttFrame(
                 text = track.label.plainText(track.id.value),
                 origin = Point(it.left, it.top),
                 font = trackFont,
-                color = text,
+                color = colors.labelText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -373,28 +350,28 @@ private fun buildGanttFrame(
             if ((trackIndex + itemIndex) % 2 == 1) {
                 out += DrawCommand.FillRect(
                     rect = Rect.ltrb((labelRect?.left ?: barRect.left) - 6f, min(labelRect?.top ?: barRect.top, barRect.top) - 4f, laid.nodePositions[NodeId("gantt:axis")]?.right ?: barRect.right, max(labelRect?.bottom ?: barRect.bottom, barRect.bottom) + 4f),
-                    color = rowAltBg,
+                    color = colors.alternateRowBackground,
                     z = 0,
                 )
             }
             val tags = item.payload["gantt.tags"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet().orEmpty()
             val isMilestone = item.payload["gantt.kind"] == "milestone" || ("milestone" in tags)
             val fill = when {
-                "crit" in tags -> critFill
-                "active" in tags -> activeFill
-                "done" in tags -> doneFill
-                isMilestone -> milestoneFill
-                else -> normalFill
+                "crit" in tags -> colors.criticalFill
+                "active" in tags -> colors.activeFill
+                "done" in tags -> colors.doneFill
+                isMilestone -> colors.milestoneFill
+                else -> colors.normalFill
             }
             val corner = if (isMilestone) min(barRect.size.width, barRect.size.height) / 2f else 6f
             out += DrawCommand.FillRect(rect = barRect, color = fill, corner = corner, z = 2)
-            out += DrawCommand.StrokeRect(rect = barRect, stroke = Stroke(width = 1f), color = barStroke, corner = corner, z = 3)
+            out += DrawCommand.StrokeRect(rect = barRect, stroke = Stroke(width = 1f), color = colors.border, corner = corner, z = 3)
             labelRect?.let {
                 out += DrawCommand.DrawText(
                     text = item.label.plainText(item.id.value),
                     origin = Point(it.left, (it.top + it.bottom) / 2f),
                     font = itemFont,
-                    color = text,
+                    color = colors.labelText,
                     anchorX = TextAnchorX.Start,
                     anchorY = TextAnchorY.Middle,
                     z = 10,
@@ -435,14 +412,10 @@ private fun buildTimelineFrame(
     theme: DiagramTheme,
 ): List<DrawCommand> {
     val out = ArrayList<DrawCommand>()
+    val colors = ThemeResolver.resolveTimeSeries(theme)
     val titleFont = theme.typography.titleFont.copy(sizeSp = 14f)
     val headerFont = theme.typography.bodyFont.copy(sizeSp = 12f, weight = 600)
     val itemFont = theme.typography.bodyFont.copy(sizeSp = 12f)
-    val text = theme.palette.onSurface
-    val slotFill = theme.palette.primary.copy(alpha = 0.05f)
-    val slotStroke = theme.palette.outline
-    val itemFill = theme.palette.primary.copy(alpha = 0.14f)
-    val itemStroke = theme.palette.primary
 
     laid.nodePositions[NodeId("timeline:title")]?.let { rect ->
         ir.title?.takeIf { it.isNotBlank() }?.let { title ->
@@ -450,7 +423,7 @@ private fun buildTimelineFrame(
                 text = title,
                 origin = Point(rect.left, rect.top),
                 font = titleFont,
-                color = text,
+                color = colors.titleText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -465,7 +438,7 @@ private fun buildTimelineFrame(
                 text = track.label.plainText(track.id.value),
                 origin = Point(rect.left, rect.top),
                 font = headerFont,
-                color = text,
+                color = colors.labelText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -473,26 +446,26 @@ private fun buildTimelineFrame(
             )
         }
         laid.nodePositions[NodeId("timeline:trackBox:${track.id.value}")]?.let { rect ->
-            out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = slotStroke, corner = 8f, z = 1)
+            out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = colors.slotStroke, corner = 8f, z = 1)
         }
     }
 
     for ((id, rect) in laid.nodePositions) {
         when {
             id.value.startsWith("timeline:slot:") -> {
-                out += DrawCommand.FillRect(rect = rect, color = slotFill, corner = 8f, z = 1)
-                out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = slotStroke, corner = 8f, z = 2)
+                out += DrawCommand.FillRect(rect = rect, color = colors.slotFill, corner = 8f, z = 1)
+                out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = colors.slotStroke, corner = 8f, z = 2)
             }
             id.value.startsWith("timeline:item:") -> {
-                out += DrawCommand.FillRect(rect = rect, color = itemFill, corner = 6f, z = 3)
-                out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = itemStroke, corner = 6f, z = 4)
+                out += DrawCommand.FillRect(rect = rect, color = colors.itemFill, corner = 6f, z = 3)
+                out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = 1f), color = colors.itemStroke, corner = 6f, z = 4)
                 val itemId = id.value.removePrefix("timeline:item:")
                 val item = ir.items.firstOrNull { it.id.value == itemId } ?: continue
                 out += DrawCommand.DrawText(
                     text = item.payload["event"] ?: item.label.plainText(item.id.value),
                     origin = Point(rect.left + 8f, rect.top + 8f),
                     font = itemFont,
-                    color = text,
+                    color = colors.labelText,
                     anchorX = TextAnchorX.Start,
                     anchorY = TextAnchorY.Top,
                     maxWidth = rect.size.width - 16f,
@@ -504,15 +477,6 @@ private fun buildTimelineFrame(
     }
     return out
 }
-
-private fun piePalette(theme: DiagramTheme): List<Color> = listOf(
-    theme.palette.primary,
-    theme.palette.success,
-    theme.palette.warning,
-    theme.palette.danger,
-    theme.palette.secondary,
-    theme.palette.accent,
-)
 
 private fun wedgePath(center: Point, radius: Float, start: Double, end: Double): PathCmd {
     val ops = ArrayList<PathOp>()
@@ -605,9 +569,3 @@ private fun RichLabel.plainText(fallback: String): String =
 
 private fun formatNumber(value: Double): String =
     if (abs(value % 1.0) < 1e-9) value.toInt().toString() else value.toString()
-
-private fun Color.copy(alpha: Float): Color {
-    val clamped = alpha.coerceIn(0f, 1f)
-    val a = (clamped * 255f).toInt().coerceIn(0, 255)
-    return Color((argb and 0x00FFFFFF) or (a shl 24))
-}

@@ -20,6 +20,7 @@ import com.hrm.diagram.core.ir.XYChartIR
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.xy.XYChartLayout
 import com.hrm.diagram.parser.mermaid.MermaidXYChartParser
@@ -27,17 +28,23 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ResolvedXYChartColors
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.abs
 import kotlin.math.round
 import kotlin.math.truncate
 
 internal class MermaidXYChartSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private var styleExtras: Map<String, String> = emptyMap()
+    private val baseColors = ThemeResolver.resolveXYChart(theme)
+    private var renderConfig = RenderConfig.from(baseColors, emptyMap(), emptyMap())
 
     override fun updateStyleExtras(extras: Map<String, String>) {
         styleExtras = extras
+        renderConfig = RenderConfig.from(baseColors, styleExtras, emptyMap())
     }
 
     private val parser = MermaidXYChartParser()
@@ -68,44 +75,18 @@ internal class MermaidXYChartSubPipeline(
         val bounds = laid.bounds
         val plot = laid.nodePositions[NodeId("xychart:plot")] ?: return emptyList()
         val horizontal = ir.styleHints.extras["xyChart.orientation"] == "horizontal" || ir.styleHints.direction == Direction.LR
-        val showDataLabel = styleExtras["mermaid.config.xyChart.showDataLabel"]?.lowercase() == "true" ||
-            ir.styleHints.extras["xyChart.showDataLabel"]?.lowercase() == "true"
-        val showDataLabelOutsideBar = styleExtras["mermaid.config.xyChart.showDataLabelOutsideBar"]?.lowercase() == "true" ||
-            ir.styleHints.extras["xyChart.showDataLabelOutsideBar"]?.lowercase() == "true"
-        val themeRaw = MermaidRenderThemeUtils.decodeRawThemeTokens(styleExtras["mermaid.themeTokens"])
+        val config = renderConfig.mergeIr(ir.styleHints.extras)
 
-        val bg = MermaidRenderThemeUtils.parseThemeColor(themeRaw["backgroundColor"]) ?: Color(0xFFFFFFFF.toInt())
-        val axis = MermaidRenderThemeUtils.parseThemeColor(themeRaw["xAxisLineColor"]) ?: Color(0xFF90A4AE.toInt())
-        val yAxis = MermaidRenderThemeUtils.parseThemeColor(themeRaw["yAxisLineColor"]) ?: axis
-        val text = MermaidRenderThemeUtils.parseThemeColor(themeRaw["titleColor"]) ?: Color(0xFF263238.toInt())
-        val xAxisLabelColor = MermaidRenderThemeUtils.parseThemeColor(themeRaw["xAxisLabelColor"]) ?: text
-        val yAxisLabelColor = MermaidRenderThemeUtils.parseThemeColor(themeRaw["yAxisLabelColor"]) ?: text
-        val xAxisTitleColor = MermaidRenderThemeUtils.parseThemeColor(themeRaw["xAxisTitleColor"]) ?: text
-        val yAxisTitleColor = MermaidRenderThemeUtils.parseThemeColor(themeRaw["yAxisTitleColor"]) ?: text
-        val dataLabelColor = MermaidRenderThemeUtils.parseThemeColor(themeRaw["dataLabelColor"]) ?: text
-        val palette = listOf(
-            Color(0xFF42A5F5.toInt()),
-            Color(0xFFEF5350.toInt()),
-            Color(0xFF66BB6A.toInt()),
-            Color(0xFFFFCA28.toInt()),
-        ).let { defaults ->
-            val custom = themeRaw["plotColorPalette"]
-                ?.split(',')
-                ?.mapNotNull { MermaidRenderThemeUtils.parseThemeColor(it.trim()) }
-                .orEmpty()
-            if (custom.isEmpty()) defaults else custom
-        }
-
-        out += DrawCommand.FillRect(rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), color = bg, corner = 0f, z = 0)
+        out += DrawCommand.FillRect(rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), color = config.background, corner = 0f, z = 0)
 
         laid.nodePositions[NodeId("xychart:title")]?.let { r ->
             if (!ir.title.isNullOrBlank()) {
-                out += DrawCommand.DrawText(ir.title!!, Point(r.left, r.top), titleFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+                out += DrawCommand.DrawText(ir.title!!, Point(r.left, r.top), titleFont, config.text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
             }
         }
         laid.nodePositions[NodeId("xychart:xTitle")]?.let { r ->
             val t = (ir.xAxis.title as? RichLabel.Plain)?.text ?: return@let
-            out += DrawCommand.DrawText(t, Point(r.left, r.top), axisTitleFont, xAxisTitleColor, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+            out += DrawCommand.DrawText(t, Point(r.left, r.top), axisTitleFont, config.xAxisTitle, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
         }
         laid.nodePositions[NodeId("xychart:yTitle")]?.let { r ->
             val t = (ir.yAxis.title as? RichLabel.Plain)?.text ?: return@let
@@ -119,7 +100,7 @@ internal class MermaidXYChartSubPipeline(
                         t,
                         Point(0f, 0f),
                         axisTitleFont,
-                        yAxisTitleColor,
+                        config.yAxisTitle,
                         anchorX = TextAnchorX.Center,
                         anchorY = TextAnchorY.Middle,
                         z = 10,
@@ -133,13 +114,13 @@ internal class MermaidXYChartSubPipeline(
         out += DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(Point(plot.left, plot.bottom)), PathOp.LineTo(Point(plot.right, plot.bottom)))),
             stroke = Stroke(width = 1.5f),
-            color = axis,
+            color = config.xAxis,
             z = 1,
         )
         out += DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(Point(plot.left, plot.top)), PathOp.LineTo(Point(plot.left, plot.bottom)))),
             stroke = Stroke(width = 1.5f),
-            color = yAxis,
+            color = config.yAxis,
             z = 1,
         )
 
@@ -153,14 +134,14 @@ internal class MermaidXYChartSubPipeline(
             out += DrawCommand.StrokePath(
                 path = PathCmd(listOf(PathOp.MoveTo(Point(plot.left - 4f, y)), PathOp.LineTo(Point(plot.right, y)))),
                 stroke = Stroke(width = if (i == 0) 1.5f else 0.75f, dash = if (i == 0) null else listOf(4f, 4f)),
-                color = yAxis,
+                color = config.yAxis,
                 z = 1,
             )
             val v = yMin + (yMax - yMin) * t.toDouble()
             val txt = formatTick(v)
             val labelRect = laid.nodePositions[NodeId("xychart:yLabel:$i")]
             if (labelRect != null) {
-                out += DrawCommand.DrawText(txt, Point(labelRect.left, y), axisLabelFont, yAxisLabelColor, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Middle, z = 10)
+                out += DrawCommand.DrawText(txt, Point(labelRect.left, y), axisLabelFont, config.yAxisLabel, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Middle, z = 10)
             }
         }
 
@@ -175,7 +156,7 @@ internal class MermaidXYChartSubPipeline(
             val x = plot.left + slot * (i + 0.5f)
             val label = ir.xAxis.categories.getOrNull(i)
             if (label != null) {
-                out += DrawCommand.DrawText(label, Point(x, plot.bottom + 18f), axisLabelFont, xAxisLabelColor, maxWidth = slot - 8f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
+                out += DrawCommand.DrawText(label, Point(x, plot.bottom + 18f), axisLabelFont, config.xAxisLabel, maxWidth = slot - 8f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
             }
         }
 
@@ -192,7 +173,7 @@ internal class MermaidXYChartSubPipeline(
         }
 
         ir.series.forEachIndexed { sIdx, s ->
-            val color = palette[sIdx % palette.size]
+            val color = config.plotPalette[sIdx % config.plotPalette.size.coerceAtLeast(1)]
             when (s.kind) {
                 SeriesKind.Bar -> {
                     val barW = slot / (ir.series.size + 1f)
@@ -201,14 +182,14 @@ internal class MermaidXYChartSubPipeline(
                         val y = yOf(s.ys[i])
                         val rect = if (!horizontal) Rect.ltrb(x0, y, x0 + barW, plot.bottom) else Rect.ltrb(plot.left, plot.top + (plot.size.height / itemCount.toFloat()) * i + 6f, pointAt(i, s.ys[i]).x, plot.top + (plot.size.height / itemCount.toFloat()) * (i + 1) - 6f)
                         out += DrawCommand.FillRect(rect = rect, color = color, corner = 3f, z = 3)
-                        if (showDataLabel) {
-                            val anchorY = if (!horizontal && showDataLabelOutsideBar) rect.top - 4f else (rect.top + rect.bottom) / 2f
-                            val textAnchorY = if (!horizontal && showDataLabelOutsideBar) TextAnchorY.Bottom else TextAnchorY.Middle
+                        if (config.showDataLabel) {
+                            val anchorY = if (!horizontal && config.showDataLabelOutsideBar) rect.top - 4f else (rect.top + rect.bottom) / 2f
+                            val textAnchorY = if (!horizontal && config.showDataLabelOutsideBar) TextAnchorY.Bottom else TextAnchorY.Middle
                             out += DrawCommand.DrawText(
                                 text = formatTick(s.ys[i]),
                                 origin = Point((rect.left + rect.right) / 2f, anchorY),
                                 font = axisLabelFont,
-                                color = dataLabelColor,
+                                color = config.dataLabel,
                                 anchorX = TextAnchorX.Center,
                                 anchorY = textAnchorY,
                                 z = 10,
@@ -222,14 +203,14 @@ internal class MermaidXYChartSubPipeline(
                     ops += PathOp.MoveTo(pointAt(0, s.ys[0]))
                     for (i in 1 until s.ys.size) ops += PathOp.LineTo(pointAt(i, s.ys[i]))
                     out += DrawCommand.StrokePath(path = PathCmd(ops), stroke = Stroke(width = 2f), color = color, z = 4)
-                    if (showDataLabel) {
+                    if (config.showDataLabel) {
                         for (i in s.ys.indices) {
                             val p = pointAt(i, s.ys[i])
                             out += DrawCommand.DrawText(
                                 text = formatTick(s.ys[i]),
                                 origin = Point(p.x, p.y - 6f),
                                 font = axisLabelFont,
-                                color = dataLabelColor,
+                                color = config.dataLabel,
                                 anchorX = TextAnchorX.Center,
                                 anchorY = TextAnchorY.Bottom,
                                 z = 10,
@@ -242,12 +223,12 @@ internal class MermaidXYChartSubPipeline(
                         val p = pointAt(i, s.ys[i])
                         val r = Rect.ltrb(p.x - 4f, p.y - 4f, p.x + 4f, p.y + 4f)
                         out += DrawCommand.FillRect(rect = r, color = color, corner = 4f, z = 5)
-                        if (showDataLabel) {
+                        if (config.showDataLabel) {
                             out += DrawCommand.DrawText(
                                 text = formatTick(s.ys[i]),
                                 origin = Point(p.x, p.y - 6f),
                                 font = axisLabelFont,
-                                color = dataLabelColor,
+                                color = config.dataLabel,
                                 anchorX = TextAnchorX.Center,
                                 anchorY = TextAnchorY.Bottom,
                                 z = 10,
@@ -265,7 +246,7 @@ internal class MermaidXYChartSubPipeline(
                     val end = pointAt(s.ys.lastIndex, s.ys.last())
                     ops += PathOp.LineTo(Point(end.x, plot.bottom))
                     ops += PathOp.Close
-                    out += DrawCommand.FillPath(path = PathCmd(ops), color = Color.argb(90, color.r, color.g, color.b), z = 2)
+                    out += DrawCommand.FillPath(path = PathCmd(ops), color = Color.argb(config.areaAlpha, color.r, color.g, color.b), z = 2)
                 }
             }
         }
@@ -285,4 +266,55 @@ internal class MermaidXYChartSubPipeline(
         kernel.clear()
     }
 
+    private data class RenderConfig(
+        val background: Color,
+        val xAxis: Color,
+        val yAxis: Color,
+        val text: Color,
+        val xAxisLabel: Color,
+        val yAxisLabel: Color,
+        val xAxisTitle: Color,
+        val yAxisTitle: Color,
+        val dataLabel: Color,
+        val plotPalette: List<Color>,
+        val areaAlpha: Int,
+        val showDataLabel: Boolean,
+        val showDataLabelOutsideBar: Boolean,
+    ) {
+        fun mergeIr(irExtras: Map<String, String>): RenderConfig = copy(
+            showDataLabel = showDataLabel || irExtras["xyChart.showDataLabel"]?.lowercase() == "true",
+            showDataLabelOutsideBar = showDataLabelOutsideBar || irExtras["xyChart.showDataLabelOutsideBar"]?.lowercase() == "true",
+        )
+
+        companion object {
+            fun from(
+                base: ResolvedXYChartColors,
+                styleExtras: Map<String, String>,
+                irExtras: Map<String, String>,
+            ): RenderConfig {
+                val themeRaw = MermaidRenderThemeUtils.decodeRawThemeTokens(styleExtras["mermaid.themeTokens"])
+                val customPalette = themeRaw["plotColorPalette"]
+                    ?.split(',')
+                    ?.mapNotNull { MermaidRenderThemeUtils.parseThemeColor(it.trim()) }
+                    .orEmpty()
+                return RenderConfig(
+                    background = MermaidRenderThemeUtils.parseThemeColor(themeRaw["backgroundColor"]) ?: base.background,
+                    xAxis = MermaidRenderThemeUtils.parseThemeColor(themeRaw["xAxisLineColor"]) ?: base.xAxis,
+                    yAxis = MermaidRenderThemeUtils.parseThemeColor(themeRaw["yAxisLineColor"]) ?: base.yAxis,
+                    text = MermaidRenderThemeUtils.parseThemeColor(themeRaw["titleColor"]) ?: base.text,
+                    xAxisLabel = MermaidRenderThemeUtils.parseThemeColor(themeRaw["xAxisLabelColor"]) ?: base.xAxisLabel,
+                    yAxisLabel = MermaidRenderThemeUtils.parseThemeColor(themeRaw["yAxisLabelColor"]) ?: base.yAxisLabel,
+                    xAxisTitle = MermaidRenderThemeUtils.parseThemeColor(themeRaw["xAxisTitleColor"]) ?: base.xAxisTitle,
+                    yAxisTitle = MermaidRenderThemeUtils.parseThemeColor(themeRaw["yAxisTitleColor"]) ?: base.yAxisTitle,
+                    dataLabel = MermaidRenderThemeUtils.parseThemeColor(themeRaw["dataLabelColor"]) ?: base.dataLabel,
+                    plotPalette = if (customPalette.isEmpty()) base.plotPalette else customPalette,
+                    areaAlpha = base.areaAlpha,
+                    showDataLabel = styleExtras["mermaid.config.xyChart.showDataLabel"]?.lowercase() == "true" ||
+                        irExtras["xyChart.showDataLabel"]?.lowercase() == "true",
+                    showDataLabelOutsideBar = styleExtras["mermaid.config.xyChart.showDataLabelOutsideBar"]?.lowercase() == "true" ||
+                        irExtras["xyChart.showDataLabelOutsideBar"]?.lowercase() == "true",
+                )
+            }
+        }
+    }
 }

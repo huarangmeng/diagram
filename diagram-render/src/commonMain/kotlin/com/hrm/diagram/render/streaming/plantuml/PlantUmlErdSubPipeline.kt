@@ -22,6 +22,7 @@ import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.core.text.TextMetrics
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.EdgeRoute
@@ -30,12 +31,16 @@ import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.sugiyama.SugiyamaLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlErdParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlErdSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlErdParser()
+    private val colors = ThemeResolver.resolvePlantUmlComponent(theme)
+    private val secondaryText = theme.colors.textSecondary
     private val entityFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val flagFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
@@ -136,18 +141,16 @@ internal class PlantUmlErdSubPipeline(
     private fun renderDraw(ir: GraphIR, laidOut: LaidOutDiagram, isFinal: Boolean): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val nodeById = ir.nodes.associateBy { it.id }
-        val fallbackEntityFill = Color(0xFFE8F5E9U.toInt())
-        val fallbackEntityStroke = Color(0xFF2E7D32U.toInt())
-        val fallbackEntityText = Color(0xFF1B5E20U.toInt())
-        val relationLabelText = Color(0xFF263238U.toInt())
-        val fallbackRelationLabelBg = Color(0xFFF5F5F5U.toInt())
         val attributeLinkStroke = Stroke(width = 1f, dash = listOf(5f, 5f))
         for (n in ir.nodes) {
             if (isFinal && isAttributeNode(n)) continue
             val r = laidOut.nodePositions[n.id] ?: continue
-            val fill = colorOf(n.style.fill, fallbackEntityFill)
-            val strokeColor = colorOf(n.style.stroke, fallbackEntityStroke)
-            val textColor = colorOf(n.style.textColor, fallbackEntityText)
+            val defaultFill = if (isNoteNode(n)) colors.noteFill else colors.nodeFill
+            val defaultStroke = if (isNoteNode(n)) colors.noteStroke else colors.nodeStroke
+            val defaultText = if (isNoteNode(n)) colors.noteText else colors.nodeText
+            val fill = colorOf(n.style.fill, defaultFill)
+            val strokeColor = colorOf(n.style.stroke, defaultStroke)
+            val textColor = colorOf(n.style.textColor, defaultText)
             val strokeWidth = n.style.strokeWidth ?: if (isAttributeNode(n)) 1.25f else 1.5f
             val corner = if (isAttributeNode(n)) minOf(r.size.height / 2f, 16f) else 4f
             val embedded = if (isFinal) entityEmbedded[n.id] else null
@@ -198,7 +201,7 @@ internal class PlantUmlErdSubPipeline(
             val isAttributeLink = edge.label == null && (fromNode?.let(::isAttributeNode) == true || toNode?.let(::isAttributeNode) == true)
             val isNoteLink = edge.label == null && (fromNode?.let(::isNoteNode) == true || toNode?.let(::isNoteNode) == true)
             if (isFinal && isAttributeLink) continue
-            val edgeColor = colorOf(edge.style.color, Color(0xFF455A64U.toInt()))
+            val edgeColor = colorOf(edge.style.color, colors.edgeColor)
             val edgeStroke = when {
                 isAttributeLink -> attributeLinkStroke
                 isNoteLink -> Stroke(width = edge.style.width ?: 1f, dash = edge.style.dash ?: listOf(4f, 4f))
@@ -224,8 +227,8 @@ internal class PlantUmlErdSubPipeline(
                 }
             }
             if (isAttributeLink || isNoteLink) continue
-            val labelBg = edge.style.labelBg?.let { Color(it.argb) } ?: fallbackRelationLabelBg
-            drawRelationshipBadge(out, relBadge[idx], pts[pts.size / 2], labelBg, relationLabelText, edgeColor)
+            val labelBg = edge.style.labelBg?.let { Color(it.argb) } ?: colors.clusterChipFill
+            drawRelationshipBadge(out, relBadge[idx], pts[pts.size / 2], labelBg, secondaryText, edgeColor)
         }
         return out.entities()
     }

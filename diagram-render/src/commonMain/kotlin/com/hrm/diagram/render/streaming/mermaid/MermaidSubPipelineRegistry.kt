@@ -1,6 +1,7 @@
 package com.hrm.diagram.render.streaming.mermaid
 
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.streaming.dispatcher.SubPipelineRegistry
 
 internal enum class MermaidDiagramKind {
@@ -29,31 +30,32 @@ internal enum class MermaidDiagramKind {
 
 internal class MermaidSubPipelineRegistry(
     private val textMeasurer: TextMeasurer,
+    private val theme: DiagramTheme,
 ) : SubPipelineRegistry<MermaidDiagramKind, MermaidSubPipeline> {
     override val defaultKind: MermaidDiagramKind = MermaidDiagramKind.Flowchart
 
     override fun create(kind: MermaidDiagramKind): MermaidSubPipeline =
         when (kind) {
-            MermaidDiagramKind.Flowchart -> MermaidFlowchartSubPipeline(textMeasurer)
-            MermaidDiagramKind.Sequence -> MermaidSequenceSubPipeline(textMeasurer)
+            MermaidDiagramKind.Flowchart -> MermaidFlowchartSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Sequence -> MermaidSequenceSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Class -> MermaidClassSubPipeline(textMeasurer)
             MermaidDiagramKind.State -> MermaidStateSubPipeline(textMeasurer)
-            MermaidDiagramKind.Er -> MermaidErSubPipeline(textMeasurer)
-            MermaidDiagramKind.Pie -> MermaidPieSubPipeline(textMeasurer)
+            MermaidDiagramKind.Er -> MermaidErSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Pie -> MermaidPieSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Gauge -> MermaidGaugeSubPipeline()
-            MermaidDiagramKind.Timeline -> MermaidTimelineSubPipeline(textMeasurer)
-            MermaidDiagramKind.Gantt -> MermaidGanttSubPipeline(textMeasurer)
-            MermaidDiagramKind.Mindmap -> MermaidMindmapSubPipeline(textMeasurer)
-            MermaidDiagramKind.Kanban -> MermaidKanbanSubPipeline(textMeasurer)
-            MermaidDiagramKind.XYChart -> MermaidXYChartSubPipeline(textMeasurer)
+            MermaidDiagramKind.Timeline -> MermaidTimelineSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Gantt -> MermaidGanttSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Mindmap -> MermaidMindmapSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Kanban -> MermaidKanbanSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.XYChart -> MermaidXYChartSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Quadrant -> MermaidQuadrantChartSubPipeline()
-            MermaidDiagramKind.Journey -> MermaidJourneySubPipeline(textMeasurer)
-            MermaidDiagramKind.Sankey -> MermaidSankeySubPipeline(textMeasurer)
-            MermaidDiagramKind.GitGraph -> MermaidGitGraphSubPipeline(textMeasurer)
-            MermaidDiagramKind.Requirement -> MermaidRequirementSubPipeline(textMeasurer)
-            MermaidDiagramKind.Architecture -> MermaidArchitectureSubPipeline(textMeasurer)
-            MermaidDiagramKind.C4 -> MermaidC4SubPipeline(textMeasurer)
-            MermaidDiagramKind.Block -> MermaidBlockSubPipeline(textMeasurer)
+            MermaidDiagramKind.Journey -> MermaidJourneySubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Sankey -> MermaidSankeySubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.GitGraph -> MermaidGitGraphSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Requirement -> MermaidRequirementSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Architecture -> MermaidArchitectureSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.C4 -> MermaidC4SubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.Block -> MermaidBlockSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Packet -> MermaidPacketSubPipeline(textMeasurer)
         }
 

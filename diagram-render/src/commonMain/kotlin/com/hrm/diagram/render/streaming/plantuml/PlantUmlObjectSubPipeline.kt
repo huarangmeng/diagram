@@ -21,16 +21,19 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.parser.plantuml.PlantUmlObjectParser
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlObjectSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private data class ScopePalette(
         val fill: ArgbColor?,
@@ -48,6 +51,8 @@ internal class PlantUmlObjectSubPipeline(
     )
 
     private val parser = PlantUmlObjectParser()
+    private val colors = ThemeResolver.resolvePlantUmlComponent(theme)
+    private val secondaryText = theme.colors.textSecondary
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val memberFont = FontSpec(family = "monospace", sizeSp = 11f)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -174,8 +179,8 @@ internal class PlantUmlObjectSubPipeline(
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>, palette: ObjectPalette) {
         val rect = clusterRects[cluster.id] ?: return
-        val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF5F5F5.toInt())
-        val stroke = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90A4AE.toInt())
+        val fill = cluster.style.fill?.let { Color(it.argb) } ?: colors.clusterFill
+        val stroke = cluster.style.stroke?.let { Color(it.argb) } ?: colors.clusterStroke
         val kind = parseClusterLabel(cluster).first.lowercase()
         val scoped = palette.scopes[kind]
         val textColor = palette.scopes[kind]?.text?.let { Color(it.argb) } ?: stroke
@@ -204,12 +209,12 @@ internal class PlantUmlObjectSubPipeline(
     }
 
     private fun drawNode(node: Node, rect: Rect, out: MutableList<DrawCommand>, palette: ObjectPalette) {
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFF3E5F5.toInt())
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF6A1B9A.toInt())
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF4A148C.toInt())
+        val kind = node.payload[PlantUmlObjectParser.KIND_KEY]
+        val fill = node.style.fill?.let { Color(it.argb) } ?: if (kind == "note") colors.noteFill else colors.nodeFill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: if (kind == "note") colors.noteStroke else colors.nodeStroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: if (kind == "note") colors.noteText else colors.nodeText
         val members = membersOf(node)
         val title = titleOf(node)
-        val kind = node.payload[PlantUmlObjectParser.KIND_KEY]
         val scoped = palette.scopes[kind]
         val isNote = kind == "note"
         val resolvedTitleFont = scopedFont(scoped, if (isNote) edgeLabelFont else titleFont)
@@ -283,7 +288,7 @@ internal class PlantUmlObjectSubPipeline(
             }
             else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
         }
-        val color = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF546E7A.toInt())
+        val color = edge.style.color?.let { Color(it.argb) } ?: colors.edgeColor
         out += DrawCommand.StrokePath(
             path = PathCmd(ops),
             stroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash),
@@ -306,7 +311,7 @@ internal class PlantUmlObjectSubPipeline(
                 text = text,
                 origin = Point(mid.x, mid.y - 4f),
                 font = edgeLabelFont,
-                color = Color(0xFF263238.toInt()),
+                color = secondaryText,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Bottom,
                 z = 3,

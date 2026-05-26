@@ -2,6 +2,7 @@ package com.hrm.diagram.render.streaming.plantuml
 
 import com.hrm.diagram.core.ir.SeriesKind
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.parser.plantuml.PlantUmlStructFormat
 import com.hrm.diagram.render.streaming.dispatcher.SubPipelineRegistry
 
@@ -39,6 +40,7 @@ internal data class PlantUmlStartDirective(
 
 internal class PlantUmlSubPipelineRegistry(
     private val textMeasurer: TextMeasurer,
+    private val theme: DiagramTheme,
 ) : SubPipelineRegistry<PlantUmlDiagramKind, PlantUmlSubPipeline> {
     private companion object {
         val ANCHORED_NOTE = Regex(
@@ -63,27 +65,27 @@ internal class PlantUmlSubPipelineRegistry(
 
     override fun create(kind: PlantUmlDiagramKind): PlantUmlSubPipeline =
         when (kind) {
-            PlantUmlDiagramKind.Sequence -> PlantUmlSequenceSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Class -> PlantUmlClassSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.State -> PlantUmlStateSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Component -> PlantUmlComponentSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Usecase -> PlantUmlUsecaseSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Activity -> PlantUmlActivitySubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Object -> PlantUmlObjectSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Deployment -> PlantUmlDeploymentSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Mindmap -> PlantUmlMindmapSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Wbs -> PlantUmlWbsSubPipeline(textMeasurer)
+            PlantUmlDiagramKind.Sequence -> PlantUmlSequenceSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Class -> PlantUmlClassSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.State -> PlantUmlStateSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Component -> PlantUmlComponentSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Usecase -> PlantUmlUsecaseSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Activity -> PlantUmlActivitySubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Object -> PlantUmlObjectSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Deployment -> PlantUmlDeploymentSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Erd -> PlantUmlErdSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Mindmap -> PlantUmlMindmapSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Wbs -> PlantUmlWbsSubPipeline(textMeasurer, theme)
             PlantUmlDiagramKind.Json -> PlantUmlStructSubPipeline(PlantUmlStructFormat.JSON, textMeasurer)
             PlantUmlDiagramKind.Yaml -> PlantUmlStructSubPipeline(PlantUmlStructFormat.YAML, textMeasurer)
-            PlantUmlDiagramKind.Network -> PlantUmlNetworkSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Gantt -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Gantt, textMeasurer)
-            PlantUmlDiagramKind.Timing -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Timing, textMeasurer)
-            PlantUmlDiagramKind.Salt -> PlantUmlSaltSubPipeline(textMeasurer)
+            PlantUmlDiagramKind.Network -> PlantUmlNetworkSubPipeline(textMeasurer, theme)
+            PlantUmlDiagramKind.Gantt -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Gantt, textMeasurer, theme)
+            PlantUmlDiagramKind.Timing -> PlantUmlTimeSeriesSubPipeline(PlantUmlTimeSeriesSubPipeline.Kind.Timing, textMeasurer, theme)
+            PlantUmlDiagramKind.Salt -> PlantUmlSaltSubPipeline(textMeasurer, theme)
             PlantUmlDiagramKind.Archimate -> PlantUmlArchimateSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.C4 -> PlantUmlC4SubPipeline(textMeasurer)
+            PlantUmlDiagramKind.C4 -> PlantUmlC4SubPipeline(textMeasurer, theme)
             PlantUmlDiagramKind.Ditaa -> PlantUmlDitaaSubPipeline(textMeasurer)
-            PlantUmlDiagramKind.Pie -> PlantUmlPieSubPipeline(textMeasurer)
+            PlantUmlDiagramKind.Pie -> PlantUmlPieSubPipeline(textMeasurer, theme)
             PlantUmlDiagramKind.BarChart -> PlantUmlXYChartSubPipeline(SeriesKind.Bar, textMeasurer)
             PlantUmlDiagramKind.LineChart -> PlantUmlXYChartSubPipeline(SeriesKind.Line, textMeasurer)
             PlantUmlDiagramKind.ScatterChart -> PlantUmlXYChartSubPipeline(SeriesKind.Scatter, textMeasurer)

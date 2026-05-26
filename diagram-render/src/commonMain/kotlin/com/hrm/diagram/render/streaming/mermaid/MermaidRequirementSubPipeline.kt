@@ -32,16 +32,21 @@ import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIRE
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_VERIFY_KEY
 import com.hrm.diagram.render.graph.GraphMeasurePolicy
 import com.hrm.diagram.render.cache.DrawEntity
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class MermaidRequirementSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidRequirementParser()
+    private val colors = ThemeResolver.resolveGraph(theme)
+    private val linkColor = theme.colors.accent
     private val nodeCardLayouts: MutableMap<NodeId, RequirementCardLayout> = HashMap()
     private val measurePolicy = GraphMeasurePolicy(
         textMeasurer = textMeasurer,
@@ -109,18 +114,11 @@ internal class MermaidRequirementSubPipeline(
 
     private fun flowchartRender(ir: GraphIR, laidOut: LaidOutDiagram): List<DrawEntity> {
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
-        val defaultNodeFill = Color(0xFFE3F2FD.toInt())
-        val defaultNodeStroke = Color(0xFF1565C0.toInt())
-        val defaultTextColor = Color(0xFF0D47A1.toInt())
-        val defaultEdgeColor = Color(0xFF455A64.toInt())
-        val defaultEdgeLabelColor = Color(0xFF263238.toInt())
-        val defaultEdgeLabelBg = Color(0xF0FFFFFF.toInt())
-
         for (n in ir.nodes) {
             val r = laidOut.nodePositions[n.id] ?: continue
-            val nodeFill = n.style.fill?.let { Color(it.argb) } ?: defaultNodeFill
-            val nodeStroke = n.style.stroke?.let { Color(it.argb) } ?: defaultNodeStroke
-            val textColor = n.style.textColor?.let { Color(it.argb) } ?: defaultTextColor
+            val nodeFill = n.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
+            val nodeStroke = n.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
+            val textColor = n.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
             val stroke = Stroke(width = n.style.strokeWidth ?: 1.5f)
             val cardLayout = nodeCardLayouts[n.id]
             if (cardLayout != null) {
@@ -174,7 +172,7 @@ internal class MermaidRequirementSubPipeline(
             }
             val path = PathCmd(ops)
             val edge = ir.edges.getOrNull(idx) ?: continue
-            val edgeColor = edge.style.color?.let { Color(it.argb) } ?: defaultEdgeColor
+            val edgeColor = edge.style.color?.let { Color(it.argb) } ?: colors.edge
             val edgeStroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
             out += DrawCommand.StrokePath(path = path, stroke = edgeStroke, color = edgeColor, z = 0)
             val tail = pts[pts.size - 2]
@@ -202,13 +200,13 @@ internal class MermaidRequirementSubPipeline(
                 midPoint.x + metrics.width / 2f + padding,
                 midPoint.y + metrics.height / 2f + padding / 2f,
             )
-            val bg = edge.style.labelBg?.let { Color(it.argb) } ?: defaultEdgeLabelBg
+            val bg = edge.style.labelBg?.let { Color(it.argb) } ?: colors.edgeLabelBackground
             out += DrawCommand.FillRect(rect = bgRect, color = bg, corner = 3f, z = 4)
             out += DrawCommand.DrawText(
                 text = text,
                 origin = midPoint,
                 font = edgeLabelFont,
-                color = defaultEdgeLabelColor,
+                color = colors.edgeLabelText,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,
                 z = 5,
@@ -342,7 +340,7 @@ internal class MermaidRequirementSubPipeline(
                         text = run.text,
                         origin = Point(x, y),
                         font = run.font,
-                        color = if (run.isLink) Color(0xFF1565C0.toInt()) else textColor,
+                        color = if (run.isLink) linkColor else textColor,
                         anchorX = TextAnchorX.Start,
                         anchorY = TextAnchorY.Top,
                         z = 3,

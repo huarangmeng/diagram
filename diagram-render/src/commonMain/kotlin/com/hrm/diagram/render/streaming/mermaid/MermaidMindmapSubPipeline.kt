@@ -17,6 +17,7 @@ import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.ir.TreeNode
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.tree.MindmapLayout
 import com.hrm.diagram.parser.mermaid.MermaidMindmapParser
@@ -24,12 +25,15 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.min
 
 internal class MermaidMindmapSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidMindmapParser()
+    private val colors = ThemeResolver.resolveMermaidMindmap(theme)
     private val layout = MindmapLayout(textMeasurer)
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
@@ -50,13 +54,6 @@ internal class MermaidMindmapSubPipeline(
     private fun render(ir: TreeIR, laid: LaidOutDiagram, shapes: Map<NodeId, NodeShape>): List<DrawEntity> {
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val icons = parser.snapshotNodeIcons()
-        val defaultNodeFill = Color(0xFFE8F5E9.toInt())
-        val defaultNodeStroke = Color(0xFF2E7D32.toInt())
-        val rootFill = Color(0xFFE3F2FD.toInt())
-        val rootStroke = Color(0xFF1565C0.toInt())
-        val textColor = Color(0xFF263238.toInt())
-        val edgeColor = Color(0xFF90A4AE.toInt())
-
         fun drawEdges(parent: TreeNode) {
             val pr = laid.nodePositions[parent.id] ?: return
             for (c in parent.children) {
@@ -79,7 +76,7 @@ internal class MermaidMindmapSubPipeline(
                         PathOp.CubicTo(Point(midX, from.y), Point(midX, to.y), to),
                     ),
                 )
-                out += DrawCommand.StrokePath(path = path, stroke = Stroke(width = 1.5f), color = edgeColor, z = 0)
+                out += DrawCommand.StrokePath(path = path, stroke = Stroke(width = 1.5f), color = colors.edge, z = 0)
                 drawEdges(c)
             }
         }
@@ -87,8 +84,8 @@ internal class MermaidMindmapSubPipeline(
         fun drawNode(n: TreeNode, isRoot: Boolean) {
             val r = laid.nodePositions[n.id] ?: return
             val shape = shapes[n.id] ?: NodeShape.Box
-            val fill = if (isRoot) rootFill else defaultNodeFill
-            val strokeColor = if (isRoot) rootStroke else defaultNodeStroke
+            val fill = if (isRoot) colors.rootFill else colors.nodeFill
+            val strokeColor = if (isRoot) colors.rootStroke else colors.nodeStroke
             val stroke = Stroke(width = if (isRoot) 2f else 1.5f)
             val iconName = icons[n.id]
 
@@ -182,7 +179,7 @@ internal class MermaidMindmapSubPipeline(
                     text = iconFallbackLabel(iconName),
                     origin = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
                     font = font.copy(weight = 600),
-                    color = textColor,
+                color = if (isRoot) colors.rootText else colors.nodeText,
                     maxWidth = r.size.width - 12f,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Middle,
@@ -193,7 +190,7 @@ internal class MermaidMindmapSubPipeline(
                     text = label,
                     origin = Point((r.left + r.right) / 2f, (r.top + r.bottom) / 2f),
                     font = font,
-                    color = textColor,
+                    color = if (isRoot) colors.rootText else colors.nodeText,
                     maxWidth = r.size.width - 12f,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Middle,

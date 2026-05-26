@@ -4,25 +4,31 @@
 
 ```kotlin
 data class DiagramTheme(
-    val palette: Palette,
+    val colors: ThemeColors,
     val typography: Typography,
     val nodeDefaults: NodeStyle,
     val edgeDefaults: EdgeStyle,
     val clusterDefaults: ClusterStyle,
     val arrowDefaults: ArrowStyle,
     val background: Color,
+    val graphColors: GraphColors,
+    val pieColors: PieColors,
+    val treeColors: TreeColors,
+    val sequenceColors: SequenceColors,
+    val timeSeriesColors: TimeSeriesColors,
 ) {
     companion object {
         val Default: DiagramTheme       // Mermaid default 风格
         val Dark: DiagramTheme
-        val MaterialYou: DiagramTheme   // 取自 ColorScheme
+        fun material3(colorScheme: ColorScheme): DiagramTheme
     }
 }
 ```
 
-## 2. Palette
-- `primary / secondary / accent / surface / onSurface / outline / muted / danger / success / warning`
-- 解析器解析到的语法颜色（如 mermaid `style A fill:#f9f`）覆盖 palette。
+## 2. ThemeColors
+- `canvas / surface / surfaceAlt / textPrimary / textSecondary / border`
+- `accent / accentSecondary / accentTertiary / success / warning / danger / selection / diagnostic`
+- 解析器解析到的语法颜色（如 mermaid `style A fill:#f9f`）覆盖对应图元 role，不覆盖整套 theme colors。
 
 ## 3. Typography
 - `bodyFont`、`titleFont`、`monoFont`，每个含 `family + sizeSp + weight`。

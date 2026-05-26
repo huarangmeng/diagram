@@ -6,6 +6,7 @@ import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
@@ -28,6 +29,7 @@ import com.hrm.diagram.render.streaming.kernel.StreamingFamilyPipelineKernel
  */
 internal class PlantUmlSessionPipeline(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
+    private val theme: DiagramTheme = DiagramTheme.Default,
 ) : SessionPipeline {
     private val diagnosticsAll: MutableList<Diagnostic> = ArrayList()
     private val familyKernel = StreamingFamilyPipelineKernel(textMeasurer)
@@ -37,7 +39,7 @@ internal class PlantUmlSessionPipeline(
     private var blockClosed: Boolean = false
     private val bufferedBodyLines: MutableList<String> = ArrayList()
     private val styleState = PlantUmlLanguageStyleState()
-    private val subPipelineRegistry = PlantUmlSubPipelineRegistry(textMeasurer)
+    private val subPipelineRegistry = PlantUmlSubPipelineRegistry(textMeasurer, theme)
     private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
     private val styleRouter = PlantUmlStyleBlockRouter(styleState, subPipelineRegistry)
     private val subPipeline: PlantUmlSubPipeline?

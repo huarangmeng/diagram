@@ -27,6 +27,23 @@ class ThemeTest {
     @Test
     fun nodeDefaultsInheritOnSurface() {
         val t = DiagramTheme.Default
-        assertTrue(t.nodeDefaults.textColor!!.argb == t.palette.onSurface.argb)
+        assertTrue(t.nodeDefaults.textColor!!.argb == t.colors.textPrimary.argb)
+    }
+
+    @Test
+    fun graphScopesTrackPaletteDefaults() {
+        val t = DiagramTheme.Default
+        assertEquals(t.colors.surface, t.graphColors.nodeFill)
+        assertEquals(t.colors.border, t.graphColors.nodeStroke)
+        assertEquals(t.colors.warning, t.sequenceColors.noteStroke)
+        assertEquals(t.colors.accent, t.treeColors.rootStroke)
+    }
+
+    @Test
+    fun semanticColorsExposeSecondarySlots() {
+        val t = DiagramTheme.Dark
+        assertNotEquals(t.colors.surface, t.colors.surfaceAlt)
+        assertEquals(t.colors.textSecondary.argb, DiagramTheme.Dark.colors.textSecondary.argb)
+        assertEquals(t.colors.diagnostic, t.colors.danger)
     }
 }

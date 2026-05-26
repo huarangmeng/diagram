@@ -19,15 +19,18 @@ import com.hrm.diagram.core.ir.StateNode
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.stated.StateDiagramLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlStateParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlStateSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private data class StatePalette(
         val stateFill: ArgbColor?,
@@ -54,6 +57,7 @@ internal class PlantUmlStateSubPipeline(
     }
 
     private val parser = PlantUmlStateParser()
+    private val colors = ThemeResolver.resolvePlantUmlState(theme)
     private val layout = StateDiagramLayout(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -75,16 +79,16 @@ internal class PlantUmlStateSubPipeline(
     private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
-        val boxFill = Color((palette.stateFill ?: ArgbColor(0xFFE8F5E9U.toInt())).argb)
-        val boxStroke = Color((palette.stateStroke ?: ArgbColor(0xFF2E7D32U.toInt())).argb)
-        val compositeFill = Color((palette.compositeFill ?: palette.stateFill ?: ArgbColor(0xFFF1F8E9U.toInt())).argb)
-        val compositeStroke = Color((palette.compositeStroke ?: palette.stateStroke ?: ArgbColor(0xFF33691EU.toInt())).argb)
-        val textColor = Color((palette.stateText ?: ArgbColor(0xFF1B5E20U.toInt())).argb)
-        val edgeColor = Color((palette.edgeColor ?: ArgbColor(0xFF455A64U.toInt())).argb)
-        val noteFill = Color((palette.noteFill ?: ArgbColor(0xFFFFF8E1U.toInt())).argb)
-        val noteStroke = Color((palette.noteStroke ?: ArgbColor(0xFFFFA000U.toInt())).argb)
-        val noteTextColor = Color((palette.noteText ?: palette.stateText ?: ArgbColor(0xFF1B5E20U.toInt())).argb)
-        val pseudoFill = boxStroke
+        val boxFill = Color((palette.stateFill ?: ArgbColor(colors.stateFill.argb)).argb)
+        val boxStroke = Color((palette.stateStroke ?: ArgbColor(colors.stateStroke.argb)).argb)
+        val compositeFill = Color((palette.compositeFill ?: palette.stateFill ?: ArgbColor(colors.compositeFill.argb)).argb)
+        val compositeStroke = Color((palette.compositeStroke ?: palette.stateStroke ?: ArgbColor(colors.compositeStroke.argb)).argb)
+        val textColor = Color((palette.stateText ?: ArgbColor(colors.stateText.argb)).argb)
+        val edgeColor = Color((palette.edgeColor ?: ArgbColor(colors.edgeColor.argb)).argb)
+        val noteFill = Color((palette.noteFill ?: ArgbColor(colors.noteFill.argb)).argb)
+        val noteStroke = Color((palette.noteStroke ?: ArgbColor(colors.noteStroke.argb)).argb)
+        val noteTextColor = Color((palette.noteText ?: palette.stateText ?: ArgbColor(colors.noteText.argb)).argb)
+        val pseudoFill = colors.pseudoFill
 
         val solid = Stroke(width = palette.stateLineThickness ?: 1.5f)
         val noteSolid = Stroke(width = palette.noteLineThickness ?: 1.25f)

@@ -21,6 +21,7 @@ import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatch
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.IncrementalLayout
 import com.hrm.diagram.layout.LaidOutDiagram
@@ -32,14 +33,17 @@ import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPatch
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
 internal class MermaidBlockSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidBlockParser()
+    private val colors = ThemeResolver.resolveGraph(theme)
     private val layout = BlockLayout(textMeasurer)
     private val styleTransform = MermaidStyleTransformState.graph()
     private val kernel = MermaidFamilySubPipelineKernel(
@@ -86,7 +90,7 @@ internal class MermaidBlockSubPipeline(
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         out += DrawCommand.FillRect(
             rect = Rect(Point(laidOut.bounds.left, laidOut.bounds.top), Size(laidOut.bounds.size.width, laidOut.bounds.size.height)),
-            color = Color(0xFFFFFFFF.toInt()),
+            color = colors.background,
             z = 0,
         )
         for (cluster in ir.clusters) drawCluster(cluster, laidOut.clusterRects, out)
@@ -100,8 +104,8 @@ internal class MermaidBlockSubPipeline(
 
     private fun drawCluster(cluster: Cluster, clusterRects: Map<NodeId, Rect>, out: MutableList<DrawCommand>) {
         val rect = clusterRects[cluster.id] ?: return
-        val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FBFF.toInt())
-        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF90A4AE.toInt())
+        val fill = cluster.style.fill?.let { Color(it.argb) } ?: colors.clusterFill
+        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: colors.clusterStroke
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 12f, z = 1)
         out += DrawCommand.StrokeRect(rect = rect, stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f, dash = listOf(7f, 5f)), color = strokeColor, corner = 12f, z = 2)
         val label = (cluster.label as? RichLabel.Plain)?.text.orEmpty().ifBlank { cluster.id.value }
@@ -120,9 +124,9 @@ internal class MermaidBlockSubPipeline(
 
     private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>) {
         val rect = laidOut.nodePositions[node.id] ?: return
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFE3F2FD.toInt())
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF1E88E5.toInt())
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF0D47A1.toInt())
+        val fill = node.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
         when (node.shape) {
             is NodeShape.Circle -> {
@@ -194,7 +198,7 @@ internal class MermaidBlockSubPipeline(
         val ops = ArrayList<PathOp>(pts.size)
         ops += PathOp.MoveTo(pts[0])
         for (i in 1 until pts.size) ops += PathOp.LineTo(pts[i])
-        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF546E7A.toInt())
+        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: colors.edge
         out += DrawCommand.StrokePath(path = PathCmd(ops), stroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash), color = edgeColor, z = 3)
         when (edge.arrow) {
             com.hrm.diagram.core.ir.ArrowEnds.None -> Unit
@@ -210,8 +214,8 @@ internal class MermaidBlockSubPipeline(
             val mid = pts[pts.size / 2]
             val metrics = textMeasurer.measure(text, edgeLabelFont)
             val bgRect = Rect.ltrb(mid.x - metrics.width / 2f - 4f, mid.y - metrics.height / 2f - 2f, mid.x + metrics.width / 2f + 4f, mid.y + metrics.height / 2f + 2f)
-            out += DrawCommand.FillRect(rect = bgRect, color = edge.style.labelBg?.let { Color(it.argb) } ?: Color(0xF0FFFFFF.toInt()), corner = 3f, z = 8)
-            out += DrawCommand.DrawText(text = text, origin = mid, font = edgeLabelFont, color = Color(0xFF263238.toInt()), anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 9)
+            out += DrawCommand.FillRect(rect = bgRect, color = edge.style.labelBg?.let { Color(it.argb) } ?: colors.edgeLabelBackground, corner = 3f, z = 8)
+            out += DrawCommand.DrawText(text = text, origin = mid, font = edgeLabelFont, color = colors.edgeLabelText, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 9)
         }
     }
 

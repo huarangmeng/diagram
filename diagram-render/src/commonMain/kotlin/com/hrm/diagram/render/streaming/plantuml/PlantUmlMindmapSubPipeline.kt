@@ -9,30 +9,33 @@ import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.ir.TreeNode
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.tree.MindmapLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlMindmapParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 
 internal class PlantUmlMindmapSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
-    private companion object {
-        val palette = PlantUmlTreeNodePalette(
-            defaultNodeFill = Color(0xFFE8F5E9.toInt()),
-            defaultNodeStroke = Color(0xFF2E7D32.toInt()),
-            rootFill = Color(0xFFE3F2FD.toInt()),
-            rootStroke = Color(0xFF1565C0.toInt()),
-            textColor = Color(0xFF263238.toInt()),
-            edgeColor = Color(0xFF90A4AE.toInt()),
-        )
-        val chrome = PlantUmlTreeNodeChrome(
-            rootCornerRadius = 14f,
-            childCornerRadius = 6f,
-            rootStrokeWidth = 2f,
-            childStrokeWidth = 1.5f,
+    private val palette = ThemeResolver.resolvePlantUmlMindmap(theme).let {
+        PlantUmlTreeNodePalette(
+            defaultNodeFill = it.nodeFill,
+            defaultNodeStroke = it.nodeStroke,
+            rootFill = it.rootFill,
+            rootStroke = it.rootStroke,
+            textColor = it.nodeText,
+            edgeColor = it.edge,
         )
     }
+    private val chrome = PlantUmlTreeNodeChrome(
+        rootCornerRadius = 14f,
+        childCornerRadius = 6f,
+        rootStrokeWidth = 2f,
+        childStrokeWidth = 1.5f,
+    )
 
     private val parser = PlantUmlMindmapParser()
     private val layout = MindmapLayout(textMeasurer)

@@ -16,6 +16,7 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SankeyIR
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.sankey.SankeyLayout
 import com.hrm.diagram.parser.mermaid.MermaidSankeyParser
@@ -23,12 +24,15 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.max
 
 internal class MermaidSankeySubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidSankeyParser()
+    private val colors = ThemeResolver.resolveSankey(theme)
     private val layout = SankeyLayout(textMeasurer)
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
@@ -50,17 +54,15 @@ internal class MermaidSankeySubPipeline(
     private fun render(ir: SankeyIR, laid: LaidOutDiagram): List<DrawEntity> {
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
-        val text = Color(0xFF263238.toInt())
-        val border = Color(0xFF607D8B.toInt())
         val nodeColors = ir.nodes.mapIndexed { index, node -> node.id to palette(index) }.toMap()
         val values = computeNodeValues(ir)
         val outOffset = LinkedHashMap<NodeId, Float>()
         val inOffset = LinkedHashMap<NodeId, Float>()
 
-        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), Color(0xFFFFFFFF.toInt()), z = 0)
+        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), colors.background, z = 0)
         val titleRect = laid.nodePositions[NodeId("sankey:title")]
         if (titleRect != null && !ir.title.isNullOrBlank()) {
-            out += DrawCommand.DrawText(ir.title!!, Point(titleRect.left, titleRect.top), titleFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+            out += DrawCommand.DrawText(ir.title!!, Point(titleRect.left, titleRect.top), titleFont, colors.text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
         }
 
         for (flow in ir.flows) {
@@ -79,7 +81,7 @@ internal class MermaidSankeySubPipeline(
                     to = Point(toRect.left, toTop + thickness / 2f),
                     thickness = thickness,
                 ),
-                color = Color.argb(110, nodeColors[flow.from]?.r ?: 120, nodeColors[flow.from]?.g ?: 120, nodeColors[flow.from]?.b ?: 120),
+                color = flowColor(nodeColors[flow.from] ?: colors.nodePalette.firstOrNull() ?: colors.text),
                 z = 2,
             )
         }
@@ -89,10 +91,10 @@ internal class MermaidSankeySubPipeline(
             val labelRect = laid.nodePositions[NodeId("sankey:label:${node.id.value}")]
             val fill = nodeColors[node.id] ?: palette(index)
             out += DrawCommand.FillRect(rect, fill, corner = 6f, z = 4)
-            out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), border, corner = 6f, z = 5)
+            out += DrawCommand.StrokeRect(rect, Stroke(width = 1f), colors.border, corner = 6f, z = 5)
             val label = (node.label as? RichLabel.Plain)?.text.orEmpty()
             if (labelRect != null) {
-                out += DrawCommand.DrawText(label, Point(labelRect.left, labelRect.top), labelFont, text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
+                out += DrawCommand.DrawText(label, Point(labelRect.left, labelRect.top), labelFont, colors.text, anchorX = TextAnchorX.Start, anchorY = TextAnchorY.Top, z = 10)
             }
         }
         return out.entities()
@@ -122,13 +124,10 @@ internal class MermaidSankeySubPipeline(
     }
 
     private fun palette(index: Int): Color = listOf(
-        Color(0xFF42A5F5.toInt()),
-        Color(0xFF66BB6A.toInt()),
-        Color(0xFFFFCA28.toInt()),
-        Color(0xFFAB47BC.toInt()),
-        Color(0xFF26C6DA.toInt()),
-        Color(0xFFEF5350.toInt()),
-    )[index % 6]
+        *colors.nodePalette.toTypedArray(),
+    )[index % colors.nodePalette.size.coerceAtLeast(1)]
+
+    private fun flowColor(color: Color): Color = Color.argb(colors.flowAlpha, color.r, color.g, color.b)
 
     override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
 

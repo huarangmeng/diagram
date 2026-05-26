@@ -16,6 +16,7 @@ import com.hrm.diagram.core.ir.PieIR
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.pie.PieLayout
 import com.hrm.diagram.parser.mermaid.MermaidPieParser
@@ -23,6 +24,7 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -31,8 +33,10 @@ import kotlin.math.tan
 
 internal class MermaidPieSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidPieParser()
+    private val colors = ThemeResolver.resolvePie(theme)
     private val layout = PieLayout(textMeasurer)
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
@@ -65,16 +69,7 @@ internal class MermaidPieSubPipeline(
         val total = ir.slices.sumOf { it.value }.takeIf { it > 0.0 } ?: 1.0
         var angle = -PI / 2.0
 
-        val palette = listOf(
-            Color(0xFF42A5F5.toInt()),
-            Color(0xFF66BB6A.toInt()),
-            Color(0xFFFFCA28.toInt()),
-            Color(0xFFEF5350.toInt()),
-            Color(0xFFAB47BC.toInt()),
-            Color(0xFF26C6DA.toInt()),
-        )
         val border = Stroke(width = 1f)
-        val borderColor = Color(0xFF263238.toInt())
 
         // Title.
         val titleRect = laid.nodePositions[NodeId("pie:title")]
@@ -83,7 +78,7 @@ internal class MermaidPieSubPipeline(
                 text = ir.title!!,
                 origin = Point(titleRect.left, titleRect.top),
                 font = titleFont,
-                color = borderColor,
+                color = colors.titleText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -95,10 +90,10 @@ internal class MermaidPieSubPipeline(
             val sweep = (s.value / total) * 2.0 * PI
             val start = angle
             val end = angle + sweep
-            val fill = palette[i % palette.size]
+            val fill = colors.slices[i % colors.slices.size]
             val path = wedgePath(center, radius, start, end)
             out += DrawCommand.FillPath(path = path, color = fill, z = 1)
-            out += DrawCommand.StrokePath(path = path, stroke = border, color = borderColor, z = 2)
+            out += DrawCommand.StrokePath(path = path, stroke = border, color = colors.border, z = 2)
             angle = end
         }
 
@@ -106,16 +101,16 @@ internal class MermaidPieSubPipeline(
         for ((i, s) in ir.slices.withIndex()) {
             val row = laid.nodePositions[NodeId("pie:legend:$i")] ?: continue
             val swatch = Rect.ltrb(row.left, row.top + 3f, row.left + 14f, row.bottom - 3f)
-            val fill = palette[i % palette.size]
+            val fill = colors.slices[i % colors.slices.size]
             out += DrawCommand.FillRect(rect = swatch, color = fill, corner = 3f, z = 5)
-            out += DrawCommand.StrokeRect(rect = swatch, stroke = Stroke.Hairline, color = borderColor, corner = 3f, z = 6)
+            out += DrawCommand.StrokeRect(rect = swatch, stroke = Stroke.Hairline, color = colors.border, corner = 3f, z = 6)
 
             val label = (s.label as? RichLabel.Plain)?.text ?: "slice$i"
             out += DrawCommand.DrawText(
                 text = label,
                 origin = Point(swatch.right + 8f, (row.top + row.bottom) / 2f),
                 font = legendFont,
-                color = borderColor,
+                color = colors.legendText,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Middle,
                 z = 7,
@@ -125,7 +120,7 @@ internal class MermaidPieSubPipeline(
                 text = valueText,
                 origin = Point(row.right, (row.top + row.bottom) / 2f),
                 font = legendFont,
-                color = borderColor,
+                color = colors.legendText,
                 anchorX = TextAnchorX.End,
                 anchorY = TextAnchorY.Middle,
                 z = 7,

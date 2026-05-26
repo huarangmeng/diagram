@@ -52,7 +52,7 @@ object Diagram {
         theme = theme,
         layoutOptions = layoutOptions,
         textMeasurer = textMeasurer,
-        pipeline = defaultPipelineFor(language, textMeasurer),
+        pipeline = defaultPipelineFor(language, textMeasurer, theme),
     )
 
     internal fun session(
@@ -60,17 +60,18 @@ object Diagram {
         theme: DiagramTheme = DiagramTheme.Default,
         layoutOptions: LayoutOptions = LayoutOptions(),
         textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
-        pipeline: SessionPipeline = defaultPipelineFor(language, textMeasurer),
+        pipeline: SessionPipeline = defaultPipelineFor(language, textMeasurer, theme),
     ): DiagramSession = DiagramSession.create(language, theme, layoutOptions, pipeline)
 
     private fun defaultPipelineFor(
         language: SourceLanguage,
         textMeasurer: TextMeasurer,
+        theme: DiagramTheme,
     ): SessionPipeline {
         val cachedMeasurer = textMeasurer.cached()
         return when (language) {
-            SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = cachedMeasurer)
-            SourceLanguage.PLANTUML -> PlantUmlSessionPipeline(textMeasurer = cachedMeasurer)
+            SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = cachedMeasurer, theme = theme)
+            SourceLanguage.PLANTUML -> PlantUmlSessionPipeline(textMeasurer = cachedMeasurer, theme = theme)
             SourceLanguage.DOT -> DotSessionPipeline(textMeasurer = cachedMeasurer)
         }
     }

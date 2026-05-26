@@ -45,6 +45,7 @@ kotlin {
             api(libs.kotlinx.coroutinesCore)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
+            implementation(libs.compose.material3)
             implementation(libs.compose.ui)
         }
         commonTest.dependencies {

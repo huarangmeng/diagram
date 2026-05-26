@@ -14,6 +14,7 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.timeseries.GanttAxisSupport
 import com.hrm.diagram.layout.timeseries.GanttLayout
@@ -22,12 +23,15 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.abs
 
 internal class MermaidGanttSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidGanttParser()
+    private val colors = ThemeResolver.resolveTimeSeries(theme)
     private val layout = GanttLayout(textMeasurer)
     private var styleExtras: Map<String, String> = emptyMap()
     private val kernel = MermaidFamilySubPipelineKernel(
@@ -66,20 +70,20 @@ internal class MermaidGanttSubPipeline(
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
 
-        val bg = Color(0xFFFFFFFF.toInt())
-        val text = Color(0xFF263238.toInt())
-        val axisStroke = Color(0xFFB0BEC5.toInt())
-        val barStroke = Color(0xFF90A4AE.toInt())
-        val doneFill = Color(0xFF66BB6A.toInt())
-        val activeFill = Color(0xFF42A5F5.toInt())
-        val critFill = Color(0xFFEF5350.toInt())
-        val normalFill = Color(0xFFBDBDBD.toInt())
-        val milestoneFill = Color(0xFFFFCA28.toInt())
-        val gridColor = Color(0xFFE0E0E0.toInt())
-        val majorGridColor = Color(0xFFB0BEC5.toInt())
-        val scaleBg = Color(0xFFF7F9FA.toInt())
-        val sectionBg = Color(0xFFF3F6F8.toInt())
-        val rowAltBg = Color(0xFFFAFBFC.toInt())
+        val bg = colors.slotFill
+        val text = colors.labelText
+        val axisStroke = colors.axis
+        val barStroke = colors.border
+        val doneFill = colors.doneFill
+        val activeFill = colors.activeFill
+        val critFill = colors.criticalFill
+        val normalFill = colors.normalFill
+        val milestoneFill = colors.milestoneFill
+        val gridColor = colors.border
+        val majorGridColor = colors.axis
+        val scaleBg = colors.slotFill
+        val sectionBg = colors.alternateRowBackground
+        val rowAltBg = colors.alternateRowBackground
 
         out += DrawCommand.FillRect(
             rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)),
@@ -309,7 +313,7 @@ internal class MermaidGanttSubPipeline(
                     ),
                 ),
                 stroke = Stroke(width = 1.5f, dash = listOf(6f, 4f)),
-                color = Color(0xFFEF5350.toInt()),
+                color = colors.criticalFill,
                 z = 6,
             )
             if (labelRect != null) {
@@ -317,14 +321,14 @@ internal class MermaidGanttSubPipeline(
                 val bubble = Rect.ltrb(labelRect.left - 5f, labelRect.top - 3f, labelRect.right + 5f, labelRect.bottom + 3f)
                 out += DrawCommand.FillRect(
                     rect = bubble,
-                    color = Color(0xFFFFFFFF.toInt()),
+                    color = colors.slotFill,
                     corner = 4f,
                     z = 8,
                 )
                 out += DrawCommand.StrokeRect(
                     rect = bubble,
                     stroke = Stroke(width = 1f),
-                    color = Color(0xFFFFCDD2.toInt()),
+                    color = colors.criticalFill,
                     corner = 4f,
                     z = 9,
                 )
@@ -332,7 +336,7 @@ internal class MermaidGanttSubPipeline(
                     text = labelText,
                     origin = Point((labelRect.left + labelRect.right) / 2f, labelRect.top),
                     font = itemFont,
-                    color = Color(0xFFEF5350.toInt()),
+                    color = colors.criticalFill,
                     anchorX = TextAnchorX.Center,
                     anchorY = TextAnchorY.Top,
                     z = 10,

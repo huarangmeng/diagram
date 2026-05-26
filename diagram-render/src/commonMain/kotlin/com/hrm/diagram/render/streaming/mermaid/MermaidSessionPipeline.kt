@@ -9,6 +9,7 @@ import com.hrm.diagram.core.ir.StyleHints
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.parser.mermaid.MermaidFrontend
 import com.hrm.diagram.parser.mermaid.MermaidStyleConfig
 import com.hrm.diagram.parser.mermaid.MermaidStyleDecl
@@ -32,13 +33,14 @@ import com.hrm.diagram.render.streaming.kernel.StreamingFamilyPipelineKernel
  */
 internal class MermaidSessionPipeline(
     private val textMeasurer: TextMeasurer = HeuristicTextMeasurer(),
+    private val theme: DiagramTheme = DiagramTheme.Default,
 ) : SessionPipeline {
 
     private val lexer = MermaidFrontend.createLexingSession()
     private val familyKernel = StreamingFamilyPipelineKernel(textMeasurer)
     private val tokenLines = TokenLineDrain<Token>(MermaidFrontend::isNewlineToken)
     private val pendingLines: MutableList<List<Token>> = ArrayList()
-    private val subPipelineRegistry = MermaidSubPipelineRegistry(textMeasurer)
+    private val subPipelineRegistry = MermaidSubPipelineRegistry(textMeasurer, theme)
     private val dispatcher = DiagramKindDispatcher(subPipelineRegistry)
     private val sub: MermaidSubPipeline?
         get() = dispatcher.current

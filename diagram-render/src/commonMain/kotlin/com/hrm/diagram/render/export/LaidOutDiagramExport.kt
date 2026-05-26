@@ -24,6 +24,7 @@ import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
+import com.hrm.diagram.render.theme.ThemeResolver
 
 /**
  * Convert a laid out one-shot diagram into the stable export payload.
@@ -122,7 +123,8 @@ private fun graphRenderStyle(
     graph: GraphIR,
 ): GraphRenderStyle {
     val typography = theme.typography
-    val palette = theme.palette
+    val colors = theme.colors
+    val resolvedGraph = ThemeResolver.resolveGraph(theme)
     val nodeFont = typography.bodyFont
     val edgeFont = FontSpec(
         family = typography.bodyFont.family,
@@ -141,15 +143,15 @@ private fun graphRenderStyle(
         nodeFont = nodeFont,
         edgeFont = edgeFont,
         clusterFont = clusterFont,
-        nodeFill = theme.nodeDefaults.fill?.let { Color(it.argb) } ?: palette.surface,
-        nodeStroke = theme.nodeDefaults.stroke?.let { Color(it.argb) } ?: palette.outline,
-        nodeText = theme.nodeDefaults.textColor?.let { Color(it.argb) } ?: palette.onSurface,
-        edgeColor = theme.edgeDefaults.color?.let { Color(it.argb) } ?: palette.onSurface,
-        edgeLabelText = palette.onSurface,
-        edgeLabelBg = palette.surface.copy(alpha = 0.94f),
-        clusterFill = theme.clusterDefaults.fill?.let { Color(it.argb) } ?: palette.surface.copy(alpha = 0.9f),
-        clusterStroke = theme.clusterDefaults.stroke?.let { Color(it.argb) } ?: palette.outline,
-        clusterText = palette.onSurface,
+        nodeFill = resolvedGraph.nodeFill,
+        nodeStroke = resolvedGraph.nodeStroke,
+        nodeText = resolvedGraph.nodeText,
+        edgeColor = resolvedGraph.edge,
+        edgeLabelText = resolvedGraph.edgeLabelText,
+        edgeLabelBg = resolvedGraph.edgeLabelBackground,
+        clusterFill = resolvedGraph.clusterFill,
+        clusterStroke = resolvedGraph.clusterStroke,
+        clusterText = colors.textPrimary,
         nodeFontOf = { node, style -> fontOf(node, style, typography) },
         nodeTextColorOf = { node, _ -> node.payload["dot.node.html.fontcolor"]?.let(::parseHexColor) },
         edgeLabelColorOf = { edge, prefix, _ ->

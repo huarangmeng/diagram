@@ -18,6 +18,7 @@ import com.hrm.diagram.core.ir.SequenceIR
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.sequence.SequenceLayouts
 import com.hrm.diagram.parser.plantuml.PlantUmlParsing
@@ -25,10 +26,12 @@ import com.hrm.diagram.parser.plantuml.PlantUmlParsingFactory
 import com.hrm.diagram.parser.plantuml.PlantUmlSequenceHints
 import com.hrm.diagram.parser.plantuml.PlantUmlSequenceParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlSequenceSubPipeline(
     private val textMeasurer: TextMeasurer,
+    private val theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private data class MessageDecoration(
         val tail: String? = null,
@@ -62,6 +65,7 @@ internal class PlantUmlSequenceSubPipeline(
     )
 
     private val parser: PlantUmlParsing<SequenceIR> = PlantUmlParsingFactory.sequence()
+    private val resolvedColors = ThemeResolver.resolvePlantUmlSequence(theme)
     private val layout = SequenceLayouts.forSequence(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -80,18 +84,19 @@ internal class PlantUmlSequenceSubPipeline(
     private fun renderSequence(ir: SequenceIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
         val palette = paletteOf(ir)
-        val headerFillDefault = Color(0xFFE3F2FDU.toInt())
-        val headerStrokeDefault = Color(0xFF1565C0U.toInt())
-        val headerTextDefault = Color(0xFF0D47A1U.toInt())
-        val lifelineColor = palette.sequence.stroke?.let { Color(it.argb) } ?: palette.edgeColorOrNull() ?: Color(0xFF90A4AEU.toInt())
-        val msgColor = palette.edgeColorOrNull() ?: palette.sequence.stroke?.let { Color(it.argb) } ?: Color(0xFF263238U.toInt())
-        val msgText = palette.sequence.text?.let { Color(it.argb) } ?: Color(0xFF263238U.toInt())
-        val noteFill = palette.note.fill?.let { Color(it.argb) } ?: Color(0xFFFFF8E1U.toInt())
-        val noteStroke = palette.note.stroke?.let { Color(it.argb) } ?: Color(0xFFFFA000U.toInt())
-        val noteText = palette.note.text?.let { Color(it.argb) } ?: msgText
-        val activationFill = Color(0xFFFFFFFFU.toInt())
-        val activationStroke = palette.sequence.stroke?.let { Color(it.argb) } ?: Color(0xFF1565C0U.toInt())
-        val fragStroke = palette.sequence.stroke?.let { Color(it.argb) } ?: Color(0xFF6A1B9AU.toInt())
+        val colors = resolvedColors
+        val headerFillDefault = colors.headerFill
+        val headerStrokeDefault = colors.headerStroke
+        val headerTextDefault = colors.headerText
+        val lifelineColor = palette.sequence.stroke?.let { Color(it.argb) } ?: palette.edgeColorOrNull() ?: colors.lifeline
+        val msgColor = palette.edgeColorOrNull() ?: palette.sequence.stroke?.let { Color(it.argb) } ?: colors.message
+        val msgText = palette.sequence.text?.let { Color(it.argb) } ?: colors.messageText
+        val noteFill = palette.note.fill?.let { Color(it.argb) } ?: colors.noteFill
+        val noteStroke = palette.note.stroke?.let { Color(it.argb) } ?: colors.noteStroke
+        val noteText = palette.note.text?.let { Color(it.argb) } ?: colors.noteText
+        val activationFill = colors.activationFill
+        val activationStroke = palette.sequence.stroke?.let { Color(it.argb) } ?: colors.activationStroke
+        val fragStroke = palette.sequence.stroke?.let { Color(it.argb) } ?: colors.fragmentStroke
         val decorations = parseDecorations(ir)
 
         val messageStrokeWidth = palette.sequence.lineThickness ?: 1.5f
@@ -106,7 +111,7 @@ internal class PlantUmlSequenceSubPipeline(
         palette.sequence.fill?.let {
             out += DrawCommand.FillRect(rect = laidOut.bounds, color = Color(it.argb), z = -5)
         }
-        drawBoxes(ir, laidOut, out, palette, boxFont)
+        drawBoxes(ir, laidOut, out, palette, boxFont, colors)
 
         for (p in ir.participants) {
             val r = laidOut.nodePositions[p.id] ?: continue
@@ -165,8 +170,8 @@ internal class PlantUmlSequenceSubPipeline(
                 id.value.startsWith("note#") -> {
                     val noteMessage = noteMessages.getOrNull(noteStyleIndex++)
                     val isRef = (noteMessage?.label as? RichLabel.Plain)?.text?.let(PlantUmlSequenceHints::isReferenceLabel) == true
-                    val fill = palette.note.fill?.let { Color(it.argb) } ?: if (isRef) Color(0xFFE8EAF6.toInt()) else noteFill
-                    val stroke = palette.note.stroke?.let { Color(it.argb) } ?: if (isRef) Color(0xFF3949AB.toInt()) else noteStroke
+                    val fill = palette.note.fill?.let { Color(it.argb) } ?: if (isRef) colors.referenceNoteFill else noteFill
+                    val stroke = palette.note.stroke?.let { Color(it.argb) } ?: if (isRef) colors.referenceNoteStroke else noteStroke
                     if (palette.note.shadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
@@ -285,6 +290,7 @@ internal class PlantUmlSequenceSubPipeline(
         out: MutableList<DrawCommand>,
         palette: SequencePalette,
         boxFont: FontSpec,
+        colors: com.hrm.diagram.render.theme.ResolvedPlantUmlSequenceColors,
     ) {
         val spec = ir.styleHints.extras[PlantUmlSequenceParser.BOXES_KEY].orEmpty()
         if (spec.isEmpty()) return
@@ -296,9 +302,9 @@ internal class PlantUmlSequenceSubPipeline(
             val parts = entry.split("|", limit = 3)
             val title = parts.getOrNull(0)?.replace("\\|", "|").orEmpty()
             val inlineColor = PlantUmlTreeRenderSupport.parsePlantUmlColor(parts.getOrNull(1).orEmpty())
-            val fill = palette.box.fill?.let { Color(it.argb) } ?: inlineColor ?: Color(0xFFF3E5F5.toInt())
-            val strokeColor = palette.box.stroke?.let { Color(it.argb) } ?: inlineColor ?: Color(0xFFF3E5F5.toInt())
-            val textColor = palette.box.text?.let { Color(it.argb) } ?: strokeColor
+            val fill = palette.box.fill?.let { Color(it.argb) } ?: inlineColor ?: colors.boxFill
+            val strokeColor = palette.box.stroke?.let { Color(it.argb) } ?: inlineColor ?: colors.boxStroke
+            val textColor = palette.box.text?.let { Color(it.argb) } ?: colors.boxText
             val ids = parts.getOrNull(2).orEmpty().split(',').filter { it.isNotEmpty() }.map { NodeId(it) }
             val rects = ids.mapNotNull { laneRects[it] }
             if (rects.isEmpty()) continue

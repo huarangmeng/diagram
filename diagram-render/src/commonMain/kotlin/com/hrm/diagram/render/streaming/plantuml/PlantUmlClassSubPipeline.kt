@@ -19,16 +19,20 @@ import com.hrm.diagram.core.ir.Visibility
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.classd.ClassDiagramLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlClassParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlClassSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlClassParser()
+    private val colors = ThemeResolver.resolvePlantUmlClass(theme)
     private val layout = ClassDiagramLayout(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -407,28 +411,28 @@ internal class PlantUmlClassSubPipeline(
     private fun paletteFor(stereotype: String?, ir: ClassIR): ClassPalette {
         val base = when (stereotype?.lowercase()) {
         "interface" -> ClassPalette(
-            boxFill = Color(0xFFE3F2FDU.toInt()),
-            headerFill = Color(0xFFBBDEFB.toInt()),
-            stroke = Color(0xFF1565C0.toInt()),
-            text = Color(0xFF0D47A1.toInt()),
+            boxFill = colors.entity.boxFill,
+            headerFill = colors.entity.headerFill,
+            stroke = colors.entity.stroke,
+            text = colors.entity.text,
         )
         "abstract" -> ClassPalette(
-            boxFill = Color(0xFFF3E5F5.toInt()),
-            headerFill = Color(0xFFE1BEE7.toInt()),
-            stroke = Color(0xFF8E24AA.toInt()),
-            text = Color(0xFF4A148C.toInt()),
+            boxFill = colors.control.boxFill,
+            headerFill = colors.control.headerFill,
+            stroke = colors.control.stroke,
+            text = colors.control.text,
         )
         "enum" -> ClassPalette(
-            boxFill = Color(0xFFE8F5E9.toInt()),
-            headerFill = Color(0xFFC8E6C9.toInt()),
-            stroke = Color(0xFF2E7D32.toInt()),
-            text = Color(0xFF1B5E20.toInt()),
+            boxFill = colors.boundary.boxFill,
+            headerFill = colors.boundary.headerFill,
+            stroke = colors.boundary.stroke,
+            text = colors.boundary.text,
         )
         else -> ClassPalette(
-            boxFill = Color(0xFFFFFDE7U.toInt()),
-            headerFill = Color(0xFFFFE0B2U.toInt()),
-            stroke = Color(0xFF6D4C41U.toInt()),
-            text = Color(0xFF3E2723U.toInt()),
+            boxFill = colors.base.boxFill,
+            headerFill = colors.base.headerFill,
+            stroke = colors.base.stroke,
+            text = colors.base.text,
         )
         }
         val fill = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_FILL_KEY)
@@ -443,15 +447,15 @@ internal class PlantUmlClassSubPipeline(
     }
 
     private fun paletteOf(ir: ClassIR): ClassRenderPalette = ClassRenderPalette(
-        noteFill = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_FILL_KEY) ?: Color(0xFFFFF8E1U.toInt()),
-        noteStroke = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_STROKE_KEY) ?: Color(0xFFFFA000U.toInt()),
-        noteText = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_TEXT_KEY) ?: Color(0xFF3E2723U.toInt()),
+        noteFill = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_FILL_KEY) ?: colors.noteFill,
+        noteStroke = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_STROKE_KEY) ?: colors.noteStroke,
+        noteText = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_TEXT_KEY) ?: colors.noteText,
         namespaceFill = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY),
-        namespaceChipFill = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY) ?: Color(0xFFFFFFFF.toInt()),
-        namespaceStroke = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_STROKE_KEY) ?: Color(0xFF8D6E63U.toInt()),
-        namespaceText = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_TEXT_KEY) ?: Color(0xFF5D4037U.toInt()),
-        edgeColor = colorExtra(ir, PlantUmlClassParser.STYLE_EDGE_COLOR_KEY) ?: Color(0xFF455A64U.toInt()),
-        commonTextColor = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_TEXT_KEY) ?: Color(0xFF3E2723U.toInt()),
+        namespaceChipFill = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY) ?: colors.namespaceChipFill,
+        namespaceStroke = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_STROKE_KEY) ?: colors.namespaceStroke,
+        namespaceText = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_TEXT_KEY) ?: colors.namespaceText,
+        edgeColor = colorExtra(ir, PlantUmlClassParser.STYLE_EDGE_COLOR_KEY) ?: colors.edgeColor,
+        commonTextColor = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_TEXT_KEY) ?: colors.commonTextColor,
     )
 
     private fun colorExtra(ir: ClassIR, key: String): Color? =

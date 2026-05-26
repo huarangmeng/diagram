@@ -16,12 +16,14 @@ import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SequenceIR
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.sequence.SequenceLayouts
 import com.hrm.diagram.parser.mermaid.MermaidSequenceParser
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.DrawEntityKey
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 /**
@@ -31,9 +33,11 @@ import kotlin.math.sqrt
  */
 internal class MermaidSequenceSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
 
     private val parser = MermaidSequenceParser()
+    private val colors = ThemeResolver.resolveSequence(theme)
     private val layout = SequenceLayouts.forSequence(textMeasurer)
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
@@ -59,18 +63,6 @@ internal class MermaidSequenceSubPipeline(
 
     private fun renderSequence(ir: SequenceIR, laidOut: LaidOutDiagram): List<DrawEntity> {
         val out = ArrayList<DrawEntity>()
-        val headerFill = Color(0xFFE3F2FDU.toInt())
-        val headerStroke = Color(0xFF1565C0U.toInt())
-        val headerText = Color(0xFF0D47A1U.toInt())
-        val lifelineColor = Color(0xFF90A4AEU.toInt())
-        val msgColor = Color(0xFF263238U.toInt())
-        val msgText = Color(0xFF263238U.toInt())
-        val noteFill = Color(0xFFFFF8E1U.toInt())
-        val noteStroke = Color(0xFFFFA000U.toInt())
-        val activationFill = Color(0xFFFFFFFFU.toInt())
-        val activationStroke = Color(0xFF1565C0U.toInt())
-        val fragStroke = Color(0xFF6A1B9AU.toInt())
-
         val headerStrokeStyle = Stroke(width = 1.5f)
         val solidStroke = Stroke(width = 1.5f)
         val dashedStroke = Stroke(width = 1.5f, dash = listOf(6f, 4f))
@@ -83,8 +75,8 @@ internal class MermaidSequenceSubPipeline(
         for (p in ir.participants) {
             val r = laidOut.nodePositions[p.id] ?: continue
             val commands = ArrayList<DrawCommand>(4)
-            commands += DrawCommand.FillRect(rect = r, color = headerFill, corner = 6f, z = 2)
-            commands += DrawCommand.StrokeRect(rect = r, stroke = headerStrokeStyle, color = headerStroke, corner = 6f, z = 3)
+            commands += DrawCommand.FillRect(rect = r, color = colors.headerFill, corner = 6f, z = 2)
+            commands += DrawCommand.StrokeRect(rect = r, stroke = headerStrokeStyle, color = colors.headerStroke, corner = 6f, z = 3)
             val text = (p.label as? RichLabel.Plain)?.text?.takeIf { it.isNotEmpty() } ?: p.id.value
             val cx = (r.left + r.right) / 2f
             val cy = (r.top + r.bottom) / 2f
@@ -92,7 +84,7 @@ internal class MermaidSequenceSubPipeline(
                 text = text,
                 origin = Point(cx, cy),
                 font = labelFont,
-                color = headerText,
+                color = colors.headerText,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,
                 z = 4,
@@ -102,7 +94,7 @@ internal class MermaidSequenceSubPipeline(
                 PathOp.MoveTo(Point(cx, r.bottom)),
                 PathOp.LineTo(Point(cx, bottomY)),
             ))
-            commands += DrawCommand.StrokePath(path = lifelinePath, stroke = dashedStroke, color = lifelineColor, z = 0)
+            commands += DrawCommand.StrokePath(path = lifelinePath, stroke = dashedStroke, color = colors.lifeline, z = 0)
             out += DrawEntity("${DrawEntityKey.node("mermaid", p.id)}.participant", commands)
         }
 
@@ -112,15 +104,15 @@ internal class MermaidSequenceSubPipeline(
             val commands = ArrayList<DrawCommand>(2)
             when {
                 v.contains("#act#") -> {
-                    commands += DrawCommand.FillRect(rect = rect, color = activationFill, corner = 0f, z = 5)
-                    commands += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = activationStroke, corner = 0f, z = 6)
+                    commands += DrawCommand.FillRect(rect = rect, color = colors.activationFill, corner = 0f, z = 5)
+                    commands += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = colors.activationStroke, corner = 0f, z = 6)
                 }
                 v.startsWith("note#") -> {
-                    commands += DrawCommand.FillRect(rect = rect, color = noteFill, corner = 4f, z = 7)
-                    commands += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = noteStroke, corner = 4f, z = 8)
+                    commands += DrawCommand.FillRect(rect = rect, color = colors.noteFill, corner = 4f, z = 7)
+                    commands += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = colors.noteStroke, corner = 4f, z = 8)
                 }
                 v.startsWith("frag#") -> {
-                    commands += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = fragStroke, corner = 4f, z = 9)
+                    commands += DrawCommand.StrokeRect(rect = rect, stroke = solidStroke, color = colors.fragmentStroke, corner = 4f, z = 9)
                 }
             }
             if (commands.isNotEmpty()) out += DrawEntity(DrawEntityKey.cluster("mermaid", id), commands)
@@ -153,7 +145,7 @@ internal class MermaidSequenceSubPipeline(
                             text = labelStr,
                             origin = Point(cx, cy),
                             font = msgFont,
-                            color = msgText,
+                            color = colors.noteText,
                             anchorX = TextAnchorX.Center,
                             anchorY = TextAnchorY.Middle,
                             z = 10,
@@ -172,11 +164,11 @@ internal class MermaidSequenceSubPipeline(
                         else -> solidStroke
                     }
                     val path = PathCmd(listOf(PathOp.MoveTo(from), PathOp.LineTo(to)))
-                    commands += DrawCommand.StrokePath(path = path, stroke = stroke, color = msgColor, z = 1)
+                    commands += DrawCommand.StrokePath(path = path, stroke = stroke, color = colors.message, z = 1)
                     when (msg.kind) {
-                        MessageKind.Async -> commands += openArrowHead(from, to, msgColor)
-                        MessageKind.Destroy -> commands += xMark(to, msgColor)
-                        else -> commands += filledArrowHead(from, to, msgColor)
+                        MessageKind.Async -> commands += openArrowHead(from, to, colors.message)
+                        MessageKind.Destroy -> commands += xMark(to, colors.message)
+                        else -> commands += filledArrowHead(from, to, colors.message)
                     }
                     val labelStr = (msg.label as? RichLabel.Plain)?.text ?: ""
                     if (labelStr.isNotEmpty()) {
@@ -186,7 +178,7 @@ internal class MermaidSequenceSubPipeline(
                             text = labelStr,
                             origin = Point(mx, my),
                             font = msgFont,
-                            color = msgText,
+                            color = colors.messageText,
                             anchorX = TextAnchorX.Center,
                             anchorY = TextAnchorY.Bottom,
                             z = 10,

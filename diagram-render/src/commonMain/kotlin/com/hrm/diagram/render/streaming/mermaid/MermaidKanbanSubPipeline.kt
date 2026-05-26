@@ -14,6 +14,7 @@ import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.kanban.KanbanLayout
 import com.hrm.diagram.parser.mermaid.MermaidKanbanParser
@@ -21,11 +22,14 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 
 internal class MermaidKanbanSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private var styleExtras: Map<String, String> = emptyMap()
+    private val colors = ThemeResolver.resolveKanban(theme)
 
     override fun updateStyleExtras(extras: Map<String, String>) {
         styleExtras = extras
@@ -56,17 +60,9 @@ internal class MermaidKanbanSubPipeline(
     private fun render(ir: KanbanIR, laid: LaidOutDiagram): List<DrawEntity> {
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laid)
         val bounds = laid.bounds
-        val bg = Color(0xFFF7F9FC.toInt())
-        val colFill = Color(0xFFECEFF1.toInt())
-        val colStroke = Color(0xFFB0BEC5.toInt())
-        val headerFill = Color(0xFFCFD8DC.toInt())
-        val cardFill = Color(0xFFFFFFFF.toInt())
-        val cardStroke = Color(0xFFB0BEC5.toInt())
-        val text = Color(0xFF263238.toInt())
-        val metaColor = Color(0xFF607D8B.toInt())
         val ticketBaseUrl = styleExtras["mermaid.config.kanban.ticketBaseUrl"]
 
-        out += DrawCommand.FillRect(rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), color = bg, corner = 0f, z = 0)
+        out += DrawCommand.FillRect(rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), color = colors.background, corner = 0f, z = 0)
 
         val titleRect = laid.nodePositions[NodeId("kanban:title")]
         if (titleRect != null && !ir.title.isNullOrBlank()) {
@@ -74,7 +70,7 @@ internal class MermaidKanbanSubPipeline(
                 text = ir.title!!,
                 origin = Point(titleRect.left, titleRect.top),
                 font = titleFont,
-                color = text,
+                color = colors.text,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -85,16 +81,16 @@ internal class MermaidKanbanSubPipeline(
             val colRect = laid.nodePositions[NodeId("kanban:column:${col.id.value}")] ?: continue
             val headerRect = laid.nodePositions[NodeId("kanban:columnHeader:${col.id.value}")] ?: continue
 
-            out += DrawCommand.FillRect(rect = colRect, color = colFill, corner = 10f, z = 1)
-            out += DrawCommand.StrokeRect(rect = colRect, stroke = Stroke(width = 1f), color = colStroke, corner = 10f, z = 2)
-            out += DrawCommand.FillRect(rect = headerRect, color = headerFill, corner = 10f, z = 3)
+            out += DrawCommand.FillRect(rect = colRect, color = colors.columnFill, corner = 10f, z = 1)
+            out += DrawCommand.StrokeRect(rect = colRect, stroke = Stroke(width = 1f), color = colors.columnStroke, corner = 10f, z = 2)
+            out += DrawCommand.FillRect(rect = headerRect, color = colors.headerFill, corner = 10f, z = 3)
 
             val headerText = (col.label as? RichLabel.Plain)?.text ?: col.id.value
             out += DrawCommand.DrawText(
                 text = headerText,
                 origin = Point((headerRect.left + headerRect.right) / 2f, (headerRect.top + headerRect.bottom) / 2f),
                 font = headerFont,
-                color = text,
+                color = colors.text,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,
                 z = 4,
@@ -102,15 +98,15 @@ internal class MermaidKanbanSubPipeline(
 
             for (card in col.cards) {
                 val cardRect = laid.nodePositions[NodeId("kanban:card:${card.id.value}")] ?: continue
-                out += DrawCommand.FillRect(rect = cardRect, color = cardFill, corner = 8f, z = 5)
-                out += DrawCommand.StrokeRect(rect = cardRect, stroke = Stroke(width = 1f), color = cardStroke, corner = 8f, z = 6)
+                out += DrawCommand.FillRect(rect = cardRect, color = colors.cardFill, corner = 8f, z = 5)
+                out += DrawCommand.StrokeRect(rect = cardRect, stroke = Stroke(width = 1f), color = colors.cardStroke, corner = 8f, z = 6)
 
                 val label = (card.label as? RichLabel.Plain)?.text ?: card.id.value
                 out += DrawCommand.DrawText(
                     text = label,
                     origin = Point(cardRect.left + 10f, cardRect.top + 10f),
                     font = cardFont,
-                    color = text,
+                    color = colors.text,
                     anchorX = TextAnchorX.Start,
                     anchorY = TextAnchorY.Top,
                     maxWidth = cardRect.size.width - 20f,
@@ -120,11 +116,11 @@ internal class MermaidKanbanSubPipeline(
                 card.payload["priority"]?.let { priority ->
                     val badgeText = priority
                     val badgeFill = when (priority.lowercase()) {
-                        "very high" -> Color(0xFFD32F2F.toInt())
-                        "high" -> Color(0xFFF57C00.toInt())
-                        "low" -> Color(0xFF388E3C.toInt())
-                        "very low" -> Color(0xFF1976D2.toInt())
-                        else -> Color(0xFF78909C.toInt())
+                        "very high" -> colors.priorityVeryHigh
+                        "high" -> colors.priorityHigh
+                        "low" -> colors.priorityLow
+                        "very low" -> colors.priorityVeryLow
+                        else -> colors.priorityDefault
                     }
                     val badgeRect = Rect.ltrb(cardRect.right - 82f, cardRect.top + 8f, cardRect.right - 8f, cardRect.top + 26f)
                     out += DrawCommand.FillRect(rect = badgeRect, color = badgeFill, corner = 9f, z = 7)
@@ -132,7 +128,7 @@ internal class MermaidKanbanSubPipeline(
                         text = badgeText,
                         origin = Point((badgeRect.left + badgeRect.right) / 2f, (badgeRect.top + badgeRect.bottom) / 2f),
                         font = metaFont,
-                        color = Color.White,
+                        color = colors.badgeText,
                         anchorX = TextAnchorX.Center,
                         anchorY = TextAnchorY.Middle,
                         maxWidth = badgeRect.size.width - 8f,
@@ -148,7 +144,7 @@ internal class MermaidKanbanSubPipeline(
                         text = meta,
                         origin = Point(cardRect.left + 10f, metaY),
                         font = metaFont,
-                        color = metaColor,
+                        color = colors.metaText,
                         anchorX = TextAnchorX.Start,
                         anchorY = TextAnchorY.Bottom,
                         maxWidth = cardRect.size.width - 20f,

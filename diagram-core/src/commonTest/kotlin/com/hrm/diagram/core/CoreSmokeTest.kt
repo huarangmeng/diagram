@@ -9,6 +9,6 @@ class CoreSmokeTest {
     @Test
     fun packageIsAlive() {
         assertEquals(true, LayoutOptions().incremental)
-        assertEquals(DiagramTheme.Default.background, DiagramTheme.Default.palette.surface)
+        assertEquals(DiagramTheme.Default.background, DiagramTheme.Default.colors.canvas)
     }
 }
