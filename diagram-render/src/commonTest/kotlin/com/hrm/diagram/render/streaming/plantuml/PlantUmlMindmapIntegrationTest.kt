@@ -1,8 +1,10 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.TreeIR
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -257,7 +259,13 @@ class PlantUmlMindmapIntegrationTest {
         val strokes = one.drawCommands.filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.StrokeRect>()
         val paths = one.drawCommands.filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.StrokePath>()
         val texts = one.drawCommands.filterIsInstance<com.hrm.diagram.core.draw.DrawCommand.DrawText>()
-        assertTrue(fills.any { it.color.argb == 0x26000000 }, "shadowing should emit deterministic shadow fill")
+        val shadowTint = Color.argb(
+            56,
+            DiagramTheme.Default.colors.border.r,
+            DiagramTheme.Default.colors.border.g,
+            DiagramTheme.Default.colors.border.b,
+        ).argb
+        assertTrue(fills.any { it.color.argb == shadowTint }, "shadowing should emit theme shadow fill")
         assertTrue(strokes.none { it.rect == one.laidOut!!.nodePositions.getValue(oneIr.root.id) }, "boxless root should skip chrome")
         assertTrue(texts.any { it.text == "Root" })
         assertTrue(strokes.any { it.stroke.width == 3f })

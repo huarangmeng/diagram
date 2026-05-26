@@ -407,7 +407,7 @@ class PlantUmlC4Parser {
             id = id,
             label = RichLabel.Plain(buildLegendEntries()),
             shape = NodeShape.RoundedBox,
-            style = NodeStyle(fill = ArgbColor(0xFFFFFFFF.toInt()), stroke = ArgbColor(0xFF90A4AE.toInt()), strokeWidth = 1.2f, textColor = ArgbColor(0xFF263238.toInt())),
+            style = NodeStyle(strokeWidth = 1.2f),
             payload = mapOf(KIND_KEY to "Legend", STEREOTYPE_KEY to "Legend", LEGEND_KEY to "true"),
         )
         nodes[id] = node
@@ -420,7 +420,7 @@ class PlantUmlC4Parser {
             id = id,
             label = RichLabel.Plain(id.value),
             shape = NodeShape.RoundedBox,
-            style = NodeStyle(fill = ArgbColor(0xFFECEFF1.toInt()), stroke = ArgbColor(0xFF78909C.toInt()), textColor = ArgbColor(0xFF263238.toInt())),
+            style = NodeStyle(),
             ports = defaultPorts(),
             payload = mapOf(KIND_KEY to "Placeholder", STEREOTYPE_KEY to "Unknown"),
         )
@@ -478,14 +478,12 @@ class PlantUmlC4Parser {
         else -> NodeShape.RoundedBox
     }
 
-    private fun defaultNodeStyle(name: String): NodeStyle = when {
-        name.startsWith("Person") -> NodeStyle(ArgbColor(0xFFE3F2FD.toInt()), ArgbColor(0xFF1565C0.toInt()), 1.4f, ArgbColor(0xFF0D47A1.toInt()))
-        name.startsWith("System") -> NodeStyle(ArgbColor(0xFFE8F5E9.toInt()), ArgbColor(0xFF2E7D32.toInt()), 1.4f, ArgbColor(0xFF1B5E20.toInt()))
-        name.startsWith("Container") -> NodeStyle(ArgbColor(0xFFFFF3E0.toInt()), ArgbColor(0xFFEF6C00.toInt()), 1.4f, ArgbColor(0xFFE65100.toInt()))
-        name.startsWith("Component") -> NodeStyle(ArgbColor(0xFFF3E5F5.toInt()), ArgbColor(0xFF7B1FA2.toInt()), 1.4f, ArgbColor(0xFF4A148C.toInt()))
-        name == "Deployment_Node" -> NodeStyle(ArgbColor(0xFFECEFF1.toInt()), ArgbColor(0xFF546E7A.toInt()), 1.4f, ArgbColor(0xFF263238.toInt()))
-        else -> NodeStyle.Default
-    }
+    private fun defaultNodeStyle(name: String): NodeStyle =
+        if (name.startsWith("Person") || name.startsWith("System") || name.startsWith("Container") || name.startsWith("Component") || name == "Deployment_Node") {
+            NodeStyle(strokeWidth = 1.4f)
+        } else {
+            NodeStyle.Default
+        }
 
     private fun buildLegendEntries(): String {
         val stereotypes = nodes.values

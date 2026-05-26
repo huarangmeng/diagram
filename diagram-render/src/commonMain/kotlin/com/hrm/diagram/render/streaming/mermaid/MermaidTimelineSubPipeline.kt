@@ -36,9 +36,14 @@ internal class MermaidTimelineSubPipeline(
     private val colors = ThemeResolver.resolveTimeSeries(theme)
     private val categoricalPalette = ThemeResolver.categoricalPalette(theme)
     private val secondaryText = theme.colors.textSecondary
+    private var timelinePalette = categoricalPalette
 
     override fun updateStyleExtras(extras: Map<String, String>) {
         styleExtras = extras
+        val themeRaw = MermaidRenderThemeUtils.decodeRawThemeTokens(styleExtras["mermaid.themeTokens"])
+        timelinePalette = categoricalPalette.mapIndexed { idx, fallback ->
+            MermaidRenderThemeUtils.parseThemeColor(themeRaw["cScale$idx"]) ?: fallback
+        }
     }
 
     private val parser = MermaidTimelineParser()
@@ -74,10 +79,7 @@ internal class MermaidTimelineSubPipeline(
         val cardStroke = colors.slotStroke
         val multicolor = styleExtras["mermaid.config.timeline.disableMulticolor"]?.lowercase() != "true" &&
             ir.styleHints.extras["timeline.disableMulticolor"]?.lowercase() != "true"
-        val themeRaw = MermaidRenderThemeUtils.decodeRawThemeTokens(styleExtras["mermaid.themeTokens"])
-        val palette = categoricalPalette.mapIndexed { idx, fallback ->
-            MermaidRenderThemeUtils.parseThemeColor(themeRaw["cScale$idx"]) ?: fallback
-        }
+        val palette = timelinePalette
 
         out += DrawCommand.FillRect(
             rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)),

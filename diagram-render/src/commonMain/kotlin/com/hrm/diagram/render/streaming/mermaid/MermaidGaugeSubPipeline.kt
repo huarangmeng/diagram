@@ -14,6 +14,7 @@ import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.GaugeIR
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.streaming.Token
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.gauge.GaugeLayout
 import com.hrm.diagram.parser.mermaid.MermaidGaugeParser
@@ -21,15 +22,19 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.tan
 
-internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
+internal class MermaidGaugeSubPipeline(
+    theme: DiagramTheme,
+) : MermaidSubPipeline {
     private val parser = MermaidGaugeParser()
     private val layout = GaugeLayout()
+    private val colors = ThemeResolver.resolveGauge(theme)
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
         snapshot = parser::snapshot,
@@ -58,13 +63,8 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
         val minRect = laid.nodePositions[NodeId("gauge:min")]
         val maxRect = laid.nodePositions[NodeId("gauge:max")]
 
-        val textColor = Color(0xFF263238.toInt())
-        val bgArc = Color(0xFFCFD8DC.toInt())
-        val fgArc = Color(0xFF42A5F5.toInt())
-        val needleColor = Color(0xFFEF5350.toInt())
-
         // Background frame.
-        out += DrawCommand.FillRect(rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), color = Color(0xFFFFFFFF.toInt()), corner = 0f, z = 0)
+        out += DrawCommand.FillRect(rect = Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), color = colors.background, corner = 0f, z = 0)
 
         // Title.
         if (titleRect != null && !ir.title.isNullOrBlank()) {
@@ -72,7 +72,7 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
                 text = ir.title!!,
                 origin = Point(titleRect.left, titleRect.top),
                 font = titleFont,
-                color = textColor,
+                color = colors.text,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 10,
@@ -87,13 +87,13 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
         val stroke = Stroke(width = 10f)
 
         // Track.
-        out += DrawCommand.StrokePath(path = arcPath(center, radius, start, end), stroke = stroke, color = bgArc, z = 1)
+        out += DrawCommand.StrokePath(path = arcPath(center, radius, start, end), stroke = stroke, color = colors.track, z = 1)
 
         // Value fill (clamped).
         val denom = (ir.max - ir.min).takeIf { it != 0.0 } ?: 1.0
         val t = ((ir.value - ir.min) / denom).coerceIn(0.0, 1.0)
         val vEnd = start + (end - start) * t
-        out += DrawCommand.StrokePath(path = arcPath(center, radius, start, vEnd), stroke = stroke, color = fgArc, z = 2)
+        out += DrawCommand.StrokePath(path = arcPath(center, radius, start, vEnd), stroke = stroke, color = colors.valueArc, z = 2)
 
         // Needle.
         val needleLen = radius - 8f
@@ -102,7 +102,7 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
         out += DrawCommand.StrokePath(
             path = PathCmd(listOf(PathOp.MoveTo(center), PathOp.LineTo(tip))),
             stroke = Stroke(width = 3f),
-            color = needleColor,
+            color = colors.needle,
             z = 3,
         )
 
@@ -112,7 +112,7 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
                 text = formatValue(ir.value),
                 origin = Point(center.x, center.y),
                 font = valueFont,
-                color = textColor,
+                color = colors.text,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,
                 z = 11,
@@ -125,7 +125,7 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
                 text = formatValue(ir.min),
                 origin = Point(minRect.left, minRect.top),
                 font = minMaxFont,
-                color = textColor,
+                color = colors.text,
                 anchorX = TextAnchorX.Start,
                 anchorY = TextAnchorY.Top,
                 z = 11,
@@ -136,7 +136,7 @@ internal class MermaidGaugeSubPipeline : MermaidSubPipeline {
                 text = formatValue(ir.max),
                 origin = Point(maxRect.right, maxRect.top),
                 font = minMaxFont,
-                color = textColor,
+                color = colors.text,
                 anchorX = TextAnchorX.End,
                 anchorY = TextAnchorY.Top,
                 z = 11,

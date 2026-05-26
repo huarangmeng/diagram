@@ -231,7 +231,6 @@ class MermaidArchitectureParser {
             fromPort = endpointPortId(pending.left),
             toPort = endpointPortId(pending.right),
             style = EdgeStyle(
-                color = ArgbColor(0xFF546E7A.toInt()),
                 width = 1.5f,
             ),
         )
@@ -258,11 +257,7 @@ class MermaidArchitectureParser {
                         .filter { it.payload[PARENT_KEY] == group.id.value }
                         .map { it.id },
                     nestedClusters = buildClusters(group.id),
-                    style = ClusterStyle(
-                        fill = ArgbColor(0xFFF8FBFF.toInt()),
-                        stroke = ArgbColor(0xFF90A4AE.toInt()),
-                        strokeWidth = 1.5f,
-                    ),
+                    style = ClusterStyle(strokeWidth = 1.5f),
                 )
             }
     }

@@ -30,6 +30,7 @@ internal class MermaidKanbanSubPipeline(
 ) : MermaidSubPipeline {
     private var styleExtras: Map<String, String> = emptyMap()
     private val colors = ThemeResolver.resolveKanban(theme)
+    private val metaMeasurements: MutableMap<NodeId, List<MetaLineMeasurement>> = HashMap()
 
     override fun updateStyleExtras(extras: Map<String, String>) {
         styleExtras = extras
@@ -41,6 +42,7 @@ internal class MermaidKanbanSubPipeline(
         acceptLine = { parser.acceptLine(it) },
         snapshot = parser::snapshot,
         diagnostics = parser::diagnosticsSnapshot,
+        beforeLayout = ::prepareMetaMeasurements,
         layout = layout::layout,
         renderEntities = ::render,
     )
@@ -136,12 +138,13 @@ internal class MermaidKanbanSubPipeline(
                     )
                 }
 
-                val metaLines = buildMetaLines(card.payload)
+                val cardId = NodeId("kanban:card:${card.id.value}")
+                val metaLines = metaMeasurements[cardId].orEmpty()
                 var metaY = cardRect.bottom - 10f
                 for (i in metaLines.indices.reversed()) {
                     val meta = metaLines[i]
                     out += DrawCommand.DrawText(
-                        text = meta,
+                        text = meta.text,
                         origin = Point(cardRect.left + 10f, metaY),
                         font = metaFont,
                         color = colors.metaText,
@@ -150,18 +153,26 @@ internal class MermaidKanbanSubPipeline(
                         maxWidth = cardRect.size.width - 20f,
                         z = 7,
                     )
-                    if (ticketBaseUrl != null && card.payload["ticket"] == meta) {
-                        val href = ticketBaseUrl.replace("#TICKET#", meta)
-                        val m = textMeasurer.measure(meta, metaFont, maxWidth = cardRect.size.width - 20f)
-                        val linkRect = Rect.ltrb(cardRect.left + 10f, metaY - m.height, cardRect.left + 10f + m.width, metaY)
+                    if (ticketBaseUrl != null && meta.isTicket) {
+                        val href = ticketBaseUrl.replace("#TICKET#", meta.text)
+                        val linkRect = Rect.ltrb(cardRect.left + 10f, metaY - meta.height, cardRect.left + 10f + meta.width, metaY)
                         out += DrawCommand.Hyperlink(href = href, rect = linkRect, z = 9)
                     }
-                    val m = textMeasurer.measure(meta, metaFont, maxWidth = cardRect.size.width - 20f)
-                    metaY -= m.height + 4f
+                    metaY -= meta.height + 4f
                 }
             }
         }
         return out.entities()
+    }
+
+    private fun prepareMetaMeasurements(ir: KanbanIR) {
+        metaMeasurements.clear()
+        for (column in ir.columns) {
+            for (card in column.cards) {
+                val cardId = NodeId("kanban:card:${card.id.value}")
+                metaMeasurements[cardId] = buildMetaMeasurements(card.payload)
+            }
+        }
     }
 
     private fun buildMetaLines(payload: Map<String, String>): List<String> {
@@ -172,10 +183,35 @@ internal class MermaidKanbanSubPipeline(
         return out
     }
 
+    private fun buildMetaMeasurements(payload: Map<String, String>): List<MetaLineMeasurement> {
+        val ticket = payload["ticket"]
+        return buildMetaLines(payload).map { line ->
+            val metrics = textMeasurer.measure(line, metaFont, maxWidth = KANBAN_META_MAX_WIDTH)
+            MetaLineMeasurement(
+                text = line,
+                width = metrics.width,
+                height = metrics.height,
+                isTicket = ticket == line,
+            )
+        }
+    }
+
     override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = kernel.drawEntities()
 
     override fun dispose() {
         kernel.clear()
+        metaMeasurements.clear()
+    }
+
+    private data class MetaLineMeasurement(
+        val text: String,
+        val width: Float,
+        val height: Float,
+        val isTicket: Boolean,
+    )
+
+    private companion object {
+        const val KANBAN_META_MAX_WIDTH = 220f
     }
 
 }

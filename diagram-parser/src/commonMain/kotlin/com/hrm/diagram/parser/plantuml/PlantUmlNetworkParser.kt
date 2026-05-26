@@ -165,7 +165,7 @@ class PlantUmlNetworkParser {
                     to = nodeId,
                     kind = EdgeKind.Dashed,
                     arrow = ArrowEnds.None,
-                    style = EdgeStyle(color = ArgbColor(0xFF78909C.toInt()), dash = listOf(6f, 4f)),
+                    style = EdgeStyle(dash = listOf(6f, 4f)),
                 )
             }
         } ?: run {
@@ -187,7 +187,7 @@ class PlantUmlNetworkParser {
                 "<->", "<-->" -> ArrowEnds.Both
                 else -> ArrowEnds.None
             },
-            style = EdgeStyle(color = ArgbColor(0xFF546E7A.toInt()), width = 1.4f),
+            style = EdgeStyle(width = 1.4f),
         )
     }
 
@@ -201,7 +201,7 @@ class PlantUmlNetworkParser {
                 id = id,
                 label = RichLabel.Plain(name),
                 shape = NodeShape.RoundedBox,
-                style = NodeStyle(fill = ArgbColor(0xFFECEFF1.toInt()), stroke = ArgbColor(0xFF78909C.toInt()), textColor = ArgbColor(0xFF263238.toInt())),
+                style = NodeStyle(),
                 payload = mapOf(KIND_KEY to NODE_KIND),
             )
         }
@@ -239,18 +239,10 @@ class PlantUmlNetworkParser {
                                 listOf(GROUP_KIND, group.name).joinToString("\n"),
                             ),
                             children = group.children.toList(),
-                            style = ClusterStyle(
-                                fill = ArgbColor(0xFFF8FAFC.toInt()),
-                                stroke = ArgbColor(0xFF94A3B8.toInt()),
-                                strokeWidth = 1.2f,
-                            ),
+                            style = ClusterStyle(strokeWidth = 1.2f),
                         )
                     },
-                    style = ClusterStyle(
-                        fill = if (network.kind == INET_KIND) ArgbColor(0xFFE0F7FA.toInt()) else ArgbColor(0xFFF6F8FA.toInt()),
-                        stroke = if (network.kind == INET_KIND) ArgbColor(0xFF0097A7.toInt()) else ArgbColor(0xFF607D8B.toInt()),
-                        strokeWidth = 1.4f,
-                    ),
+                    style = ClusterStyle(strokeWidth = 1.4f),
                 )
             },
             sourceLanguage = SourceLanguage.PLANTUML,
@@ -282,25 +274,11 @@ class PlantUmlNetworkParser {
     }
 
     private fun styleOf(attrs: Map<String, String>, network: NetworkDef): NodeStyle {
-        val fill = parseColor(attrs["color"] ?: attrs["fill"] ?: attrs["bgcolor"])
-            ?: when {
-                network.kind == INET_KIND -> ArgbColor(0xFFE0F7FA.toInt())
-                attrs["shape"]?.contains("database", ignoreCase = true) == true || attrs["shape"]?.equals("db", ignoreCase = true) == true -> ArgbColor(0xFFE8F5E9.toInt())
-                attrs["shape"]?.contains("queue", ignoreCase = true) == true -> ArgbColor(0xFFF3E5F5.toInt())
-                else -> ArgbColor(0xFFE3F2FD.toInt())
-            }
-        val stroke = parseColor(attrs["bordercolor"] ?: attrs["linecolor"])
-            ?: when {
-                network.kind == INET_KIND -> ArgbColor(0xFF0097A7.toInt())
-                attrs["shape"]?.contains("database", ignoreCase = true) == true || attrs["shape"]?.equals("db", ignoreCase = true) == true -> ArgbColor(0xFF43A047.toInt())
-                attrs["shape"]?.contains("queue", ignoreCase = true) == true -> ArgbColor(0xFF8E24AA.toInt())
-                else -> ArgbColor(0xFF1976D2.toInt())
-            }
         return NodeStyle(
-            fill = fill,
-            stroke = stroke,
+            fill = parseColor(attrs["color"] ?: attrs["fill"] ?: attrs["bgcolor"]),
+            stroke = parseColor(attrs["bordercolor"] ?: attrs["linecolor"]),
             strokeWidth = 1.5f,
-            textColor = parseColor(attrs["textcolor"] ?: attrs["fontcolor"]) ?: ArgbColor(0xFF0D47A1.toInt()),
+            textColor = parseColor(attrs["textcolor"] ?: attrs["fontcolor"]),
         )
     }
 

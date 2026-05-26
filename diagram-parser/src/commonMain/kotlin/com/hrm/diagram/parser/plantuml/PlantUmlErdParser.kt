@@ -428,39 +428,12 @@ class PlantUmlErdParser {
     private fun sanitizeId(text: String): String =
         text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "entity_${session.value}" }
 
-    private fun attributeStyleFor(flags: List<String>): NodeStyle = when {
-        "PK" in flags -> NodeStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFF9A825.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF795548.toInt()),
-        )
-        "FK" in flags -> NodeStyle(
-            fill = ArgbColor(0xFFE3F2FD.toInt()),
-            stroke = ArgbColor(0xFF1E88E5.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF0D47A1.toInt()),
-        )
-        "UK" in flags -> NodeStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF8E24AA.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF6A1B9A.toInt()),
-        )
-        else -> NodeStyle(
-            fill = ArgbColor(0xFFF1F8E9.toInt()),
-            stroke = ArgbColor(0xFF7CB342.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF33691E.toInt()),
-        )
-    }
+    private fun attributeStyleFor(flags: List<String>): NodeStyle = NodeStyle(strokeWidth = 1.25f)
 
     private fun relationshipStyleFor(op: String): EdgeStyle =
         EdgeStyle(
-            color = ArgbColor(0xFF455A64.toInt()),
             width = 1.5f,
             dash = if (op.contains("..")) listOf(6f, 4f) else null,
-            labelBg = ArgbColor(0xFFF5F5F5.toInt()),
         )
 
     private fun errorBatch(message: String): IrPatchBatch =

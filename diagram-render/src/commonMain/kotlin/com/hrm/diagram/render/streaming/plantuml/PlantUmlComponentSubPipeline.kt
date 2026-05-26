@@ -57,6 +57,7 @@ internal class PlantUmlComponentSubPipeline(
 
     private val parser = PlantUmlComponentParser()
     private val resolvedColors = ThemeResolver.resolvePlantUmlComponent(theme)
+    private val shadowTint = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
@@ -316,7 +317,7 @@ internal class PlantUmlComponentSubPipeline(
         if (scoped?.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowTint,
                 corner = 14f,
                 z = 0,
             )
@@ -374,7 +375,7 @@ internal class PlantUmlComponentSubPipeline(
                 if (scoped?.shadowing == true) {
                     out += DrawCommand.FillRect(
                         rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                        color = PlantUmlTreeRenderSupport.shadowColor(),
+                        color = shadowTint,
                         corner = w,
                         z = 3,
                     )
@@ -427,7 +428,7 @@ internal class PlantUmlComponentSubPipeline(
                 if (scoped?.shadowing == true) {
                     out += DrawCommand.FillRect(
                         rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                        color = PlantUmlTreeRenderSupport.shadowColor(),
+                        color = shadowTint,
                         corner = corner,
                         z = 3,
                     )
@@ -966,7 +967,7 @@ internal class PlantUmlComponentSubPipeline(
         if (shadowing) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowTint,
                 corner = 8f,
                 z = 3,
             )

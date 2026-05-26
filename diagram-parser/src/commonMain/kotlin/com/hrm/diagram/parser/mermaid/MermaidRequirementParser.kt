@@ -47,6 +47,7 @@ class MermaidRequirementParser {
         const val REQUIREMENT_VERIFY_KEY = "mermaid.requirement.verify"
         const val REQUIREMENT_ELEMENT_TYPE_KEY = "mermaid.requirement.elementType"
         const val REQUIREMENT_DOCREF_KEY = "mermaid.requirement.docRef"
+        const val REQUIREMENT_RELATION_TYPE_KEY = "mermaid.requirement.relationType"
     }
 
     private val knownNodes: LinkedHashMap<NodeId, Node> = LinkedHashMap()
@@ -231,7 +232,7 @@ class MermaidRequirementParser {
             id = block.id,
             label = RichLabel.Markdown(lines.joinToString("\n")),
             shape = NodeShape.Box,
-            style = requirementStyle(block.kind, block.properties["risk"]),
+            style = requirementStyle(),
             payload = buildMap {
                 put(REQUIREMENT_KIND_KEY, "requirement")
                 put(REQUIREMENT_TYPE_KEY, block.kind)
@@ -256,12 +257,7 @@ class MermaidRequirementParser {
             id = block.id,
             label = RichLabel.Markdown(lines.joinToString("\n")),
             shape = NodeShape.RoundedBox,
-            style = NodeStyle(
-                fill = ArgbColor(0xFFF3E5F5.toInt()),
-                stroke = ArgbColor(0xFF7B1FA2.toInt()),
-                strokeWidth = 1.5f,
-                textColor = ArgbColor(0xFF4A148C.toInt()),
-            ),
+            style = NodeStyle(strokeWidth = 1.5f),
             payload = buildMap {
                 put(REQUIREMENT_KIND_KEY, "element")
                 if (type.isNotBlank()) put(REQUIREMENT_ELEMENT_TYPE_KEY, type)
@@ -277,6 +273,7 @@ class MermaidRequirementParser {
             label = RichLabel.Plain("<<${parsed.relationType}>>"),
             arrow = ArrowEnds.ToOnly,
             style = relationStyle(parsed.relationType),
+            payload = mapOf(REQUIREMENT_RELATION_TYPE_KEY to parsed.relationType),
         )
         if (edges.any { it.from == edge.from && it.to == edge.to && (it.label as? RichLabel.Plain)?.text == (edge.label as? RichLabel.Plain)?.text }) {
             return
@@ -301,41 +298,10 @@ class MermaidRequirementParser {
             else -> null
         }
 
-    private fun requirementStyle(kind: String, risk: String?): NodeStyle {
-        val stroke = when (kind) {
-            "functionalRequirement" -> 0xFF2E7D32.toInt()
-            "interfaceRequirement" -> 0xFF1565C0.toInt()
-            "performanceRequirement" -> 0xFFEF6C00.toInt()
-            "physicalRequirement" -> 0xFF6A1B9A.toInt()
-            "designConstraint" -> 0xFF6D4C41.toInt()
-            else -> 0xFF37474F.toInt()
-        }
-        val fill = when (risk?.lowercase()) {
-            "high" -> 0xFFFFEBEE.toInt()
-            "medium" -> 0xFFFFF8E1.toInt()
-            "low" -> 0xFFE8F5E9.toInt()
-            else -> 0xFFE3F2FD.toInt()
-        }
-        return NodeStyle(
-            fill = ArgbColor(fill),
-            stroke = ArgbColor(stroke),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF263238.toInt()),
-        )
-    }
+    private fun requirementStyle(): NodeStyle = NodeStyle(strokeWidth = 1.5f)
 
     private fun relationStyle(kind: String): EdgeStyle {
-        val color = when (kind.lowercase()) {
-            "contains" -> 0xFF455A64.toInt()
-            "copies" -> 0xFF5D4037.toInt()
-            "derives" -> 0xFF7B1FA2.toInt()
-            "satisfies" -> 0xFF2E7D32.toInt()
-            "verifies" -> 0xFF1565C0.toInt()
-            "refines" -> 0xFFEF6C00.toInt()
-            "traces" -> 0xFF6A1B9A.toInt()
-            else -> 0xFF546E7A.toInt()
-        }
-        return EdgeStyle(color = ArgbColor(color), width = 1.5f, labelBg = ArgbColor(0xF0FFFFFF.toInt()))
+        return EdgeStyle(width = 1.5f)
     }
 
     private fun requirementStereotype(kind: String): String = when (kind) {

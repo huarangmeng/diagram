@@ -4,6 +4,8 @@ import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.theme.DiagramTheme
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -66,9 +68,10 @@ class MermaidErSessionTest {
             // Final rendering may embed attribute rows into the entity box (so attribute-node fills may be skipped).
             val entityCount = ir.nodes.count { !it.id.value.contains("::") }
             assertTrue(fillRects.size >= entityCount + 3, "expected entity fills + attribute flag badges + relationship badge")
-            // Relationship badge background uses a light gray chip (Mermaid-like).
+            // Relationship badge background follows the graph theme chip color.
             val fills = fillRects.map { it.color.argb.toLong() and 0xFFFFFFFFL }.toSet()
-            assertTrue(fills.contains(0xFFF5F5F5L), "expected relationship badge chip fill (got: $fills)")
+            val relationChip = ThemeResolver.resolveGraph(DiagramTheme.Default).edgeLabelBackground.argb.toLong() and 0xFFFFFFFFL
+            assertTrue(fills.contains(relationChip), "expected relationship badge chip fill $relationChip (got: $fills)")
         } finally {
             s.close()
         }

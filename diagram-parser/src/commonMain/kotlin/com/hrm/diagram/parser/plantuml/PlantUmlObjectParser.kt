@@ -519,30 +519,8 @@ class PlantUmlObjectParser {
     }
 
     private fun objectStyle(kind: String): NodeStyle = when (kind) {
-        "map" -> NodeStyle(
-            fill = ArgbColor(0xFFE8F5E9.toInt()),
-            stroke = ArgbColor(0xFF2E7D32.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF1B5E20.toInt()),
-        )
-        "json" -> NodeStyle(
-            fill = ArgbColor(0xFFE3F2FD.toInt()),
-            stroke = ArgbColor(0xFF1565C0.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF0D47A1.toInt()),
-        )
-        "note" -> NodeStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFFFA000.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF6D4C41.toInt()),
-        )
-        else -> NodeStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF6A1B9A.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF4A148C.toInt()),
-        )
+        "note" -> NodeStyle(strokeWidth = 1.25f)
+        else -> NodeStyle(strokeWidth = 1.5f)
     }
 
     private fun isDottedMember(line: String): Boolean =
@@ -571,11 +549,7 @@ class PlantUmlObjectParser {
         label = RichLabel.Plain("$kind\n$title"),
         children = children.toList(),
         nestedClusters = nested.map { it.build() },
-        style = ClusterStyle(
-            fill = ArgbColor(0xFFF5F5F5.toInt()),
-            stroke = ArgbColor(0xFF90A4AE.toInt()),
-            strokeWidth = 1.5f,
-        ),
+        style = ClusterStyle(strokeWidth = 1.5f),
     )
 
     private fun sanitizeId(text: String): String = text.replace(Regex("[^A-Za-z0-9_.:-]+"), "_").trim('_').ifEmpty { "cluster" }

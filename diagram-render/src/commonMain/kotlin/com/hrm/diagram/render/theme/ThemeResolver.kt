@@ -83,6 +83,119 @@ internal object ThemeResolver {
         )
     }
 
+    fun resolveGauge(theme: DiagramTheme): ResolvedGaugeColors =
+        ResolvedGaugeColors(
+            background = theme.colors.canvas,
+            text = theme.colors.textPrimary,
+            track = theme.colors.border,
+            valueArc = theme.colors.accent,
+            needle = theme.colors.danger,
+        )
+
+    fun resolveQuadrant(theme: DiagramTheme): ResolvedQuadrantColors =
+        ResolvedQuadrantColors(
+            background = theme.colors.canvas,
+            text = theme.colors.textPrimary,
+            border = theme.colors.border,
+            q1 = theme.colors.accent.withAlpha(0.14f),
+            q2 = theme.colors.success.withAlpha(0.14f),
+            q3 = theme.colors.warning.withAlpha(0.14f),
+            q4 = theme.colors.danger.withAlpha(0.12f),
+            pointFill = theme.colors.accent,
+            pointStroke = theme.colors.accentSecondary,
+            pointText = theme.colors.textPrimary,
+        )
+
+    fun resolvePacket(theme: DiagramTheme): ResolvedPacketColors =
+        ResolvedPacketColors(
+            fill = theme.colors.warning.withAlpha(0.12f),
+            rootFill = theme.colors.warning.withAlpha(0.24f),
+            stroke = theme.colors.warning,
+            rootStroke = theme.colors.danger,
+            text = theme.colors.textPrimary,
+            edge = theme.colors.warning,
+        )
+
+    fun resolvePlantUmlStruct(theme: DiagramTheme): ResolvedPlantUmlStructColors =
+        ResolvedPlantUmlStructColors(
+            fill = theme.colors.surfaceAlt,
+            rootFill = theme.colors.accent.withAlpha(0.12f),
+            stroke = theme.colors.border,
+            rootStroke = theme.colors.accent,
+            text = theme.colors.textPrimary,
+            numberText = theme.colors.accent,
+            booleanText = theme.colors.accentSecondary,
+            nullText = theme.colors.textSecondary,
+            edge = theme.colors.border,
+        )
+
+    fun resolvePlantUmlArchimate(theme: DiagramTheme): ResolvedPlantUmlArchimateColors {
+        val graph = resolveGraph(theme)
+        return ResolvedPlantUmlArchimateColors(
+            canvas = theme.colors.canvas,
+            clusterFill = graph.clusterFill,
+            clusterStroke = graph.clusterStroke,
+            clusterText = theme.colors.textPrimary,
+            nodeFill = theme.colors.surfaceAlt,
+            nodeStroke = theme.colors.textSecondary,
+            nodeText = theme.colors.textPrimary,
+            headerOverlay = theme.colors.surface.withAlpha(0.20f),
+            stereotypeText = theme.colors.textSecondary,
+            edge = theme.colors.textSecondary,
+            edgeLabelBackground = graph.edgeLabelBackground,
+        )
+    }
+
+    fun resolvePlantUmlDitaa(theme: DiagramTheme): ResolvedPlantUmlDitaaColors =
+        ResolvedPlantUmlDitaaColors(
+            canvas = theme.colors.canvas,
+            edge = theme.colors.textSecondary,
+            nodeFill = theme.colors.warning.withAlpha(0.12f),
+            nodeStroke = theme.colors.warning,
+            nodeText = theme.colors.textPrimary,
+        )
+
+    fun resolveMermaidClass(theme: DiagramTheme): ResolvedMermaidClassColors {
+        return ResolvedMermaidClassColors(
+            default = MermaidClassPalette(
+                fill = Color(0xFFFFFDE7.toInt()),
+                stroke = Color(0xFFF9A825.toInt()),
+                header = Color(0xFFFFF59D.toInt()),
+                text = Color(0xFFF57F17.toInt()),
+            ),
+            noteFill = theme.colors.warning.withAlpha(0.12f),
+            noteStroke = theme.colors.warning,
+            namespaceStroke = theme.colors.accentSecondary,
+            edge = theme.colors.textSecondary,
+            cssPalettes = mapOf(
+                "red" to MermaidClassPalette(Color(0xFFFFEBEE.toInt()), Color(0xFFC62828.toInt()), Color(0xFFFFCDD2.toInt()), Color(0xFFB71C1C.toInt())),
+                "orange" to MermaidClassPalette(Color(0xFFFFF3E0.toInt()), Color(0xFFEF6C00.toInt()), Color(0xFFFFE0B2.toInt()), Color(0xFFE65100.toInt())),
+                "yellow" to MermaidClassPalette(Color(0xFFFFFDE7.toInt()), Color(0xFFF9A825.toInt()), Color(0xFFFFF59D.toInt()), Color(0xFFF57F17.toInt())),
+                "green" to MermaidClassPalette(Color(0xFFE8F5E9.toInt()), Color(0xFF2E7D32.toInt()), Color(0xFFC8E6C9.toInt()), Color(0xFF1B5E20.toInt())),
+                "cyan" to MermaidClassPalette(Color(0xFFE0F7FA.toInt()), Color(0xFF00838F.toInt()), Color(0xFFB2EBF2.toInt()), Color(0xFF006064.toInt())),
+                "blue" to MermaidClassPalette(Color(0xFFE3F2FD.toInt()), Color(0xFF1565C0.toInt()), Color(0xFFBBDEFB.toInt()), Color(0xFF0D47A1.toInt())),
+                "indigo" to MermaidClassPalette(Color(0xFFE8EAF6.toInt()), Color(0xFF283593.toInt()), Color(0xFFC5CAE9.toInt()), Color(0xFF1A237E.toInt())),
+                "purple" to MermaidClassPalette(Color(0xFFF3E5F5.toInt()), Color(0xFF6A1B9A.toInt()), Color(0xFFE1BEE7.toInt()), Color(0xFF4A148C.toInt())),
+                "pink" to MermaidClassPalette(Color(0xFFFCE4EC.toInt()), Color(0xFFAD1457.toInt()), Color(0xFFF8BBD0.toInt()), Color(0xFF880E4F.toInt())),
+                "gray" to MermaidClassPalette(Color(0xFFECEFF1.toInt()), Color(0xFF455A64.toInt()), Color(0xFFCFD8DC.toInt()), Color(0xFF263238.toInt())),
+                "grey" to MermaidClassPalette(Color(0xFFECEFF1.toInt()), Color(0xFF455A64.toInt()), Color(0xFFCFD8DC.toInt()), Color(0xFF263238.toInt())),
+            ),
+        )
+    }
+
+    fun resolveMermaidState(theme: DiagramTheme): ResolvedMermaidStateColors =
+        ResolvedMermaidStateColors(
+            stateFill = theme.colors.accent.withAlpha(0.12f),
+            stateStroke = theme.colors.accent,
+            compositeFill = theme.colors.surfaceAlt,
+            compositeStroke = theme.colors.border,
+            text = theme.colors.textPrimary,
+            edge = theme.colors.textSecondary,
+            noteFill = theme.colors.warning.withAlpha(0.12f),
+            noteStroke = theme.colors.warning,
+            pseudoFill = theme.colors.textPrimary,
+        )
+
     fun resolvePlantUmlUsecase(theme: DiagramTheme): ResolvedPlantUmlUsecaseColors {
         val graph = resolveGraph(theme)
         return ResolvedPlantUmlUsecaseColors(
@@ -672,6 +785,102 @@ internal data class ResolvedPlantUmlSaltColors(
     val text: Color,
     val mutedText: Color,
 )
+
+internal data class ResolvedGaugeColors(
+    val background: Color,
+    val text: Color,
+    val track: Color,
+    val valueArc: Color,
+    val needle: Color,
+)
+
+internal data class ResolvedQuadrantColors(
+    val background: Color,
+    val text: Color,
+    val border: Color,
+    val q1: Color,
+    val q2: Color,
+    val q3: Color,
+    val q4: Color,
+    val pointFill: Color,
+    val pointStroke: Color,
+    val pointText: Color,
+)
+
+internal data class ResolvedPacketColors(
+    val fill: Color,
+    val rootFill: Color,
+    val stroke: Color,
+    val rootStroke: Color,
+    val text: Color,
+    val edge: Color,
+)
+
+internal data class ResolvedPlantUmlStructColors(
+    val fill: Color,
+    val rootFill: Color,
+    val stroke: Color,
+    val rootStroke: Color,
+    val text: Color,
+    val numberText: Color,
+    val booleanText: Color,
+    val nullText: Color,
+    val edge: Color,
+)
+
+internal data class ResolvedPlantUmlArchimateColors(
+    val canvas: Color,
+    val clusterFill: Color,
+    val clusterStroke: Color,
+    val clusterText: Color,
+    val nodeFill: Color,
+    val nodeStroke: Color,
+    val nodeText: Color,
+    val headerOverlay: Color,
+    val stereotypeText: Color,
+    val edge: Color,
+    val edgeLabelBackground: Color,
+)
+
+internal data class ResolvedPlantUmlDitaaColors(
+    val canvas: Color,
+    val edge: Color,
+    val nodeFill: Color,
+    val nodeStroke: Color,
+    val nodeText: Color,
+)
+
+internal data class MermaidClassPalette(
+    val fill: Color,
+    val stroke: Color,
+    val header: Color,
+    val text: Color,
+)
+
+internal data class ResolvedMermaidClassColors(
+    val default: MermaidClassPalette,
+    val noteFill: Color,
+    val noteStroke: Color,
+    val namespaceStroke: Color,
+    val edge: Color,
+    val cssPalettes: Map<String, MermaidClassPalette>,
+)
+
+internal data class ResolvedMermaidStateColors(
+    val stateFill: Color,
+    val stateStroke: Color,
+    val compositeFill: Color,
+    val compositeStroke: Color,
+    val text: Color,
+    val edge: Color,
+    val noteFill: Color,
+    val noteStroke: Color,
+    val pseudoFill: Color,
+)
+
+private fun paletteColorFill(color: Color): Color = color.withAlpha(0.12f)
+
+private fun paletteColorHeader(color: Color): Color = color.withAlpha(0.22f)
 
 private fun com.hrm.diagram.core.ir.ArgbColor.toColor(): Color = Color(argb)
 

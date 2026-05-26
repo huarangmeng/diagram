@@ -361,7 +361,7 @@ class MermaidBlockParser {
             to = pending.to,
             label = pending.label?.let { RichLabel.Plain(it) },
             arrow = pending.arrow,
-            style = EdgeStyle(color = ArgbColor(0xFF546E7A.toInt()), width = 1.5f),
+            style = EdgeStyle(width = 1.5f),
         )
         if (edges.any { it.from == edge.from && it.to == edge.to && (it.label as? RichLabel.Plain)?.text == pending.label }) return
         edges += edge

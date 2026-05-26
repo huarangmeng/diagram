@@ -72,7 +72,7 @@ object Diagram {
         return when (language) {
             SourceLanguage.MERMAID -> MermaidSessionPipeline(textMeasurer = cachedMeasurer, theme = theme)
             SourceLanguage.PLANTUML -> PlantUmlSessionPipeline(textMeasurer = cachedMeasurer, theme = theme)
-            SourceLanguage.DOT -> DotSessionPipeline(textMeasurer = cachedMeasurer)
+            SourceLanguage.DOT -> DotSessionPipeline(textMeasurer = cachedMeasurer, theme = theme)
         }
     }
 }

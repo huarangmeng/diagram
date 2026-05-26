@@ -1,10 +1,12 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.Cluster
 import com.hrm.diagram.core.ir.ActivityIR
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -268,6 +270,12 @@ class PlantUmlActivityIntegrationTest {
         val textFamilies = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.family }
         val textSizes = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.sizeSp }
         val shadowRects = one.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }
+        val shadowTint = Color.argb(
+            56,
+            DiagramTheme.Default.colors.border.r,
+            DiagramTheme.Default.colors.border.g,
+            DiagramTheme.Default.colors.border.b,
+        ).argb
         val strokeWidths = one.drawCommands
             .filterIsInstance<DrawCommand.StrokeRect>()
             .map { it.stroke.width } + one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.stroke.width }
@@ -275,7 +283,7 @@ class PlantUmlActivityIntegrationTest {
         assertTrue(textFamilies.contains("fantasy") || textFamilies.contains("cursive") || textFamilies.contains("monospace"))
         assertTrue(textSizes.contains(17f))
         assertTrue(textSizes.contains(16f) || textSizes.contains(15f) || textSizes.contains(13f))
-        assertTrue(shadowRects.contains(0x26000000))
+        assertTrue(shadowRects.contains(shadowTint))
         assertTrue(strokeWidths.any { it == 2f })
         assertTrue(strokeWidths.any { it == 2.5f })
         assertTrue(strokeWidths.any { it == 3f })

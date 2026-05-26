@@ -42,6 +42,7 @@ internal class MermaidErSubPipeline(
 ) : MermaidSubPipeline {
     private val parser = MermaidErParser()
     private val colors = ThemeResolver.resolveGraph(theme)
+    private val themeColors = theme.colors
     private val entityFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
     private val flagFont = FontSpec(family = "sans-serif", sizeSp = 10f, weight = 600)
@@ -192,9 +193,9 @@ internal class MermaidErSubPipeline(
             val embedAttributes = isFinal
             if (embedAttributes && isAttributeNode(n)) continue
             val r = laidOut.nodePositions[n.id] ?: continue
-            val fill = colorOf(n.style.fill, fallbackEntityFill)
-            val strokeColor = colorOf(n.style.stroke, fallbackEntityStroke)
-            val textColor = colorOf(n.style.textColor, fallbackEntityText)
+            val fill = colorOf(n.style.fill, attributeFill(attributeFlagsOf(n), fallbackEntityFill))
+            val strokeColor = colorOf(n.style.stroke, attributeStroke(attributeFlagsOf(n), fallbackEntityStroke))
+            val textColor = colorOf(n.style.textColor, attributeText(attributeFlagsOf(n), fallbackEntityText))
             val strokeWidth = n.style.strokeWidth ?: if (isAttributeNode(n)) 1.25f else 1.5f
             val stroke = Stroke(width = strokeWidth)
             val corner = when {
@@ -582,6 +583,27 @@ internal class MermaidErSubPipeline(
             ?.map { it.trim() }
             ?.filter { it.isNotEmpty() }
             .orEmpty()
+
+    private fun attributeFill(flags: List<String>, fallback: Color): Color = when {
+        "PK" in flags -> alpha(themeColors.warning, 28)
+        "FK" in flags -> alpha(themeColors.accent, 28)
+        "UK" in flags -> alpha(themeColors.accentSecondary, 28)
+        flags.isNotEmpty() -> alpha(themeColors.success, 24)
+        else -> fallback
+    }
+
+    private fun attributeStroke(flags: List<String>, fallback: Color): Color = when {
+        "PK" in flags -> themeColors.warning
+        "FK" in flags -> themeColors.accent
+        "UK" in flags -> themeColors.accentSecondary
+        flags.isNotEmpty() -> themeColors.success
+        else -> fallback
+    }
+
+    private fun attributeText(flags: List<String>, fallback: Color): Color = if (flags.isEmpty()) fallback else colors.nodeText
+
+    private fun alpha(color: Color, alpha: Int): Color =
+        Color.argb(alpha.coerceIn(0, 255), color.r, color.g, color.b)
 
     private fun colorOf(value: com.hrm.diagram.core.ir.ArgbColor?, fallback: Color): Color =
         value?.let { Color(it.argb) } ?: fallback

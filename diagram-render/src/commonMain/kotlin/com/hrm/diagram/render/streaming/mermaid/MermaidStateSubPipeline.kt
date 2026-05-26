@@ -19,6 +19,7 @@ import com.hrm.diagram.core.ir.StateNode
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
 import com.hrm.diagram.layout.stated.StateDiagramLayout
@@ -26,14 +27,17 @@ import com.hrm.diagram.parser.mermaid.MermaidStateParser
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.DrawEntityKey
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 /** Sub-pipeline for `stateDiagram` / `stateDiagram-v2` Mermaid sources. */
 internal class MermaidStateSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
 
     private val parser = MermaidStateParser()
+    private val colors = ThemeResolver.resolveMermaidState(theme)
     private val layout = StateDiagramLayout(textMeasurer)
     private val styleTransform = MermaidStyleTransformState<StateIR> { model, _ -> model }
     private val kernel = MermaidFamilySubPipelineKernel(
@@ -68,15 +72,15 @@ internal class MermaidStateSubPipeline(
 
     private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<DrawEntity> {
         val out = ArrayList<DrawEntity>()
-        val boxFill = Color(0xFFE3F2FDU.toInt())
-        val boxStroke = Color(0xFF1565C0U.toInt())
-        val compositeFill = Color(0xFFF5F5F5U.toInt())
-        val compositeStroke = Color(0xFF6D4C41U.toInt())
-        val textColor = Color(0xFF263238U.toInt())
-        val edgeColor = Color(0xFF455A64U.toInt())
-        val noteFill = Color(0xFFFFF8E1U.toInt())
-        val noteStroke = Color(0xFFFFA000U.toInt())
-        val pseudoFill = Color(0xFF000000U.toInt())
+        val boxFill = colors.stateFill
+        val boxStroke = colors.stateStroke
+        val compositeFill = colors.compositeFill
+        val compositeStroke = colors.compositeStroke
+        val textColor = colors.text
+        val edgeColor = colors.edge
+        val noteFill = colors.noteFill
+        val noteStroke = colors.noteStroke
+        val pseudoFill = colors.pseudoFill
 
         val solid = Stroke(width = 1.5f)
         val thick = Stroke(width = 4f)
@@ -104,7 +108,7 @@ internal class MermaidStateSubPipeline(
                     text = title,
                     origin = Point(r.left + 8f, r.top + 4f),
                     font = nodeFont,
-                    color = st?.textColor?.let { Color(it.argb) } ?: strokeColor,
+                    color = st?.textColor?.let { Color(it.argb) } ?: textColor,
                     anchorX = TextAnchorX.Start,
                     anchorY = TextAnchorY.Top,
                     z = 2,

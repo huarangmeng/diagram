@@ -22,26 +22,40 @@ import com.hrm.diagram.core.ir.Visibility
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.classd.ClassDiagramLayout
 import com.hrm.diagram.parser.mermaid.MermaidClassParser
 import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.cache.DrawEntityKey
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 /** Sub-pipeline for `classDiagram` Mermaid sources. */
 internal class MermaidClassSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
+    private data class ClassRenderMeasurements(
+        val headerHeight: Float,
+        val attributeHeights: List<Float>,
+        val methodHeights: List<Float>,
+    )
 
     private val parser = MermaidClassParser()
+    private val colors = ThemeResolver.resolveMermaidClass(theme)
     private val layout = ClassDiagramLayout(textMeasurer)
+    private val headerFont = FontSpec(family = "sans-serif", sizeSp = 13f)
+    private val memberFont = FontSpec(family = "sans-serif", sizeSp = 11f)
+    private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val styleTransform = MermaidStyleTransformState<ClassIR> { model, _ -> model }
+    private var renderMeasurements: Map<NodeId, ClassRenderMeasurements> = emptyMap()
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
         snapshot = parser::snapshot,
         diagnostics = parser::diagnosticsSnapshot,
+        beforeLayout = ::prepareRenderMeasurements,
         layout = layout::layout,
         renderEntities = ::renderClass,
         layoutOptions = { model, isFinal ->
@@ -69,14 +83,14 @@ internal class MermaidClassSubPipeline(
 
     private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<DrawEntity> {
         val out = ArrayList<DrawEntity>()
-        val boxFill = Color(0xFFFFFDE7U.toInt())
-        val boxStroke = Color(0xFF6D4C41U.toInt())
-        val headerFill = Color(0xFFFFE0B2U.toInt())
-        val textColor = Color(0xFF3E2723U.toInt())
-        val edgeColor = Color(0xFF455A64U.toInt())
-        val noteFill = Color(0xFFFFF8E1U.toInt())
-        val noteStroke = Color(0xFFFFA000U.toInt())
-        val nsStroke = Color(0xFF7E57C2U.toInt())
+        val boxFill = colors.default.fill
+        val boxStroke = colors.default.stroke
+        val headerFill = colors.default.header
+        val textColor = colors.default.text
+        val edgeColor = colors.edge
+        val noteFill = colors.noteFill
+        val noteStroke = colors.noteStroke
+        val nsStroke = colors.namespaceStroke
 
         // Map every class id → its resolved cssClass name (if any). Both inline `:::name`
         // (stored on ClassNode.cssClass) and bulk `cssClass "A,B" styleName` (stored in
@@ -94,9 +108,6 @@ internal class MermaidClassSubPipeline(
 
         val solid = Stroke(width = 1.5f)
         val dashed = Stroke(width = 1.5f, dash = listOf(6f, 4f))
-        val headerFont = FontSpec(family = "sans-serif", sizeSp = 13f)
-        val memberFont = FontSpec(family = "sans-serif", sizeSp = 11f)
-        val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 10f)
 
         // Padding constants must mirror ClassDiagramLayout.measureClass so layout-computed
         // box dimensions and render-drawn content always agree (no clipped names, no orphan
@@ -137,13 +148,13 @@ internal class MermaidClassSubPipeline(
             val cTextColor = st?.textColor?.let { Color(it.argb) } ?: (palette?.text ?: textColor)
             val strokeWidth = st?.strokeWidth ?: solid.width
             val borderStroke = Stroke(width = strokeWidth)
+            val measurements = renderMeasurements[c.id] ?: measureClassSections(c)
             val headerText = buildString {
                 c.stereotype?.let { append("«").append(it).append("»\n") }
                 append(c.name)
                 c.generics?.let { append("~").append(it).append("~") }
             }
-            val headerMetrics = textMeasurer.measure(headerText, headerFont)
-            val headerH = headerMetrics.height + sectionPad
+            val headerH = measurements.headerHeight
 
             commands += DrawCommand.FillRect(rect = r, color = cBoxFill, corner = 4f, z = 2)
             commands += DrawCommand.StrokeRect(rect = r, stroke = borderStroke, color = cBoxStroke, corner = 4f, z = 4)
@@ -176,9 +187,8 @@ internal class MermaidClassSubPipeline(
                     stroke = borderStroke, color = cBoxStroke, z = 4,
                 )
                 var y = divY1 + rowGap
-                for (a in attrs) {
+                for ((index, a) in attrs.withIndex()) {
                     val line = renderMemberLine(a)
-                    val lm = textMeasurer.measure(line, memberFont)
                     commands += DrawCommand.DrawText(
                         text = line,
                         origin = Point(r.left + 6f, y),
@@ -188,7 +198,7 @@ internal class MermaidClassSubPipeline(
                         anchorY = TextAnchorY.Top,
                         z = 5,
                     )
-                    y += lm.height
+                    y += measurements.attributeHeights.getOrElse(index) { 0f }
                 }
                 if (hasAttrs && hasMethods) {
                     commands += DrawCommand.StrokePath(
@@ -197,9 +207,8 @@ internal class MermaidClassSubPipeline(
                     )
                     y += rowGap * 2 + 2f
                 }
-                for (m in methods) {
+                for ((index, m) in methods.withIndex()) {
                     val line = renderMemberLine(m)
-                    val lm = textMeasurer.measure(line, memberFont)
                     commands += DrawCommand.DrawText(
                         text = line,
                         origin = Point(r.left + 6f, y),
@@ -209,7 +218,7 @@ internal class MermaidClassSubPipeline(
                         anchorY = TextAnchorY.Top,
                         z = 5,
                     )
-                    y += lm.height
+                    y += measurements.methodHeights.getOrElse(index) { 0f }
                 }
             }
             out += DrawEntity("mermaid.class.node.${c.id.value}", commands)
@@ -314,6 +323,10 @@ internal class MermaidClassSubPipeline(
         return out
     }
 
+    private fun prepareRenderMeasurements(ir: ClassIR) {
+        renderMeasurements = ir.classes.associate { it.id to measureClassSections(it) }
+    }
+
     private fun computeClassNodeStyles(
         ir: ClassIR,
         classStyleByName: Map<NodeId, String>,
@@ -328,6 +341,21 @@ internal class MermaidClassSubPipeline(
         return out
     }
 
+    private fun measureClassSections(c: ClassNode): ClassRenderMeasurements {
+        val sectionPad = 8f
+        val attrs = c.members.filter { !it.isMethod }
+        val methods = c.members.filter { it.isMethod }
+        val headerText = buildString {
+            c.stereotype?.let { append("«").append(it).append("»\n") }
+            append(c.name)
+            c.generics?.let { append("~").append(it).append("~") }
+        }
+        return ClassRenderMeasurements(
+            headerHeight = textMeasurer.measure(headerText, headerFont).height + sectionPad,
+            attributeHeights = attrs.map { textMeasurer.measure(renderMemberLine(it), memberFont).height },
+            methodHeights = methods.map { textMeasurer.measure(renderMemberLine(it), memberFont).height },
+        )
+    }
 
     private fun renderMemberLine(m: ClassMember): String {
         val sb = StringBuilder()
@@ -430,48 +458,14 @@ internal class MermaidClassSubPipeline(
     @Suppress("unused")
     private fun unusedRel() = ClassRelation(NodeId("a"), NodeId("b"), ClassRelationKind.Link)
 
-    private data class ClassPalette(val fill: Color, val stroke: Color, val header: Color, val text: Color)
-
     /**
      * Resolves a cssClass name to a built-in palette. Names are case-insensitive. Returns null
      * for unknown / null input so the caller falls back to the default amber palette.
      *
      * Built-in names: red, orange, yellow, green, cyan, blue, indigo, purple, pink, gray.
      */
-    private fun paletteFor(name: String?): ClassPalette? {
+    private fun paletteFor(name: String?): com.hrm.diagram.render.theme.MermaidClassPalette? {
         if (name.isNullOrBlank()) return null
-        return when (name.lowercase()) {
-            "red" -> ClassPalette(
-                fill = Color(0xFFFFEBEEU.toInt()), stroke = Color(0xFFC62828U.toInt()),
-                header = Color(0xFFFFCDD2U.toInt()), text = Color(0xFFB71C1CU.toInt()))
-            "orange" -> ClassPalette(
-                fill = Color(0xFFFFF3E0U.toInt()), stroke = Color(0xFFEF6C00U.toInt()),
-                header = Color(0xFFFFE0B2U.toInt()), text = Color(0xFFE65100U.toInt()))
-            "yellow" -> ClassPalette(
-                fill = Color(0xFFFFFDE7U.toInt()), stroke = Color(0xFFF9A825U.toInt()),
-                header = Color(0xFFFFF59DU.toInt()), text = Color(0xFFF57F17U.toInt()))
-            "green" -> ClassPalette(
-                fill = Color(0xFFE8F5E9U.toInt()), stroke = Color(0xFF2E7D32U.toInt()),
-                header = Color(0xFFC8E6C9U.toInt()), text = Color(0xFF1B5E20U.toInt()))
-            "cyan" -> ClassPalette(
-                fill = Color(0xFFE0F7FAU.toInt()), stroke = Color(0xFF00838FU.toInt()),
-                header = Color(0xFFB2EBF2U.toInt()), text = Color(0xFF006064U.toInt()))
-            "blue" -> ClassPalette(
-                fill = Color(0xFFE3F2FDU.toInt()), stroke = Color(0xFF1565C0U.toInt()),
-                header = Color(0xFFBBDEFBU.toInt()), text = Color(0xFF0D47A1U.toInt()))
-            "indigo" -> ClassPalette(
-                fill = Color(0xFFE8EAF6U.toInt()), stroke = Color(0xFF283593U.toInt()),
-                header = Color(0xFFC5CAE9U.toInt()), text = Color(0xFF1A237EU.toInt()))
-            "purple" -> ClassPalette(
-                fill = Color(0xFFF3E5F5U.toInt()), stroke = Color(0xFF6A1B9AU.toInt()),
-                header = Color(0xFFE1BEE7U.toInt()), text = Color(0xFF4A148CU.toInt()))
-            "pink" -> ClassPalette(
-                fill = Color(0xFFFCE4ECU.toInt()), stroke = Color(0xFFAD1457U.toInt()),
-                header = Color(0xFFF8BBD0U.toInt()), text = Color(0xFF880E4FU.toInt()))
-            "gray", "grey" -> ClassPalette(
-                fill = Color(0xFFECEFF1U.toInt()), stroke = Color(0xFF455A64U.toInt()),
-                header = Color(0xFFCFD8DCU.toInt()), text = Color(0xFF263238U.toInt()))
-            else -> null
-        }
+        return colors.cssPalettes[name.lowercase()]
     }
 }

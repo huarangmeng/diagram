@@ -55,6 +55,7 @@ internal class PlantUmlDeploymentSubPipeline(
 
     private val parser = PlantUmlDeploymentParser()
     private val colors = ThemeResolver.resolvePlantUmlDeployment(theme)
+    private val shadowColor = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val groupFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -203,7 +204,7 @@ internal class PlantUmlDeploymentSubPipeline(
         if (scoped?.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowColor,
                 corner = 14f,
                 z = 0,
             )
@@ -244,7 +245,7 @@ internal class PlantUmlDeploymentSubPipeline(
         if (shadowing) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(front, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowColor,
                 corner = 6f,
                 z = 0,
             )
@@ -310,7 +311,7 @@ internal class PlantUmlDeploymentSubPipeline(
         if (scoped?.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowColor,
                 corner = 10f,
                 z = 3,
             )
@@ -519,7 +520,7 @@ internal class PlantUmlDeploymentSubPipeline(
         val headRect = Rect.ltrb(cx - headRadius, top, cx + headRadius, top + headRadius * 2f)
         if (shadowing) {
             val shadowRect = PlantUmlTreeRenderSupport.offsetRect(headRect, 4f, 4f)
-            val shadowColor = PlantUmlTreeRenderSupport.shadowColor()
+            val shadowColor = shadowColor
             out += DrawCommand.StrokeRect(rect = shadowRect, stroke = stroke, color = shadowColor, corner = headRadius, z = 4)
             out += DrawCommand.StrokePath(
                 path = PathCmd(
@@ -578,7 +579,7 @@ internal class PlantUmlDeploymentSubPipeline(
         if (shadowing) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowColor,
                 corner = 8f,
                 z = 3,
             )

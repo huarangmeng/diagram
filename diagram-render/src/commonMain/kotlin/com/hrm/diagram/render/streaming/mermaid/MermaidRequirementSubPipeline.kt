@@ -26,6 +26,7 @@ import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIRE
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_ELEMENT_TYPE_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_ID_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_KIND_KEY
+import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_RELATION_TYPE_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_RISK_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_TEXT_KEY
 import com.hrm.diagram.parser.mermaid.MermaidRequirementParser.Companion.REQUIREMENT_TYPE_KEY
@@ -46,6 +47,7 @@ internal class MermaidRequirementSubPipeline(
 ) : MermaidSubPipeline {
     private val parser = MermaidRequirementParser()
     private val colors = ThemeResolver.resolveGraph(theme)
+    private val themeColors = theme.colors
     private val linkColor = theme.colors.accent
     private val nodeCardLayouts: MutableMap<NodeId, RequirementCardLayout> = HashMap()
     private val measurePolicy = GraphMeasurePolicy(
@@ -116,9 +118,9 @@ internal class MermaidRequirementSubPipeline(
         val out = FrameEntityRenderer.sink(prefix = "mermaid", model = ir, laidOut = laidOut)
         for (n in ir.nodes) {
             val r = laidOut.nodePositions[n.id] ?: continue
-            val nodeFill = n.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
-            val nodeStroke = n.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
-            val textColor = n.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
+            val nodeFill = n.style.fill?.let { Color(it.argb) } ?: requirementFill(n)
+            val nodeStroke = n.style.stroke?.let { Color(it.argb) } ?: requirementStroke(n)
+            val textColor = n.style.textColor?.let { Color(it.argb) } ?: requirementText(n)
             val stroke = Stroke(width = n.style.strokeWidth ?: 1.5f)
             val cardLayout = nodeCardLayouts[n.id]
             if (cardLayout != null) {
@@ -172,7 +174,7 @@ internal class MermaidRequirementSubPipeline(
             }
             val path = PathCmd(ops)
             val edge = ir.edges.getOrNull(idx) ?: continue
-            val edgeColor = edge.style.color?.let { Color(it.argb) } ?: colors.edge
+            val edgeColor = edge.style.color?.let { Color(it.argb) } ?: relationColor(edge)
             val edgeStroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
             out += DrawCommand.StrokePath(path = path, stroke = edgeStroke, color = edgeColor, z = 0)
             val tail = pts[pts.size - 2]
@@ -508,6 +510,48 @@ internal class MermaidRequirementSubPipeline(
         "designConstraint" -> "Design Constraint"
         else -> "Requirement"
     }
+
+    private fun requirementFill(node: Node): Color {
+        if (node.payload[REQUIREMENT_KIND_KEY] == "element") {
+            return alpha(themeColors.accentSecondary, 32)
+        }
+        return when (node.payload[REQUIREMENT_RISK_KEY]?.lowercase()) {
+            "high" -> alpha(themeColors.danger, 28)
+            "medium" -> alpha(themeColors.warning, 28)
+            "low" -> alpha(themeColors.success, 28)
+            else -> alpha(colors.nodeFill, 255)
+        }
+    }
+
+    private fun requirementStroke(node: Node): Color =
+        when (node.payload[REQUIREMENT_KIND_KEY]) {
+            "element" -> themeColors.accentSecondary
+            else -> when (node.payload[REQUIREMENT_TYPE_KEY]) {
+                "functionalRequirement" -> themeColors.success
+                "interfaceRequirement" -> themeColors.accent
+                "performanceRequirement" -> themeColors.warning
+                "physicalRequirement" -> themeColors.accentSecondary
+                "designConstraint" -> themeColors.accentTertiary
+                else -> colors.nodeStroke
+            }
+        }
+
+    private fun requirementText(node: Node): Color = colors.nodeText
+
+    private fun relationColor(edge: com.hrm.diagram.core.ir.Edge): Color =
+        when (edge.payload[REQUIREMENT_RELATION_TYPE_KEY]?.lowercase()) {
+            "contains" -> themeColors.border
+            "copies" -> themeColors.warning
+            "derives" -> themeColors.accentSecondary
+            "satisfies" -> themeColors.success
+            "verifies" -> themeColors.accent
+            "refines" -> themeColors.accentTertiary
+            "traces" -> themeColors.accentSecondary
+            else -> colors.edge
+        }
+
+    private fun alpha(color: Color, alpha: Int): Color =
+        Color.argb(alpha.coerceIn(0, 255), color.r, color.g, color.b)
 
     private fun titleCase(raw: String): String {
         val s = raw.trim()

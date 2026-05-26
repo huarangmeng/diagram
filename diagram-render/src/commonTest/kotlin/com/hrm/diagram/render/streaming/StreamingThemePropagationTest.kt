@@ -76,6 +76,7 @@ class StreamingThemePropagationTest {
             theme = theme,
             source = """
                 @startuml
+                skinparam shadowing true
                 participant Alice
                 participant Bob
                 Alice -> Bob: hello
@@ -102,11 +103,13 @@ class StreamingThemePropagationTest {
     @Test
     fun plantUmlComponent_uses_theme_resolver_defaults() {
         val noteFill = Color(0xFFFFF8E1.toInt())
+        val border = Color(0xFF7A52CC.toInt())
         val colors = DiagramTheme.Default.colors.copy(
             canvas = Color(0xFFFCFFFD.toInt()),
             textPrimary = Color(0xFF16324F.toInt()),
             textSecondary = Color(0xFF4A6572.toInt()),
             accentSecondary = Color(0xFF8E24AA.toInt()),
+            border = border,
         )
         val theme = DiagramTheme.Default.copy(
             colors = colors,
@@ -121,6 +124,15 @@ class StreamingThemePropagationTest {
             theme = theme,
             source = """
                 @startuml
+                skinparam component {
+                  Shadowing true
+                }
+                skinparam note {
+                  Shadowing true
+                }
+                skinparam package {
+                  Shadowing true
+                }
                 package "Backend" {
                   [API] --> [DB] : calls
                 }
@@ -131,8 +143,10 @@ class StreamingThemePropagationTest {
 
         val fills = snapshot.drawCommands.filterIsInstance<DrawCommand.FillRect>()
         val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        val shadowTint = Color.argb(56, border.r, border.g, border.b)
         assertTrue(fills.any { it.color.argb == colors.canvas.argb })
         assertTrue(fills.any { it.color.argb == noteFill.argb })
+        assertTrue(fills.any { it.color.argb == shadowTint.argb })
         assertTrue(texts.any { it.color.argb == colors.textPrimary.argb })
     }
 
@@ -201,6 +215,57 @@ class StreamingThemePropagationTest {
         assertTrue(fills.any { it.color.argb == canvas.argb })
         assertTrue(paths.any { it.color.argb == lane.argb })
         assertTrue(texts.any { it.color.argb == textPrimary.argb })
+    }
+
+    @Test
+    fun dot_uses_theme_resolver_defaults() {
+        val background = Color(0xFFF4FBFF.toInt())
+        val nodeFill = Color(0xFFE9F6FF.toInt())
+        val nodeStroke = Color(0xFF2A6F97.toInt())
+        val nodeText = Color(0xFF14324B.toInt())
+        val edgeColor = Color(0xFF8C5A00.toInt())
+        val edgeLabelText = Color(0xFF6D28D9.toInt())
+        val clusterFill = Color(0xFFF7F2FF.toInt())
+        val clusterStroke = Color(0xFF7E57C2.toInt())
+        val theme = DiagramTheme.Default.copy(
+            graphColors = GraphColors(
+                background = background,
+                nodeFill = nodeFill,
+                nodeStroke = nodeStroke,
+                nodeText = nodeText,
+                edge = edgeColor,
+                edgeLabelText = edgeLabelText,
+                clusterFill = clusterFill,
+                clusterStroke = clusterStroke,
+            ),
+        )
+
+        val snapshot = runSession(
+            language = SourceLanguage.DOT,
+            theme = theme,
+            source = """
+                digraph {
+                  subgraph cluster_api {
+                    label="API"
+                    a
+                  }
+                  a -> b [label="edge"]
+                }
+            """.trimIndent() + "\n",
+        )
+
+        val fills = snapshot.drawCommands.filterIsInstance<DrawCommand.FillRect>()
+        val strokeRects = snapshot.drawCommands.filterIsInstance<DrawCommand.StrokeRect>()
+        val strokePaths = snapshot.drawCommands.filterIsInstance<DrawCommand.StrokePath>()
+        val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        assertTrue(fills.any { it.color.argb == background.argb })
+        assertTrue(fills.any { it.color.argb == nodeFill.argb })
+        assertTrue(fills.any { it.color.argb == clusterFill.argb })
+        assertTrue(strokeRects.any { it.color.argb == nodeStroke.argb })
+        assertTrue(strokeRects.any { it.color.argb == clusterStroke.argb })
+        assertTrue(strokePaths.any { it.color.argb == edgeColor.argb })
+        assertTrue(texts.any { it.text == "a" && it.color.argb == nodeText.argb })
+        assertTrue(texts.any { it.text == "edge" && it.color.argb == edgeLabelText.argb })
     }
 
     @Test

@@ -52,7 +52,9 @@ internal class PlantUmlObjectSubPipeline(
 
     private val parser = PlantUmlObjectParser()
     private val colors = ThemeResolver.resolvePlantUmlComponent(theme)
+    private val shadowTint = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
     private val secondaryText = theme.colors.textSecondary
+    private var cachedPaletteExtras: Map<String, String> = emptyMap()
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val memberFont = FontSpec(family = "monospace", sizeSp = 11f)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -97,7 +99,7 @@ internal class PlantUmlObjectSubPipeline(
 
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val rawIr = parser.snapshot()
-        val palette = paletteOf(rawIr)
+        val palette = resolvePalette(rawIr)
         currentPalette = palette
         val ir = applyPalette(rawIr, palette)
         return kernel.advanceRendered(
@@ -187,7 +189,7 @@ internal class PlantUmlObjectSubPipeline(
         if (scoped?.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowTint,
                 corner = 12f,
                 z = 0,
             )
@@ -225,7 +227,7 @@ internal class PlantUmlObjectSubPipeline(
         if (scoped?.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowTint,
                 corner = 8f,
                 z = 1,
             )
@@ -407,8 +409,16 @@ internal class PlantUmlObjectSubPipeline(
         )
     }
 
-    private fun paletteOf(ir: GraphIR): ObjectPalette {
+    private fun resolvePalette(ir: GraphIR): ObjectPalette {
         val extras = ir.styleHints.extras
+        if (cachedPaletteExtras != extras) {
+            cachedPaletteExtras = extras.toMap()
+            currentPalette = paletteOf(cachedPaletteExtras)
+        }
+        return currentPalette
+    }
+
+    private fun paletteOf(extras: Map<String, String>): ObjectPalette {
         fun c(key: String): ArgbColor? =
             extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) }
         fun f(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])

@@ -13,6 +13,7 @@ import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
 import com.hrm.diagram.core.streaming.Token
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.struct.StructLayout
 import com.hrm.diagram.parser.mermaid.MermaidPacketParser
@@ -20,21 +21,15 @@ import com.hrm.diagram.render.cache.DrawEntity
 import com.hrm.diagram.render.family.FrameEntityRenderer
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
+import com.hrm.diagram.render.theme.ThemeResolver
 
 internal class MermaidPacketSubPipeline(
     textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : MermaidSubPipeline {
-    private companion object {
-        val fill = Color(0xFFFFF8E1.toInt())
-        val rootFill = Color(0xFFFFECB3.toInt())
-        val stroke = Color(0xFFFFB300.toInt())
-        val rootStroke = Color(0xFFFF8F00.toInt())
-        val text = Color(0xFF3E2723.toInt())
-        val edge = Color(0xFFFFB300.toInt())
-    }
-
     private val parser = MermaidPacketParser()
     private val layout = StructLayout(textMeasurer)
+    private val colors = ThemeResolver.resolvePacket(theme)
     private val kernel = MermaidFamilySubPipelineKernel(
         acceptLine = { parser.acceptLine(it) },
         snapshot = parser::snapshot,
@@ -59,20 +54,20 @@ internal class MermaidPacketSubPipeline(
             out += DrawCommand.StrokePath(
                 PathCmd(route.points.mapIndexed { index, point -> if (index == 0) PathOp.MoveTo(point) else PathOp.LineTo(point) }),
                 Stroke(width = 1.2f),
-                edge,
+                colors.edge,
                 z = 0,
             )
         }
         fun drawNode(node: StructNode, path: String, isRoot: Boolean) {
             val id = NodeId("struct_$path")
             val rect = laid.nodePositions[id] ?: return
-            out += DrawCommand.FillRect(rect, if (isRoot) rootFill else fill, corner = 7f, z = 1)
-            out += DrawCommand.StrokeRect(rect, Stroke(width = if (isRoot) 1.8f else 1f), if (isRoot) rootStroke else stroke, corner = 7f, z = 2)
+            out += DrawCommand.FillRect(rect, if (isRoot) colors.rootFill else colors.fill, corner = 7f, z = 1)
+            out += DrawCommand.StrokeRect(rect, Stroke(width = if (isRoot) 1.8f else 1f), if (isRoot) colors.rootStroke else colors.stroke, corner = 7f, z = 2)
             out += DrawCommand.DrawText(
                 text = labelFor(node),
                 origin = Point(rect.left + 12f, rect.top + rect.size.height / 2f),
                 font = if (isRoot) rootFont else font,
-                color = text,
+                color = colors.text,
                 maxWidth = rect.size.width - 24f,
                 anchorY = TextAnchorY.Middle,
                 z = 3,

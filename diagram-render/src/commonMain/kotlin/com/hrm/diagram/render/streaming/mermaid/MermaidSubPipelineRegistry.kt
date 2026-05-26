@@ -38,17 +38,17 @@ internal class MermaidSubPipelineRegistry(
         when (kind) {
             MermaidDiagramKind.Flowchart -> MermaidFlowchartSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Sequence -> MermaidSequenceSubPipeline(textMeasurer, theme)
-            MermaidDiagramKind.Class -> MermaidClassSubPipeline(textMeasurer)
-            MermaidDiagramKind.State -> MermaidStateSubPipeline(textMeasurer)
+            MermaidDiagramKind.Class -> MermaidClassSubPipeline(textMeasurer, theme)
+            MermaidDiagramKind.State -> MermaidStateSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Er -> MermaidErSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Pie -> MermaidPieSubPipeline(textMeasurer, theme)
-            MermaidDiagramKind.Gauge -> MermaidGaugeSubPipeline()
+            MermaidDiagramKind.Gauge -> MermaidGaugeSubPipeline(theme)
             MermaidDiagramKind.Timeline -> MermaidTimelineSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Gantt -> MermaidGanttSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Mindmap -> MermaidMindmapSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Kanban -> MermaidKanbanSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.XYChart -> MermaidXYChartSubPipeline(textMeasurer, theme)
-            MermaidDiagramKind.Quadrant -> MermaidQuadrantChartSubPipeline()
+            MermaidDiagramKind.Quadrant -> MermaidQuadrantChartSubPipeline(theme)
             MermaidDiagramKind.Journey -> MermaidJourneySubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Sankey -> MermaidSankeySubPipeline(textMeasurer, theme)
             MermaidDiagramKind.GitGraph -> MermaidGitGraphSubPipeline(textMeasurer, theme)
@@ -56,7 +56,7 @@ internal class MermaidSubPipelineRegistry(
             MermaidDiagramKind.Architecture -> MermaidArchitectureSubPipeline(textMeasurer, theme)
             MermaidDiagramKind.C4 -> MermaidC4SubPipeline(textMeasurer, theme)
             MermaidDiagramKind.Block -> MermaidBlockSubPipeline(textMeasurer, theme)
-            MermaidDiagramKind.Packet -> MermaidPacketSubPipeline(textMeasurer)
+            MermaidDiagramKind.Packet -> MermaidPacketSubPipeline(textMeasurer, theme)
         }
 
     fun kindForHeaderText(trimmed: String): MermaidDiagramKind? =

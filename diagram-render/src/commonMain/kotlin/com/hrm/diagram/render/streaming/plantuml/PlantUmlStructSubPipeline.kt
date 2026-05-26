@@ -13,6 +13,7 @@ import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.struct.StructLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlParsing
@@ -20,25 +21,20 @@ import com.hrm.diagram.parser.plantuml.PlantUmlParsingFactory
 import com.hrm.diagram.parser.plantuml.PlantUmlStructFormat
 import com.hrm.diagram.parser.plantuml.PlantUmlStructParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 
 internal class PlantUmlStructSubPipeline(
     private val format: PlantUmlStructFormat,
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
-    private companion object {
-        val fill = Color(0xFFF6F8FA.toInt())
-        val rootFill = Color(0xFFEAF5FF.toInt())
-        val stroke = Color(0xFFD0D7DE.toInt())
-        val rootStroke = Color(0xFF0969DA.toInt())
-        val text = Color(0xFF24292F.toInt())
-        val numberText = Color(0xFF0550AE.toInt())
-        val booleanText = Color(0xFF8250DF.toInt())
-        val nullText = Color(0xFF6E7781.toInt())
-        val edge = Color(0xFF8C959F.toInt())
-    }
-
     private val parser: PlantUmlParsing<StructIR> = PlantUmlParsingFactory.struct(format)
     private val layout = StructLayout(textMeasurer)
+    private val colors = ThemeResolver.resolvePlantUmlStruct(theme)
+    private var cachedCollapsibleRaw: String = ""
+    private var cachedCollapsiblePaths: Set<String> = emptySet()
+    private var cachedScalarKindsRaw: String = ""
+    private var cachedScalarKinds: Map<String, String> = emptyMap()
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
         diagnostics = parser::diagnosticsSnapshot,
@@ -57,25 +53,25 @@ internal class PlantUmlStructSubPipeline(
 
     private fun render(ir: StructIR, laid: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
-        val collapsiblePaths = parsePathSet(ir.styleHints.extras[PlantUmlStructParser.COLLAPSIBLE_PATHS_KEY].orEmpty())
-        val scalarKinds = parsePathMap(ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty())
+        val collapsiblePaths = resolveCollapsiblePaths(ir)
+        val scalarKinds = resolveScalarKinds(ir)
         for (route in laid.edgeRoutes) {
             val ops = route.points.mapIndexed { index, point ->
                 if (index == 0) PathOp.MoveTo(point) else PathOp.LineTo(point)
             }
-            out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = 1.2f), edge, z = 0)
+            out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = 1.2f), colors.edge, z = 0)
         }
 
         fun drawNode(node: StructNode, path: String, isRoot: Boolean) {
             val id = NodeId("struct_$path")
             val rect = laid.nodePositions[id] ?: return
-            out += DrawCommand.FillRect(rect, if (isRoot) rootFill else fill, corner = 6f, z = 1)
-            out += DrawCommand.StrokeRect(rect, Stroke(width = if (isRoot) 1.6f else 1f), if (isRoot) rootStroke else stroke, corner = 6f, z = 2)
+            out += DrawCommand.FillRect(rect, if (isRoot) colors.rootFill else colors.fill, corner = 6f, z = 1)
+            out += DrawCommand.StrokeRect(rect, Stroke(width = if (isRoot) 1.6f else 1f), if (isRoot) colors.rootStroke else colors.stroke, corner = 6f, z = 2)
             out += DrawCommand.DrawText(
                 text = labelFor(node, path in collapsiblePaths),
                 origin = Point(rect.left + 12f, rect.top + rect.size.height / 2f),
                 font = if (isRoot) rootFont else font,
-                color = scalarTextColor(scalarKinds[path]) ?: text,
+                color = scalarTextColor(scalarKinds[path]) ?: colors.text,
                 maxWidth = rect.size.width - 24f,
                 anchorY = TextAnchorY.Middle,
                 z = 3,
@@ -102,10 +98,28 @@ internal class PlantUmlStructSubPipeline(
     }
 
     private fun scalarTextColor(kind: String?): Color? = when (kind) {
-        "number" -> numberText
-        "boolean" -> booleanText
-        "null" -> nullText
+        "number" -> colors.numberText
+        "boolean" -> colors.booleanText
+        "null" -> colors.nullText
         else -> null
+    }
+
+    private fun resolveCollapsiblePaths(ir: StructIR): Set<String> {
+        val raw = ir.styleHints.extras[PlantUmlStructParser.COLLAPSIBLE_PATHS_KEY].orEmpty()
+        if (cachedCollapsibleRaw != raw) {
+            cachedCollapsibleRaw = raw
+            cachedCollapsiblePaths = parsePathSet(raw)
+        }
+        return cachedCollapsiblePaths
+    }
+
+    private fun resolveScalarKinds(ir: StructIR): Map<String, String> {
+        val raw = ir.styleHints.extras[PlantUmlStructParser.SCALAR_KINDS_KEY].orEmpty()
+        if (cachedScalarKindsRaw != raw) {
+            cachedScalarKindsRaw = raw
+            cachedScalarKinds = parsePathMap(raw)
+        }
+        return cachedScalarKinds
     }
 
     private fun parsePathSet(raw: String): Set<String> =

@@ -1,10 +1,12 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StateIR
 import com.hrm.diagram.core.ir.StateKind
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.parser.plantuml.PlantUmlStateParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
@@ -134,6 +136,12 @@ class PlantUmlStateIntegrationTest {
         val textFamilies = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.family }
         val textSizes = one.drawCommands.filterIsInstance<DrawCommand.DrawText>().map { it.font.sizeSp }
         val shadowRects = one.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }
+        val shadowTint = Color.argb(
+            56,
+            DiagramTheme.Default.colors.border.r,
+            DiagramTheme.Default.colors.border.g,
+            DiagramTheme.Default.colors.border.b,
+        ).argb
         val strokeWidths = one.drawCommands
             .filterIsInstance<DrawCommand.StrokeRect>()
             .map { it.stroke.width } + one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.stroke.width }
@@ -148,7 +156,7 @@ class PlantUmlStateIntegrationTest {
         assertTrue(textFamilies.contains("serif"))
         assertTrue(textSizes.contains(17f))
         assertTrue(textSizes.contains(14f))
-        assertTrue(shadowRects.contains(0x26000000))
+        assertTrue(shadowRects.contains(shadowTint))
         assertTrue(strokeWidths.any { it == 2.5f })
         assertTrue(strokeWidths.any { it == 2f })
     }

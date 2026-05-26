@@ -40,6 +40,7 @@ internal class PlantUmlErdSubPipeline(
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlErdParser()
     private val colors = ThemeResolver.resolvePlantUmlComponent(theme)
+    private val themeColors = theme.colors
     private val secondaryText = theme.colors.textSecondary
     private val entityFont = FontSpec(family = "sans-serif", sizeSp = 13f, weight = 600)
     private val attributeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
@@ -148,9 +149,10 @@ internal class PlantUmlErdSubPipeline(
             val defaultFill = if (isNoteNode(n)) colors.noteFill else colors.nodeFill
             val defaultStroke = if (isNoteNode(n)) colors.noteStroke else colors.nodeStroke
             val defaultText = if (isNoteNode(n)) colors.noteText else colors.nodeText
-            val fill = colorOf(n.style.fill, defaultFill)
-            val strokeColor = colorOf(n.style.stroke, defaultStroke)
-            val textColor = colorOf(n.style.textColor, defaultText)
+            val flags = attributeFlagsOf(n)
+            val fill = colorOf(n.style.fill, attributeFill(flags, defaultFill))
+            val strokeColor = colorOf(n.style.stroke, attributeStroke(flags, defaultStroke))
+            val textColor = colorOf(n.style.textColor, attributeText(flags, defaultText))
             val strokeWidth = n.style.strokeWidth ?: if (isAttributeNode(n)) 1.25f else 1.5f
             val corner = if (isAttributeNode(n)) minOf(r.size.height / 2f, 16f) else 4f
             val embedded = if (isFinal) entityEmbedded[n.id] else null
@@ -663,6 +665,27 @@ internal class PlantUmlErdSubPipeline(
 
     private fun attributeFlagsOf(node: Node): List<String> =
         node.payload[PlantUmlErdParser.ER_ATTRIBUTE_FLAGS_KEY]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+
+    private fun attributeFill(flags: List<String>, fallback: Color): Color = when {
+        "PK" in flags -> alpha(themeColors.warning, 28)
+        "FK" in flags -> alpha(themeColors.accent, 28)
+        "UK" in flags -> alpha(themeColors.accentSecondary, 28)
+        flags.isNotEmpty() -> alpha(themeColors.success, 24)
+        else -> fallback
+    }
+
+    private fun attributeStroke(flags: List<String>, fallback: Color): Color = when {
+        "PK" in flags -> themeColors.warning
+        "FK" in flags -> themeColors.accent
+        "UK" in flags -> themeColors.accentSecondary
+        flags.isNotEmpty() -> themeColors.success
+        else -> fallback
+    }
+
+    private fun attributeText(flags: List<String>, fallback: Color): Color = if (flags.isEmpty()) fallback else colors.nodeText
+
+    private fun alpha(color: Color, alpha: Int): Color =
+        Color.argb(alpha.coerceIn(0, 255), color.r, color.g, color.b)
 
     private fun colorOf(value: com.hrm.diagram.core.ir.ArgbColor?, fallback: Color): Color =
         value?.let { Color(it.argb) } ?: fallback

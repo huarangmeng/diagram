@@ -678,70 +678,12 @@ class PlantUmlComponentParser {
     }
 
     private fun styleFor(keyword: String): NodeStyle = when (keyword.lowercase()) {
-        "interface" -> NodeStyle(
-            fill = ArgbColor(0xFFFFFFFF.toInt()),
-            stroke = ArgbColor(0xFF00838F.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF006064.toInt()),
-        )
-        "port", "portin", "portout" -> NodeStyle(
-            fill = ArgbColor(0xFFE0F7FA.toInt()),
-            stroke = ArgbColor(0xFF00838F.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF006064.toInt()),
-        )
-        "database" -> NodeStyle(
-            fill = ArgbColor(0xFFE8F5E9.toInt()),
-            stroke = ArgbColor(0xFF2E7D32.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF1B5E20.toInt()),
-        )
-        "queue" -> NodeStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF8E24AA.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF4A148C.toInt()),
-        )
-        "note" -> NodeStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFFFA000.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF5D4037.toInt()),
-        )
-        else -> NodeStyle(
-            fill = ArgbColor(0xFFE8EAF6.toInt()),
-            stroke = ArgbColor(0xFF3949AB.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF1A237E.toInt()),
-        )
+        "note" -> NodeStyle(strokeWidth = 1.25f)
+        else -> NodeStyle(strokeWidth = 1.5f)
     }
 
     private fun clusterStyleFor(kind: String): ClusterStyle = when (kind) {
-        "cloud" -> ClusterStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF8E24AA.toInt()),
-            strokeWidth = 1.5f,
-        )
-        "node" -> ClusterStyle(
-            fill = ArgbColor(0xFFF1F8E9.toInt()),
-            stroke = ArgbColor(0xFF558B2F.toInt()),
-            strokeWidth = 1.5f,
-        )
-        "frame" -> ClusterStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFF9A825.toInt()),
-            strokeWidth = 1.5f,
-        )
-        "rectangle" -> ClusterStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF8E24AA.toInt()),
-            strokeWidth = 1.5f,
-        )
-        else -> ClusterStyle(
-            fill = ArgbColor(0xFFF5F5F5.toInt()),
-            stroke = ArgbColor(0xFF78909C.toInt()),
-            strokeWidth = 1.5f,
-        )
+        else -> ClusterStyle(strokeWidth = 1.5f)
     }
 
     private fun findRelationOperator(line: String): String? {

@@ -58,6 +58,9 @@ internal class PlantUmlStateSubPipeline(
 
     private val parser = PlantUmlStateParser()
     private val colors = ThemeResolver.resolvePlantUmlState(theme)
+    private val shadowTint = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
+    private var cachedPaletteExtras: Map<String, String> = emptyMap()
+    private var cachedPalette: StatePalette = paletteOf(emptyMap())
     private val layout = StateDiagramLayout(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -78,7 +81,7 @@ internal class PlantUmlStateSubPipeline(
 
     private fun renderState(ir: StateIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
-        val palette = paletteOf(ir)
+        val palette = resolvePalette(ir)
         val boxFill = Color((palette.stateFill ?: ArgbColor(colors.stateFill.argb)).argb)
         val boxStroke = Color((palette.stateStroke ?: ArgbColor(colors.stateStroke.argb)).argb)
         val compositeFill = Color((palette.compositeFill ?: palette.stateFill ?: ArgbColor(colors.compositeFill.argb)).argb)
@@ -112,7 +115,7 @@ internal class PlantUmlStateSubPipeline(
             if (palette.stateShadowing == true) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 8f,
                     z = 0,
                 )
@@ -144,7 +147,7 @@ internal class PlantUmlStateSubPipeline(
                     if (palette.stateShadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = w / 2f,
                             z = 4,
                         )
@@ -156,7 +159,7 @@ internal class PlantUmlStateSubPipeline(
                     if (palette.stateShadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = w / 2f,
                             z = 4,
                         )
@@ -190,7 +193,7 @@ internal class PlantUmlStateSubPipeline(
                                     PathOp.Close,
                                 ),
                             ),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             z = 4,
                         )
                     }
@@ -201,7 +204,7 @@ internal class PlantUmlStateSubPipeline(
                     if (palette.stateShadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = 2f,
                             z = 4,
                         )
@@ -213,7 +216,7 @@ internal class PlantUmlStateSubPipeline(
                     if (palette.stateShadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = w / 2f,
                             z = 4,
                         )
@@ -234,7 +237,7 @@ internal class PlantUmlStateSubPipeline(
                     if (palette.stateShadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = 8f,
                             z = 4,
                         )
@@ -264,7 +267,7 @@ internal class PlantUmlStateSubPipeline(
             if (palette.noteShadowing == true) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 4f,
                     z = 7,
                 )
@@ -401,9 +404,18 @@ internal class PlantUmlStateSubPipeline(
         }
     }
 
-    private fun paletteOf(ir: StateIR): StatePalette {
+    private fun resolvePalette(ir: StateIR): StatePalette {
         val extras = ir.styleHints.extras
-        fun c(key: String): ArgbColor? = extras[key]?.let(::parsePlantUmlColor)
+        if (cachedPaletteExtras != extras) {
+            cachedPaletteExtras = extras.toMap()
+            cachedPalette = paletteOf(cachedPaletteExtras)
+        }
+        return cachedPalette
+    }
+
+    private fun paletteOf(extras: Map<String, String>): StatePalette {
+        fun c(key: String): ArgbColor? =
+            extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) }
         fun f(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])
         fun s(key: String): String? = PlantUmlTreeRenderSupport.parsePlantUmlFontFamily(extras[key])
         fun b(key: String): Boolean? = PlantUmlTreeRenderSupport.parsePlantUmlBoolean(extras[key])
@@ -426,41 +438,6 @@ internal class PlantUmlStateSubPipeline(
             compositeStroke = c(PlantUmlStateParser.STYLE_COMPOSITE_STROKE_KEY),
             edgeColor = c(PlantUmlStateParser.STYLE_EDGE_COLOR_KEY),
         )
-    }
-
-    private fun parsePlantUmlColor(text: String): ArgbColor? {
-        val raw = text.trim()
-        if (!raw.startsWith("#")) return namedColor(raw)
-        val hex = raw.removePrefix("#")
-        return when (hex.length) {
-            3 -> parseHex("FF${hex.map { "$it$it" }.joinToString("")}")
-            6 -> parseHex("FF$hex")
-            8 -> parseHex(hex)
-            else -> null
-        }
-    }
-
-    private fun parseHex(argb: String): ArgbColor? = argb.toLongOrNull(16)?.let { ArgbColor(it.toInt()) }
-
-    private fun namedColor(name: String): ArgbColor? = when (name.lowercase()) {
-        "lightskyblue" -> ArgbColor(0xFF87CEFA.toInt())
-        "palegreen" -> ArgbColor(0xFF98FB98.toInt())
-        "lightgreen" -> ArgbColor(0xFF90EE90.toInt())
-        "lightblue" -> ArgbColor(0xFFADD8E6.toInt())
-        "lightyellow" -> ArgbColor(0xFFFFFFE0.toInt())
-        "lightgray", "lightgrey" -> ArgbColor(0xFFD3D3D3.toInt())
-        "orange" -> ArgbColor(0xFFFFA500.toInt())
-        "red" -> ArgbColor(0xFFFF0000.toInt())
-        "green" -> ArgbColor(0xFF008000.toInt())
-        "blue" -> ArgbColor(0xFF0000FF.toInt())
-        "yellow" -> ArgbColor(0xFFFFFF00.toInt())
-        "gray", "grey" -> ArgbColor(0xFF808080.toInt())
-        "saddlebrown" -> ArgbColor(0xFF8B4513.toInt())
-        "silver" -> ArgbColor(0xFFC0C0C0.toInt())
-        "peru" -> ArgbColor(0xFFCD853F.toInt())
-        "navy" -> ArgbColor(0xFF000080.toInt())
-        "ivory" -> ArgbColor(0xFFFFFFF0.toInt())
-        else -> null
     }
 
     private fun isRegionState(state: StateNode): Boolean = state.id.value.startsWith(REGION_PREFIX)

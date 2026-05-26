@@ -1,6 +1,7 @@
 package com.hrm.diagram.render.export
 
 import com.hrm.diagram.core.DiagramApi
+import com.hrm.diagram.core.color.DotColorParser
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.FontSpec
 import com.hrm.diagram.core.export.ExportBackground
@@ -17,6 +18,7 @@ import com.hrm.diagram.core.ir.Node
 import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.PieIR
 import com.hrm.diagram.core.ir.SequenceIR
+import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.TimeSeriesIR
 import com.hrm.diagram.core.ir.TreeIR
 import com.hrm.diagram.core.text.HeuristicTextMeasurer
@@ -48,7 +50,7 @@ fun LaidOutDiagram.prepareExport(
         is TreeIR -> renderFamilyDiagram(this, theme, background, renderTreeEntities(source, this, theme))
         is SequenceIR -> renderFamilyDiagram(this, theme, background, renderSequenceEntities(source, this, theme))
         is TimeSeriesIR -> renderFamilyDiagram(this, theme, background, renderTimeSeriesEntities(source, this, theme))
-        else -> unsupportedRenderedDiagram(this, source, background)
+        else -> unsupportedRenderedDiagram(this, source, theme, background)
     }
 }
 
@@ -110,12 +112,13 @@ private fun renderFamilyDiagram(
 private fun unsupportedRenderedDiagram(
     laidOut: LaidOutDiagram,
     source: DiagramModel,
+    theme: DiagramTheme,
     background: ExportBackground,
 ): RenderedDiagram =
     RenderedDiagram(
         bounds = laidOut.bounds,
         drawCommands = emptyList(),
-        background = resolveBackground(DiagramTheme.Default, background),
+        background = resolveBackground(theme, background),
     )
 
 private fun graphRenderStyle(
@@ -153,12 +156,18 @@ private fun graphRenderStyle(
         clusterStroke = resolvedGraph.clusterStroke,
         clusterText = colors.textPrimary,
         nodeFontOf = { node, style -> fontOf(node, style, typography) },
-        nodeTextColorOf = { node, _ -> node.payload["dot.node.html.fontcolor"]?.let(::parseHexColor) },
+        nodeTextColorOf = { node, _ -> DotColorParser.parseColor(node.payload["dot.node.html.fontcolor"]) },
         edgeLabelColorOf = { edge, prefix, _ ->
-            edge.payload["${dotLabelPrefix(prefix)}.html.fontcolor"]?.let(::parseHexColor)
-                ?: edge.payload["${dotLabelPrefix(prefix)}.fontcolor"]?.let(::parseHexColor)
+            DotColorParser.parseColor(edge.payload["${dotLabelPrefix(prefix)}.html.fontcolor"])
+                ?: DotColorParser.parseColor(edge.payload["${dotLabelPrefix(prefix)}.fontcolor"])
         },
-        graphBackground = { _, _ -> theme.background },
+        graphBackground = { ir, _ ->
+            if (ir.sourceLanguage == SourceLanguage.DOT) {
+                DotColorParser.parseColor(ir.styleHints.extras["dot.graph.bgcolor"]) ?: resolvedGraph.background
+            } else {
+                theme.background
+            }
+        },
     )
 }
 
@@ -204,16 +213,6 @@ private fun resolveBackground(
         ExportBackground.Transparent -> null
         is ExportBackground.Solid -> background.color
     }
-
-private fun parseHexColor(raw: String): Color? {
-    val normalized = raw.trim().removePrefix("#")
-    val argb = when (normalized.length) {
-        6 -> normalized.toLongOrNull(16)?.let { 0xFF000000L or it }
-        8 -> normalized.toLongOrNull(16)
-        else -> null
-    } ?: return null
-    return Color(argb.toInt())
-}
 
 private fun Color.copy(alpha: Float): Color {
     val clamped = alpha.coerceIn(0f, 1f)

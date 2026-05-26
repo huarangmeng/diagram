@@ -1,7 +1,9 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.parser.plantuml.PlantUmlDeploymentParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
@@ -176,7 +178,13 @@ class PlantUmlDeploymentIntegrationTest {
         assertTrue(fillRects.contains(0xFFD3D3D3.toInt()), "fills=$fillRects")
         assertTrue(fillRects.contains(0xFFFFFFE0.toInt()), "fills=$fillRects")
         assertTrue(fillRects.contains(0xFFFFFFF0.toInt()), "fills=$fillRects")
-        assertTrue(fillRects.contains(0x26000000), "fills=$fillRects")
+        val shadowTint = Color.argb(
+            56,
+            DiagramTheme.Default.colors.border.r,
+            DiagramTheme.Default.colors.border.g,
+            DiagramTheme.Default.colors.border.b,
+        ).argb
+        assertTrue(fillRects.contains(shadowTint), "fills=$fillRects")
         assertTrue(strokeRects.any { it.color.argb == 0xFFC0C0C0.toInt() && it.stroke.width == 2.25f }, "strokeRects=$strokeRects")
         assertTrue(strokeRects.any { it.color.argb == 0xFFFFA500.toInt() && it.stroke.width == 2.5f }, "strokeRects=$strokeRects")
         assertTrue(strokeRects.any { it.color.argb == 0xFFCD853F.toInt() && it.stroke.width == 2f }, "strokeRects=$strokeRects")

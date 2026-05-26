@@ -19,18 +19,24 @@ import com.hrm.diagram.core.ir.XYChartIR
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.xy.XYChartLayout
 import com.hrm.diagram.parser.plantuml.PlantUmlXYChartParser
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.round
 
 internal class PlantUmlXYChartSubPipeline(
     defaultKind: SeriesKind,
     textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlXYChartParser(defaultKind)
     private val layout = XYChartLayout(textMeasurer)
+    private val baseColors = ThemeResolver.resolveXYChart(theme)
+    private var cachedExtras: Map<String, String> = emptyMap()
+    private var renderConfig: RenderConfig = RenderConfig.from(emptyMap(), baseColors)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
         diagnostics = parser::diagnosticsSnapshot,
@@ -52,17 +58,11 @@ internal class PlantUmlXYChartSubPipeline(
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laid)
         val bounds = laid.bounds
         val plot = laid.nodePositions[NodeId("xychart:plot")] ?: return emptyList()
-        val bg = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_BACKGROUND_KEY]) ?: Color(0xFFFFFFFF.toInt())
-        val axis = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_AXIS_COLOR_KEY]) ?: Color(0xFF90A4AE.toInt())
-        val text = parseColor(ir.styleHints.extras[PlantUmlXYChartParser.STYLE_TEXT_KEY]) ?: Color(0xFF263238.toInt())
-        val lineWidth = ir.styleHints.extras[PlantUmlXYChartParser.STYLE_LINE_THICKNESS_KEY]?.toFloatOrNull() ?: 1.5f
-        val palette = ir.series.indices.map { idx ->
-            parseColor(ir.styleHints.extras["${PlantUmlXYChartParser.STYLE_SERIES_COLOR_PREFIX}$idx"])
-        }.mapIndexed { index, color -> color ?: defaultPalette()[index % defaultPalette().size] }
+        val config = resolveConfig(ir)
 
-        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), bg, z = 0)
-        drawTitles(ir, laid, out, text)
-        drawAxes(plot, out, axis, lineWidth)
+        out += DrawCommand.FillRect(Rect(Point(0f, 0f), Size(bounds.size.width, bounds.size.height)), config.background, z = 0)
+        drawTitles(ir, laid, out, config.text)
+        drawAxes(plot, out, config.axis, config.lineWidth)
 
         val yMin = ir.yAxis.min ?: 0.0
         val yMax = ir.yAxis.max ?: 1.0
@@ -72,13 +72,13 @@ internal class PlantUmlXYChartSubPipeline(
             val y = plot.bottom - plot.size.height * t
             out += DrawCommand.StrokePath(
                 PathCmd(listOf(PathOp.MoveTo(Point(plot.left - 4f, y)), PathOp.LineTo(Point(plot.right, y)))),
-                Stroke(width = if (i == 0) lineWidth else 0.75f, dash = if (i == 0) null else listOf(4f, 4f)),
-                axis,
+                Stroke(width = if (i == 0) config.lineWidth else 0.75f, dash = if (i == 0) null else listOf(4f, 4f)),
+                config.axis,
                 z = 1,
             )
             laid.nodePositions[NodeId("xychart:yLabel:$i")]?.let { labelRect ->
                 val value = yMin + (yMax - yMin) * t.toDouble()
-                out += DrawCommand.DrawText(formatTick(value), Point(labelRect.left, y), axisLabelFont, text, anchorY = TextAnchorY.Middle, z = 10)
+                out += DrawCommand.DrawText(formatTick(value), Point(labelRect.left, y), axisLabelFont, config.text, anchorY = TextAnchorY.Middle, z = 10)
             }
         }
 
@@ -91,7 +91,7 @@ internal class PlantUmlXYChartSubPipeline(
         for (i in 0 until itemCount) {
             val x = plot.left + slot * (i + 0.5f)
             ir.xAxis.categories.getOrNull(i)?.let { label ->
-                out += DrawCommand.DrawText(label, Point(x, plot.bottom + 18f), axisLabelFont, text, maxWidth = slot - 8f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
+                out += DrawCommand.DrawText(label, Point(x, plot.bottom + 18f), axisLabelFont, config.text, maxWidth = slot - 8f, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Top, z = 10)
             }
         }
 
@@ -117,7 +117,7 @@ internal class PlantUmlXYChartSubPipeline(
             if (ir.xAxis.kind == AxisKind.Linear) Point(xOf(x, index), yOf(y)) else pointAt(index, y)
 
         ir.series.forEachIndexed { seriesIndex, series ->
-            val color = palette[seriesIndex % palette.size]
+            val color = config.palette[seriesIndex % config.palette.size.coerceAtLeast(1)]
             when (series.kind) {
                 SeriesKind.Bar -> {
                     val barW = slot / (ir.series.size + 1f)
@@ -132,7 +132,7 @@ internal class PlantUmlXYChartSubPipeline(
                     val ops = ArrayList<PathOp>()
                     ops += PathOp.MoveTo(pointOf(0, series.xs[0], series.ys[0]))
                     for (i in 1 until series.ys.size) ops += PathOp.LineTo(pointOf(i, series.xs[i], series.ys[i]))
-                    out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = (lineWidth + 0.5f).coerceAtLeast(2f)), color, z = 4)
+                    out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = (config.lineWidth + 0.5f).coerceAtLeast(2f)), color, z = 4)
                     for (i in series.ys.indices) {
                         val point = pointOf(i, series.xs[i], series.ys[i])
                         out += DrawCommand.FillRect(Rect.ltrb(point.x - 3f, point.y - 3f, point.x + 3f, point.y + 3f), color, corner = 3f, z = 5)
@@ -153,7 +153,7 @@ internal class PlantUmlXYChartSubPipeline(
                 -> Unit
             }
         }
-        if (ir.styleHints.extras[PlantUmlXYChartParser.STYLE_LEGEND_KEY] != "none") drawLegend(ir, out, plot, palette, text)
+        if (config.legend != "none") drawLegend(ir, out, plot, config.palette, config.text)
         return out.entities()
     }
 
@@ -209,42 +209,38 @@ internal class PlantUmlXYChartSubPipeline(
         }
     }
 
-    private fun defaultPalette(): List<Color> =
-        listOf(
-            Color(0xFF42A5F5.toInt()),
-            Color(0xFFEF5350.toInt()),
-            Color(0xFF66BB6A.toInt()),
-            Color(0xFFFFCA28.toInt()),
-        )
-
-    private fun parseColor(raw: String?): Color? {
-        val s = raw?.trim()?.lowercase() ?: return null
-        if (s.isEmpty()) return null
-        if (s.startsWith("#")) {
-            val hex = s.removePrefix("#")
-            return when (hex.length) {
-                3 -> Color(0xFF000000.toInt() or expand3(hex))
-                6 -> hex.toIntOrNull(16)?.let { Color(0xFF000000.toInt() or it) }
-                8 -> hex.toLongOrNull(16)?.toInt()?.let { Color(it) }
-                else -> null
-            }
+    private fun resolveConfig(ir: XYChartIR): RenderConfig {
+        val extras = ir.styleHints.extras
+        if (cachedExtras != extras) {
+            cachedExtras = extras.toMap()
+            renderConfig = RenderConfig.from(cachedExtras, baseColors)
         }
-        return when (s) {
-            "white" -> Color(0xFFFFFFFF.toInt())
-            "black" -> Color(0xFF000000.toInt())
-            "red" -> Color(0xFFE53935.toInt())
-            "green", "lime" -> Color(0xFF43A047.toInt())
-            "blue" -> Color(0xFF1E88E5.toInt())
-            "yellow" -> Color(0xFFFDD835.toInt())
-            "orange" -> Color(0xFFFB8C00.toInt())
-            "purple" -> Color(0xFF8E24AA.toInt())
-            "gray", "grey" -> Color(0xFF78909C.toInt())
-            else -> null
-        }
+        return renderConfig
     }
 
-    private fun expand3(hex: String): Int =
-        ("${hex[0]}${hex[0]}".toInt(16) shl 16) or
-            ("${hex[1]}${hex[1]}".toInt(16) shl 8) or
-            "${hex[2]}${hex[2]}".toInt(16)
+    private data class RenderConfig(
+        val background: Color,
+        val axis: Color,
+        val text: Color,
+        val lineWidth: Float,
+        val palette: List<Color>,
+        val legend: String,
+    ) {
+        companion object {
+            fun from(extras: Map<String, String>, baseColors: com.hrm.diagram.render.theme.ResolvedXYChartColors): RenderConfig {
+                val palette = extras.keys
+                    .filter { it.startsWith(PlantUmlXYChartParser.STYLE_SERIES_COLOR_PREFIX) }
+                    .sorted()
+                    .mapNotNull { PlantUmlTreeRenderSupport.parsePlantUmlColor(extras[it].orEmpty()) }
+                return RenderConfig(
+                    background = PlantUmlTreeRenderSupport.parsePlantUmlColor(extras[PlantUmlXYChartParser.STYLE_BACKGROUND_KEY].orEmpty()) ?: baseColors.background,
+                    axis = PlantUmlTreeRenderSupport.parsePlantUmlColor(extras[PlantUmlXYChartParser.STYLE_AXIS_COLOR_KEY].orEmpty()) ?: baseColors.xAxis,
+                    text = PlantUmlTreeRenderSupport.parsePlantUmlColor(extras[PlantUmlXYChartParser.STYLE_TEXT_KEY].orEmpty()) ?: baseColors.text,
+                    lineWidth = extras[PlantUmlXYChartParser.STYLE_LINE_THICKNESS_KEY]?.toFloatOrNull() ?: 1.5f,
+                    palette = if (palette.isEmpty()) baseColors.plotPalette else palette,
+                    legend = extras[PlantUmlXYChartParser.STYLE_LEGEND_KEY] ?: "right",
+                )
+            }
+        }
+    }
 }

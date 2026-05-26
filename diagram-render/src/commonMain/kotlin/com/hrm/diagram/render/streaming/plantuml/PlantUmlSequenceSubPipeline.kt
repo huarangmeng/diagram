@@ -66,6 +66,7 @@ internal class PlantUmlSequenceSubPipeline(
 
     private val parser: PlantUmlParsing<SequenceIR> = PlantUmlParsingFactory.sequence()
     private val resolvedColors = ThemeResolver.resolvePlantUmlSequence(theme)
+    private val shadowTint = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
     private val layout = SequenceLayouts.forSequence(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -124,7 +125,7 @@ internal class PlantUmlSequenceSubPipeline(
             if (scope.shadowing == true) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 6f,
                     z = 1,
                 )
@@ -159,7 +160,7 @@ internal class PlantUmlSequenceSubPipeline(
                     if (palette.sequence.shadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = 0f,
                             z = 4,
                         )
@@ -175,7 +176,7 @@ internal class PlantUmlSequenceSubPipeline(
                     if (palette.note.shadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = 4f,
                             z = 6,
                         )
@@ -193,7 +194,7 @@ internal class PlantUmlSequenceSubPipeline(
                     if (palette.sequence.shadowing == true) {
                         out += DrawCommand.FillRect(
                             rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                            color = PlantUmlTreeRenderSupport.shadowColor(),
+                            color = shadowTint,
                             corner = 4f,
                             z = 8,
                         )
@@ -314,7 +315,7 @@ internal class PlantUmlSequenceSubPipeline(
             if (palette.box.shadowing == true) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 10f,
                     z = -3,
                 )

@@ -58,7 +58,10 @@ internal class PlantUmlUsecaseSubPipeline(
 
     private val parser = PlantUmlUsecaseParser()
     private val colors = ThemeResolver.resolvePlantUmlUsecase(theme)
-    private var currentPalette: UsecasePalette = paletteOf(GraphIR(nodes = emptyList(), sourceLanguage = SourceLanguage.PLANTUML))
+    private val themeColors = theme.colors
+    private val shadowTint = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
+    private var cachedPaletteExtras: Map<String, String> = emptyMap()
+    private var currentPalette: UsecasePalette = paletteOf(emptyMap())
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val edgeLabelFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -94,7 +97,7 @@ internal class PlantUmlUsecaseSubPipeline(
 
     override fun render(previousSnapshot: DiagramSnapshot, seq: Long, isFinal: Boolean): PlantUmlRenderState {
         val rawIr = parser.snapshot()
-        val palette = paletteOf(rawIr)
+        val palette = resolvePalette(rawIr)
         currentPalette = palette
         val ir = applyPalette(rawIr, palette)
         return kernel.advanceRendered(
@@ -107,7 +110,7 @@ internal class PlantUmlUsecaseSubPipeline(
     }
 
     override fun dispose() {
-        currentPalette = paletteOf(GraphIR(nodes = emptyList(), sourceLanguage = SourceLanguage.PLANTUML))
+        currentPalette = paletteOf(emptyMap())
         kernel.clear()
     }
 
@@ -201,7 +204,7 @@ internal class PlantUmlUsecaseSubPipeline(
         if (scope.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowTint,
                 corner = 12f,
                 z = 0,
             )
@@ -246,7 +249,7 @@ internal class PlantUmlUsecaseSubPipeline(
         val headRadius = 11f
         val headRect = Rect.ltrb(cx - headRadius, top, cx + headRadius, top + headRadius * 2f)
         if (scope.shadowing == true) {
-            val shadowColor = PlantUmlTreeRenderSupport.shadowColor()
+            val shadowColor = shadowTint
             val shadowRect = PlantUmlTreeRenderSupport.offsetRect(headRect, 4f, 4f)
             out += DrawCommand.StrokeRect(rect = shadowRect, stroke = stroke, color = shadowColor, corner = headRadius, z = 2)
             out += DrawCommand.StrokePath(
@@ -263,7 +266,7 @@ internal class PlantUmlUsecaseSubPipeline(
                     ),
                 ),
                 stroke = stroke,
-                color = shadowColor,
+                color = shadowTint,
                 z = 2,
             )
         }
@@ -322,7 +325,7 @@ internal class PlantUmlUsecaseSubPipeline(
         if (scope.shadowing == true) {
             out += DrawCommand.FillPath(
                 path = ellipsePath(PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f)),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowTint,
                 z = 2,
             )
         }
@@ -348,7 +351,7 @@ internal class PlantUmlUsecaseSubPipeline(
         if (scope.shadowing == true) {
             out += DrawCommand.FillRect(
                 rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                color = PlantUmlTreeRenderSupport.shadowColor(),
+                color = shadowTint,
                 corner = 8f,
                 z = 2,
             )
@@ -414,7 +417,7 @@ internal class PlantUmlUsecaseSubPipeline(
             }
             else -> for (k in 1 until pts.size) ops += PathOp.LineTo(pts[k])
         }
-        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: colors.edge
+        val edgeColor = edge.style.color?.let { Color(it.argb) } ?: semanticEdgeColor(edge)
         val stroke = Stroke(width = edge.style.width ?: 1.5f, dash = edge.style.dash)
         out += DrawCommand.StrokePath(path = PathCmd(ops), stroke = stroke, color = edgeColor, z = 1)
         val headTail = pts[pts.size - 2]
@@ -483,6 +486,15 @@ internal class PlantUmlUsecaseSubPipeline(
         return if (parts.size == 2) parts[0] to parts[1] else "package" to text
     }
 
+    private fun semanticEdgeColor(edge: Edge): Color {
+        val label = (edge.label as? RichLabel.Plain)?.text?.lowercase().orEmpty()
+        return when {
+            "<<include>>" in label -> themeColors.accentSecondary
+            "<<extend>>" in label -> themeColors.success
+            else -> colors.edge
+        }
+    }
+
     private fun scopeForNode(node: Node, palette: UsecasePalette): ScopePalette = when (node.payload[PlantUmlUsecaseParser.KIND_KEY]) {
         "actor" -> palette.actor
         "note" -> palette.note
@@ -533,8 +545,16 @@ internal class PlantUmlUsecaseSubPipeline(
         )
     }
 
-    private fun paletteOf(ir: GraphIR): UsecasePalette {
+    private fun resolvePalette(ir: GraphIR): UsecasePalette {
         val extras = ir.styleHints.extras
+        if (cachedPaletteExtras != extras) {
+            cachedPaletteExtras = extras.toMap()
+            currentPalette = paletteOf(cachedPaletteExtras)
+        }
+        return currentPalette
+    }
+
+    private fun paletteOf(extras: Map<String, String>): UsecasePalette {
         fun c(key: String): ArgbColor? =
             extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) }
         fun f(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])

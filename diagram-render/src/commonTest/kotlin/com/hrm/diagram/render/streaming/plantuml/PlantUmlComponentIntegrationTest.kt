@@ -1,5 +1,6 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.FontSpec
 import com.hrm.diagram.core.draw.Rect
@@ -9,6 +10,7 @@ import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.parser.plantuml.PlantUmlComponentParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
@@ -231,10 +233,16 @@ class PlantUmlComponentIntegrationTest {
         val textColors = texts.map { it.color.argb }
         val textFamilies = texts.map { it.font.family }
         val textSizes = texts.map { it.font.sizeSp }
+        val shadowTint = Color.argb(
+            56,
+            DiagramTheme.Default.colors.border.r,
+            DiagramTheme.Default.colors.border.g,
+            DiagramTheme.Default.colors.border.b,
+        ).argb
         assertTrue(fillRects.contains(0xFFD3D3D3.toInt()))
         assertTrue(fillRects.contains(0xFFFFFFE0.toInt()))
         assertTrue(fillRects.contains(0xFFFFFFF0.toInt()))
-        assertTrue(fillRects.contains(0x26000000))
+        assertTrue(fillRects.contains(shadowTint))
         assertTrue(strokeRects.any { it.color.argb == 0xFFC0C0C0.toInt() && it.stroke.width == 2.25f })
         assertTrue(strokeRects.any { it.color.argb == 0xFFFFA500.toInt() && it.stroke.width == 2.5f })
         assertTrue(strokeRects.any { it.color.argb == 0xFFCD853F.toInt() && it.stroke.width == 2f })

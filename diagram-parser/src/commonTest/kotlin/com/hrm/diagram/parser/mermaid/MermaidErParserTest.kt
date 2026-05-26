@@ -85,8 +85,9 @@ class MermaidErParserTest {
         val pk = assertNotNull(byId["USER::id"])
         assertEquals("uuid", pk.payload[MermaidErParser.ER_ATTRIBUTE_TYPE_KEY])
         assertEquals("PK", pk.payload[MermaidErParser.ER_ATTRIBUTE_FLAGS_KEY])
-        assertTrue(pk.style.fill != null)
-        assertTrue(pk.style.stroke != null)
+        assertEquals(1.25f, pk.style.strokeWidth)
+        assertEquals(null, pk.style.fill)
+        assertEquals(null, pk.style.stroke)
 
         val fk = assertNotNull(byId["USER::account_id"])
         assertEquals("FK", fk.payload[MermaidErParser.ER_ATTRIBUTE_FLAGS_KEY])
@@ -124,7 +125,7 @@ class MermaidErParserTest {
         assertEquals(NodeId("LINE_ITEM"), relEdge.to)
         assertEquals("||--o{ contains", (relEdge.label as RichLabel.Plain).text)
         assertEquals(1.5f, relEdge.style.width)
-        assertEquals(0xFFF5F5F5.toInt(), relEdge.style.labelBg?.argb)
+        assertEquals(null, relEdge.style.labelBg)
         assertTrue(relEdge.style.dash == null)
     }
 }

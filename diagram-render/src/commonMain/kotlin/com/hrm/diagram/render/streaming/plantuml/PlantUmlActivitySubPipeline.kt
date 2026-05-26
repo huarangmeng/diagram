@@ -52,6 +52,10 @@ internal class PlantUmlActivitySubPipeline(
 
     private val parser = PlantUmlActivityParser()
     private val colors = ThemeResolver.resolvePlantUmlActivity(theme)
+    private val stopFill = theme.colors.canvas
+    private val shadowTint = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
+    private var cachedPaletteExtras: Map<String, String> = emptyMap()
+    private var cachedPalette: ActivityPalette = paletteOf(emptyMap())
     private val nodeSizes: MutableMap<NodeId, Size> = HashMap()
     private val layout: IncrementalLayout<GraphIR> = SugiyamaLayouts.forGraph(
         defaultNodeSize = Size(160f, 72f),
@@ -61,7 +65,7 @@ internal class PlantUmlActivitySubPipeline(
         snapshot = parser::snapshot,
         diagnostics = parser::diagnosticsSnapshot,
         layoutModel = ::lower,
-        beforeLayout = { model, lowered, _ -> measureNodes(lowered, paletteOf(model)) },
+        beforeLayout = { model, lowered, _ -> measureNodes(lowered, resolvePalette(model)) },
         layout = { previous, lowered, options, _, _ -> layout.layout(previous, lowered, options) },
         postLayout = { _, lowered, baseLaid, seq, _ ->
             val clusterRects = LinkedHashMap<NodeId, Rect>()
@@ -69,7 +73,7 @@ internal class PlantUmlActivitySubPipeline(
             val bounds = computeBounds(baseLaid.nodePositions.values + clusterRects.values)
             baseLaid.copy(clusterRects = clusterRects, bounds = bounds, seq = seq)
         },
-        renderEntities = { model, lowered, laidOut, _ -> render(lowered, laidOut, paletteOf(model)) },
+        renderEntities = { model, lowered, laidOut, _ -> render(lowered, laidOut, resolvePalette(model)) },
         layoutOptions = { _, lowered, isFinal ->
             LayoutOptions(direction = lowered.styleHints.direction, incremental = !isFinal, allowGlobalReflow = isFinal)
         },
@@ -142,7 +146,7 @@ internal class PlantUmlActivitySubPipeline(
         val edges = ArrayList<Edge>()
         val refMap = LinkedHashMap<String, NodeId>()
         val stopRefs = LinkedHashSet<String>()
-        val palette = paletteOf(ir)
+        val palette = resolvePalette(ir)
         val sequence = buildSequence(ir.blocks, nodes, edges, lane = null, palette = palette, refMap = refMap, stopRefs = stopRefs)
         val hasStart = ir.styleHints.extras[PlantUmlActivityParser.HAS_START_KEY] == "true"
         val hasStop = ir.styleHints.extras[PlantUmlActivityParser.HAS_STOP_KEY] == "true"
@@ -352,7 +356,7 @@ internal class PlantUmlActivitySubPipeline(
         palette: ActivityPalette,
     ): NodeStyle = when {
         start -> NodeStyle(fill = palette.startFill ?: ArgbColor(colors.startFill.argb), stroke = palette.startFill ?: ArgbColor(colors.startFill.argb), strokeWidth = palette.startLineThickness ?: 1.5f)
-        stop -> NodeStyle(fill = ArgbColor(Color.White.argb), stroke = palette.stopStroke ?: ArgbColor(colors.stopStroke.argb), strokeWidth = palette.stopLineThickness ?: 1.5f)
+        stop -> NodeStyle(fill = ArgbColor(stopFill.argb), stroke = palette.stopStroke ?: ArgbColor(colors.stopStroke.argb), strokeWidth = palette.stopLineThickness ?: 1.5f)
         fork -> NodeStyle(fill = palette.barFill ?: ArgbColor(colors.barFill.argb), stroke = palette.barFill ?: ArgbColor(colors.barFill.argb), strokeWidth = palette.barLineThickness ?: 1.5f, textColor = palette.barText ?: ArgbColor(colors.barText.argb))
         note -> NodeStyle(fill = palette.noteFill ?: ArgbColor(colors.noteFill.argb), stroke = palette.noteStroke ?: ArgbColor(colors.noteStroke.argb), strokeWidth = palette.noteLineThickness ?: 1.5f, textColor = palette.noteText ?: ArgbColor(colors.noteText.argb))
         decision -> NodeStyle(fill = palette.decisionFill ?: ArgbColor(colors.decisionFill.argb), stroke = palette.decisionStroke ?: ArgbColor(colors.decisionStroke.argb), strokeWidth = palette.decisionLineThickness ?: 1.5f, textColor = palette.decisionText ?: ArgbColor(colors.decisionText.argb))
@@ -418,7 +422,7 @@ internal class PlantUmlActivitySubPipeline(
                     if (scope.shadowing == true) {
                         out += DrawCommand.FillRect(
                             PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                            PlantUmlTreeRenderSupport.shadowColor(),
+                            shadowTint,
                             corner = rect.size.width / 2f,
                             z = 2,
                         )
@@ -429,7 +433,7 @@ internal class PlantUmlActivitySubPipeline(
                     if (scope.shadowing == true) {
                         out += DrawCommand.FillRect(
                             PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                            PlantUmlTreeRenderSupport.shadowColor(),
+                            shadowTint,
                             corner = rect.size.width / 2f,
                             z = 2,
                         )
@@ -444,7 +448,7 @@ internal class PlantUmlActivitySubPipeline(
                         if (scope.shadowing == true) {
                             out += DrawCommand.FillRect(
                                 PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                                PlantUmlTreeRenderSupport.shadowColor(),
+                                shadowTint,
                                 corner = 2f,
                                 z = 2,
                             )
@@ -456,7 +460,7 @@ internal class PlantUmlActivitySubPipeline(
                         if (scope.shadowing == true) {
                             out += DrawCommand.FillRect(
                                 PlantUmlTreeRenderSupport.offsetRect(barRect, 4f, 4f),
-                                PlantUmlTreeRenderSupport.shadowColor(),
+                                shadowTint,
                                 corner = 2f,
                                 z = 2,
                             )
@@ -496,7 +500,7 @@ internal class PlantUmlActivitySubPipeline(
                                     PathOp.Close,
                                 ),
                             ),
-                            PlantUmlTreeRenderSupport.shadowColor(),
+                            shadowTint,
                             z = 2,
                         )
                     }
@@ -508,7 +512,7 @@ internal class PlantUmlActivitySubPipeline(
                     if (scope.shadowing == true) {
                         out += DrawCommand.FillRect(
                             PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                            PlantUmlTreeRenderSupport.shadowColor(),
+                            shadowTint,
                             corner = 4f,
                             z = 2,
                         )
@@ -521,7 +525,7 @@ internal class PlantUmlActivitySubPipeline(
                     if (scope.shadowing == true) {
                         out += DrawCommand.FillRect(
                             PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                            PlantUmlTreeRenderSupport.shadowColor(),
+                            shadowTint,
                             corner = 10f,
                             z = 2,
                         )
@@ -671,7 +675,11 @@ internal class PlantUmlActivitySubPipeline(
         nodes.groupBy { it.payload[LANE_KEY].orEmpty() }
             .filterKeys { it.isNotEmpty() }
             .map { (lane, laneNodes) ->
-                val fill = laneNodes.firstNotNullOfOrNull { it.payload[LANE_FILL_KEY]?.let(::parsePlantUmlColor) }
+                val fill = laneNodes.firstNotNullOfOrNull {
+                    it.payload[LANE_FILL_KEY]
+                        ?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)
+                        ?.let { color -> ArgbColor(color.argb) }
+                }
                 Cluster(
                     id = NodeId("lane_${sanitizeId(lane)}"),
                     label = RichLabel.Plain(lane),
@@ -690,7 +698,10 @@ internal class PlantUmlActivitySubPipeline(
         if (!text.startsWith(PlantUmlActivityParser.SWIMLANE_PREFIX)) return null
         val payload = text.removePrefix(PlantUmlActivityParser.SWIMLANE_PREFIX)
         val lane = payload.substringBefore("|||").trim()
-        val fill = payload.substringAfter("|||", "").takeIf { it.isNotBlank() }?.let(::parsePlantUmlColor)
+        val fill = payload.substringAfter("|||", "")
+            .takeIf { it.isNotBlank() }
+            ?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)
+            ?.let { ArgbColor(it.argb) }
         return LaneMarker(lane = lane, fill = fill)
     }
 
@@ -705,7 +716,10 @@ internal class PlantUmlActivitySubPipeline(
         val note = block as? ActivityBlock.Note ?: return null
         val text = (note.text as? RichLabel.Plain)?.text ?: return null
         if (!text.startsWith(PlantUmlActivityParser.ACTION_STYLE_PREFIX)) return null
-        return PendingActionStyle(fill = parsePlantUmlColor(text.removePrefix(PlantUmlActivityParser.ACTION_STYLE_PREFIX)))
+        return PendingActionStyle(
+            fill = PlantUmlTreeRenderSupport.parsePlantUmlColor(text.removePrefix(PlantUmlActivityParser.ACTION_STYLE_PREFIX))
+                ?.let { ArgbColor(it.argb) },
+        )
     }
 
     private fun asSyncBarMarker(block: ActivityBlock): SyncBarMarker? {
@@ -776,44 +790,18 @@ internal class PlantUmlActivitySubPipeline(
         return ArgbColor((a shl 24) or (r.toInt().coerceIn(0, 255) shl 16) or (g.toInt().coerceIn(0, 255) shl 8) or b.toInt().coerceIn(0, 255))
     }
 
-    private fun parsePlantUmlColor(text: String): ArgbColor? {
-        val raw = text.trim()
-        if (!raw.startsWith("#")) return namedColor(raw)
-        val hex = raw.removePrefix("#")
-        return when (hex.length) {
-            3 -> parseHex("FF${hex.map { "$it$it" }.joinToString("")}")
-            6 -> parseHex("FF$hex")
-            8 -> parseHex(hex)
-            else -> null
-        }
-    }
-
-    private fun parseHex(argb: String): ArgbColor? = argb.toLongOrNull(16)?.let { ArgbColor(it.toInt()) }
-
-    private fun namedColor(name: String): ArgbColor? = when (name.lowercase()) {
-        "lightskyblue" -> ArgbColor(0xFF87CEFA.toInt())
-        "palegreen" -> ArgbColor(0xFF98FB98.toInt())
-        "lightgreen" -> ArgbColor(0xFF90EE90.toInt())
-        "lightblue" -> ArgbColor(0xFFADD8E6.toInt())
-        "lightyellow" -> ArgbColor(0xFFFFFFE0.toInt())
-        "lightgray", "lightgrey" -> ArgbColor(0xFFD3D3D3.toInt())
-        "orange" -> ArgbColor(0xFFFFA500.toInt())
-        "red" -> ArgbColor(0xFFFF0000.toInt())
-        "green" -> ArgbColor(0xFF008000.toInt())
-        "blue" -> ArgbColor(0xFF0000FF.toInt())
-        "yellow" -> ArgbColor(0xFFFFFF00.toInt())
-        "gray", "grey" -> ArgbColor(0xFF808080.toInt())
-        "saddlebrown" -> ArgbColor(0xFF8B4513.toInt())
-        "silver" -> ArgbColor(0xFFC0C0C0.toInt())
-        "peru" -> ArgbColor(0xFFCD853F.toInt())
-        "navy" -> ArgbColor(0xFF000080.toInt())
-        "ivory" -> ArgbColor(0xFFFFFFF0.toInt())
-        else -> null
-    }
-
-    private fun paletteOf(ir: ActivityIR): ActivityPalette {
+    private fun resolvePalette(ir: ActivityIR): ActivityPalette {
         val extras = ir.styleHints.extras
-        fun c(key: String): ArgbColor? = extras[key]?.let(::parsePlantUmlColor)
+        if (cachedPaletteExtras != extras) {
+            cachedPaletteExtras = extras.toMap()
+            cachedPalette = paletteOf(cachedPaletteExtras)
+        }
+        return cachedPalette
+    }
+
+    private fun paletteOf(extras: Map<String, String>): ActivityPalette {
+        fun c(key: String): ArgbColor? =
+            extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)?.let { ArgbColor(it.argb) }
         fun f(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])
         fun s(key: String): String? = PlantUmlTreeRenderSupport.parsePlantUmlFontFamily(extras[key])
         fun b(key: String): Boolean? = PlantUmlTreeRenderSupport.parsePlantUmlBoolean(extras[key])

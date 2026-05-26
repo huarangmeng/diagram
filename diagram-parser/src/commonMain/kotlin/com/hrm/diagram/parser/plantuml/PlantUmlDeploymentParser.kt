@@ -618,61 +618,12 @@ class PlantUmlDeploymentParser {
     }
 
     private fun styleFor(keyword: String): NodeStyle = when (keyword.lowercase()) {
-        "actor" -> NodeStyle(
-            fill = ArgbColor(0xFFFFFFFF.toInt()),
-            stroke = ArgbColor(0xFF546E7A.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF263238.toInt()),
-        )
-        "artifact" -> NodeStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFEF6C00.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFFE65100.toInt()),
-        )
-        "database" -> NodeStyle(
-            fill = ArgbColor(0xFFE1F5FE.toInt()),
-            stroke = ArgbColor(0xFF0277BD.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF01579B.toInt()),
-        )
-        "storage" -> NodeStyle(
-            fill = ArgbColor(0xFFE8EAF6.toInt()),
-            stroke = ArgbColor(0xFF3949AB.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF1A237E.toInt()),
-        )
-        "cloud" -> NodeStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF8E24AA.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF6A1B9A.toInt()),
-        )
-        "queue" -> NodeStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF8E24AA.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF4A148C.toInt()),
-        )
-        "note" -> NodeStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFFFA000.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF5D4037.toInt()),
-        )
-        else -> NodeStyle(
-            fill = ArgbColor(0xFFE8F5E9.toInt()),
-            stroke = ArgbColor(0xFF2E7D32.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF1B5E20.toInt()),
-        )
+        "note" -> NodeStyle(strokeWidth = 1.25f)
+        else -> NodeStyle(strokeWidth = 1.5f)
     }
 
     private fun clusterStyleFor(kind: String): ClusterStyle = when (kind) {
-        "cloud" -> ClusterStyle(fill = ArgbColor(0xFFF3E5F5.toInt()), stroke = ArgbColor(0xFF8E24AA.toInt()), strokeWidth = 1.5f)
-        "database" -> ClusterStyle(fill = ArgbColor(0xFFE1F5FE.toInt()), stroke = ArgbColor(0xFF0277BD.toInt()), strokeWidth = 1.5f)
-        "frame" -> ClusterStyle(fill = ArgbColor(0xFFFFF8E1.toInt()), stroke = ArgbColor(0xFFEF6C00.toInt()), strokeWidth = 1.5f)
-        else -> ClusterStyle(fill = ArgbColor(0xFFF1F8E9.toInt()), stroke = ArgbColor(0xFF558B2F.toInt()), strokeWidth = 1.5f)
+        else -> ClusterStyle(strokeWidth = 1.5f)
     }
 
     private fun findRelationOperator(line: String): String? {

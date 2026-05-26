@@ -1,5 +1,6 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.color.ColorTokenParser
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.FontSpec
@@ -36,7 +37,7 @@ internal data class PlantUmlTreeLeadingVisualSpec(
 )
 
 internal object PlantUmlTreeRenderSupport {
-    private const val DEFAULT_SHADOW_ARGB: Int = 0x26000000
+    private const val THEME_SHADOW_ALPHA: Int = 56
 
     fun parseNodeStringMap(raw: String): Map<NodeId, String> =
         raw.split("||")
@@ -90,41 +91,7 @@ internal object PlantUmlTreeRenderSupport {
             decodeLeadingVisual(value)?.let { id to it }
         }.toMap()
 
-    fun parsePlantUmlColor(raw: String): Color? {
-        val text = raw.trim()
-        if (text.isEmpty()) return null
-        if (text.startsWith("#")) {
-            val hex = text.removePrefix("#")
-            val argb = when (hex.length) {
-                3 -> "FF${hex.map { "$it$it" }.joinToString("")}"
-                6 -> "FF$hex"
-                8 -> hex
-                else -> return null
-            }
-            return argb.toLongOrNull(16)?.let { Color(it.toInt()) }
-        }
-        return when (text.lowercase()) {
-            "lightblue" -> Color(0xFFADD8E6.toInt())
-            "lightgreen" -> Color(0xFF90EE90.toInt())
-            "palegreen" -> Color(0xFF98FB98.toInt())
-            "lightgray", "lightgrey" -> Color(0xFFD3D3D3.toInt())
-            "lightyellow" -> Color(0xFFFFFFE0.toInt())
-            "ivory" -> Color(0xFFFFFFF0.toInt())
-            "navy" -> Color(0xFF000080.toInt())
-            "orange" -> Color(0xFFFFA500.toInt())
-            "saddlebrown" -> Color(0xFF8B4513.toInt())
-            "peru" -> Color(0xFFCD853F.toInt())
-            "pink" -> Color(0xFFFFC0CB.toInt())
-            "red" -> Color(0xFFFF0000.toInt())
-            "green" -> Color(0xFF008000.toInt())
-            "blue" -> Color(0xFF0000FF.toInt())
-            "skyblue" -> Color(0xFF87CEEB.toInt())
-            "yellow" -> Color(0xFFFFFF00.toInt())
-            "gray", "grey" -> Color(0xFF808080.toInt())
-            "silver" -> Color(0xFFC0C0C0.toInt())
-            else -> null
-        }
-    }
+    fun parsePlantUmlColor(raw: String): Color? = ColorTokenParser.parseColor(raw)
 
     fun isDark(color: Color): Boolean {
         val r = (color.argb shr 16) and 0xFF
@@ -143,7 +110,8 @@ internal object PlantUmlTreeRenderSupport {
         return Color((a shl 24) or (r shl 16) or (g shl 8) or b)
     }
 
-    fun shadowColor(): Color = Color(DEFAULT_SHADOW_ARGB)
+    fun themedShadowTint(border: Color): Color =
+        Color.argb(THEME_SHADOW_ALPHA, border.r, border.g, border.b)
 
     fun offsetRect(rect: Rect, dx: Float, dy: Float): Rect =
         Rect.ltrb(rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy)
@@ -204,6 +172,7 @@ internal object PlantUmlTreeRenderSupport {
         fill: Color,
         strokeColor: Color,
         chrome: PlantUmlTreeNodeChrome,
+        shadowColor: Color,
         cornerRadiusOverride: Float? = null,
         strokeWidthOverride: Float? = null,
         shadow: Boolean = false,
@@ -216,7 +185,7 @@ internal object PlantUmlTreeRenderSupport {
         if (shadow) {
             out += DrawCommand.FillRect(
                 rect = offsetRect(rect, 4f, 5f),
-                color = shadowColor(),
+                color = shadowColor,
                 corner = cornerRadius,
                 z = fillZ - 1,
             )

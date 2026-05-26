@@ -6,6 +6,7 @@ import com.hrm.diagram.core.draw.FontSpec
 import com.hrm.diagram.core.draw.Point
 import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.Size
+import com.hrm.diagram.core.color.DotColorParser
 import com.hrm.diagram.core.ir.Edge
 import com.hrm.diagram.core.ir.GraphIR
 import com.hrm.diagram.core.ir.Node
@@ -14,6 +15,7 @@ import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.parser.dot.DotParsing
 import com.hrm.diagram.render.graph.GraphClusterLayout
@@ -25,14 +27,21 @@ import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.PipelineAdvance
 import com.hrm.diagram.render.streaming.SessionPipeline
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 
 internal class DotSessionPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : SessionPipeline {
     private val parserSession = DotParsing.incrementalSession()
-    private val nodeFont = FontSpec(family = "sans-serif", sizeSp = 12f)
-    private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
-    private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
+    private val colors = ThemeResolver.resolveGraph(theme)
+    private val nodeFont = theme.typography.bodyFont
+    private val edgeFont = theme.typography.bodyFont.copy(
+        sizeSp = (theme.typography.bodyFont.sizeSp - 2f).coerceAtLeast(10f),
+    )
+    private val clusterFont = theme.typography.titleFont.copy(
+        sizeSp = (theme.typography.titleFont.sizeSp - 4f).coerceAtLeast(12f),
+    )
     private val measurePolicy = GraphMeasurePolicy(
         textMeasurer = textMeasurer,
         defaultSize = Size(112f, 44f),
@@ -99,14 +108,22 @@ internal class DotSessionPipeline(
         nodeFont = nodeFont,
         edgeFont = edgeFont,
         clusterFont = clusterFont,
-        edgeColor = Color(0xFF4B5563.toInt()),
+        nodeFill = colors.nodeFill,
+        nodeStroke = colors.nodeStroke,
+        nodeText = colors.nodeText,
+        edgeColor = colors.edge,
+        edgeLabelText = colors.edgeLabelText,
+        edgeLabelBg = colors.edgeLabelBackground,
+        clusterFill = colors.clusterFill,
+        clusterStroke = colors.clusterStroke,
+        clusterText = colors.nodeText,
         nodeFontOf = { node, _ -> fontOf(node) },
         nodeTextColorOf = { node, _ -> nodeHtmlColor(node) },
         edgeLabelFontOf = { edge, prefix, _ -> edgeLabelFont(edge, dotLabelPrefix(prefix)) },
         edgeLabelColorOf = { edge, prefix, _ -> edgeLabelColor(edge, dotLabelPrefix(prefix)) },
         arrowHeadOf = { edge, enabled -> arrowHeadOf(edge.payload["dot.edge.arrowhead"], enabled) },
         edgeEndpointAdjuster = { edge, points, laid -> applyPortAnchors(edge, points, laid.nodePositions) },
-        graphBackground = { ir, _ -> ir.styleHints.extras["dot.graph.bgcolor"]?.let(::colorOf) },
+        graphBackground = { ir, _ -> DotColorParser.parseColor(ir.styleHints.extras["dot.graph.bgcolor"]) ?: colors.background },
         hyperlinkOf = { node -> node.payload["dot.node.url"] ?: node.payload["dot.node.href"] },
     )
 
@@ -127,7 +144,7 @@ internal class DotSessionPipeline(
         )
 
     private fun nodeHtmlColor(node: Node): Color? =
-        node.payload["dot.node.html.fontcolor"]?.let(::colorOf)
+        DotColorParser.parseColor(node.payload["dot.node.html.fontcolor"])
 
     private fun edgeLabelFont(edge: Edge, prefix: String): FontSpec =
         FontSpec(
@@ -142,7 +159,8 @@ internal class DotSessionPipeline(
         )
 
     private fun edgeLabelColor(edge: Edge, prefix: String): Color? =
-        edge.payload["$prefix.html.fontcolor"]?.let(::colorOf) ?: edge.payload["$prefix.fontcolor"]?.let(::colorOf)
+        DotColorParser.parseColor(edge.payload["$prefix.html.fontcolor"])
+            ?: DotColorParser.parseColor(edge.payload["$prefix.fontcolor"])
 
     private fun dotLabelPrefix(prefix: String): String =
         if (prefix == "edge") "dot.edge" else prefix
@@ -195,25 +213,5 @@ internal class DotSessionPipeline(
     private fun dotSpacing(ir: GraphIR, key: String, defaultPx: Float): Float {
         val inches = ir.styleHints.extras[key]?.toFloatOrNull() ?: return defaultPx
         return (inches * 72f).coerceIn(8f, 240f)
-    }
-
-    private fun colorOf(raw: String): Color? {
-        val value = raw.trim().removeSurrounding("\"")
-        val hex = value.removePrefix("#")
-        if (hex.length == 6 && hex.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
-            return Color((0xFF000000 or hex.toLong(16)).toInt())
-        }
-        return when (value.lowercase()) {
-            "black" -> Color.Black
-            "white" -> Color.White
-            "red" -> Color(0xFFE53935.toInt())
-            "green" -> Color(0xFF43A047.toInt())
-            "blue" -> Color(0xFF1E88E5.toInt())
-            "yellow" -> Color(0xFFFDD835.toInt())
-            "orange" -> Color(0xFFFF9800.toInt())
-            "purple" -> Color(0xFF8E24AA.toInt())
-            "gray", "grey" -> Color(0xFF9E9E9E.toInt())
-            else -> null
-        }
     }
 }

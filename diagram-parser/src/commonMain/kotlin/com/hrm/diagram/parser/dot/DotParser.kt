@@ -1,5 +1,6 @@
 package com.hrm.diagram.parser.dot
 
+import com.hrm.diagram.core.color.DotColorParser
 import com.hrm.diagram.core.ir.ArgbColor
 import com.hrm.diagram.core.ir.ArrowEnds
 import com.hrm.diagram.core.ir.Cluster
@@ -674,25 +675,24 @@ internal class DotParser {
         val style = attrs["style"].orEmpty().split(',').map { it.trim().lowercase() }.toSet()
         val fill = parseColor(attrs["fillcolor"] ?: attrs["bgcolor"])
             ?: parseColor(attrs["color"])?.takeIf { "filled" in style }
-            ?: defaultFill(shape)
         return NodeStyle(
             fill = fill,
-            stroke = parseColor(attrs["color"]) ?: ArgbColor(0xFF374151.toInt()),
+            stroke = parseColor(attrs["color"]),
             strokeWidth = attrs["penwidth"]?.toFloatOrNull() ?: if ("bold" in style) 2.4f else 1.2f,
-            textColor = parseColor(attrs["fontcolor"]) ?: ArgbColor(0xFF111827.toInt()),
+            textColor = parseColor(attrs["fontcolor"]),
         )
     }
 
     private fun edgeStyleOf(attrs: Map<String, String>): EdgeStyle =
         EdgeStyle(
-            color = parseColor(attrs["color"]) ?: ArgbColor(0xFF4B5563.toInt()),
+            color = parseColor(attrs["color"]),
             width = attrs["penwidth"]?.toFloatOrNull() ?: if (attrs["style"]?.contains("bold", ignoreCase = true) == true) 2.2f else 1.2f,
             dash = when (edgeKindOf(attrs["style"])) {
                 EdgeKind.Dashed -> listOf(6f, 4f)
                 EdgeKind.Dotted -> listOf(2f, 4f)
                 else -> null
             },
-            labelBg = ArgbColor(0xF0FFFFFF.toInt()),
+            labelBg = null,
         )
 
     private fun edgeKindOf(style: String?): EdgeKind =
@@ -706,37 +706,12 @@ internal class DotParser {
 
     private fun clusterStyleOf(attrs: Map<String, String>): ClusterStyle =
         ClusterStyle(
-            fill = parseColor(attrs["fillcolor"] ?: attrs["bgcolor"]) ?: ArgbColor(0xFFF8FAFC.toInt()),
-            stroke = parseColor(attrs["color"]) ?: ArgbColor(0xFF94A3B8.toInt()),
+            fill = parseColor(attrs["fillcolor"] ?: attrs["bgcolor"]),
+            stroke = parseColor(attrs["color"]),
             strokeWidth = attrs["penwidth"]?.toFloatOrNull() ?: 1.2f,
         )
 
-    private fun defaultFill(shape: NodeShape): ArgbColor =
-        when (shape) {
-            NodeShape.Diamond -> ArgbColor(0xFFFFF7ED.toInt())
-            NodeShape.Circle, NodeShape.Ellipse -> ArgbColor(0xFFECFEFF.toInt())
-            else -> ArgbColor(0xFFF9FAFB.toInt())
-        }
-
-    private fun parseColor(raw: String?): ArgbColor? {
-        val value = raw?.trim()?.removeSurrounding("\"") ?: return null
-        val hex = value.removePrefix("#")
-        if (hex.length == 6 && hex.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) {
-            return ArgbColor((0xFF000000 or hex.toLong(16)).toInt())
-        }
-        return when (value.lowercase()) {
-            "black" -> ArgbColor(0xFF000000.toInt())
-            "white" -> ArgbColor(0xFFFFFFFF.toInt())
-            "red" -> ArgbColor(0xFFE53935.toInt())
-            "green" -> ArgbColor(0xFF43A047.toInt())
-            "blue" -> ArgbColor(0xFF1E88E5.toInt())
-            "yellow" -> ArgbColor(0xFFFDD835.toInt())
-            "orange" -> ArgbColor(0xFFFF9800.toInt())
-            "purple" -> ArgbColor(0xFF8E24AA.toInt())
-            "gray", "grey" -> ArgbColor(0xFF9E9E9E.toInt())
-            else -> null
-        }
-    }
+    private fun parseColor(raw: String?): ArgbColor? = DotColorParser.parseArgbColor(raw)
 
     private fun tokenize(source: String, diagnostics: MutableList<Diagnostic>): List<Token> {
         val out = ArrayList<Token>()

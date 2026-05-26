@@ -117,7 +117,7 @@ internal class MermaidGitGraphSubPipeline(
                     out += DrawCommand.FillRect(rect, fill, corner = rect.size.width / 2f, z = 4)
                     out += DrawCommand.StrokeRect(rect, Stroke(width = 2f), colors.border, corner = rect.size.width / 2f, z = 5)
                     val inner = Rect.ltrb(rect.left + 4f, rect.top + 4f, rect.right - 4f, rect.bottom - 4f)
-                    out += DrawCommand.StrokeRect(inner, Stroke(width = 1f), Color(0xFFFFFFFF.toInt()), corner = inner.size.width / 2f, z = 6)
+                    out += DrawCommand.StrokeRect(inner, Stroke(width = 1f), colors.background, corner = inner.size.width / 2f, z = 6)
                 }
                 GitCommitType.CherryPick -> {
                     out += DrawCommand.FillRect(rect, fill, corner = rect.size.width / 2f, z = 4)

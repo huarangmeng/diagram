@@ -20,6 +20,7 @@ import com.hrm.diagram.core.ir.NodeShape
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
@@ -27,12 +28,15 @@ import com.hrm.diagram.parser.plantuml.PlantUmlDitaaParser
 import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlDitaaSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlDitaaParser()
+    private val colors = ThemeResolver.resolvePlantUmlDitaa(theme)
     private val labelFont = FontSpec(family = "monospace", sizeSp = 12f, weight = 600)
     private val cellWidth = 12f
     private val cellHeight = 18f
@@ -43,8 +47,8 @@ internal class PlantUmlDitaaSubPipeline(
         GraphRenderStyle(
             prefix = "plantuml",
             nodeFont = labelFont,
-            edgeColor = Color(0xFF6D4C41.toInt()),
-            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            edgeColor = colors.edge,
+            graphBackground = { _, _ -> colors.canvas },
             customNodeCommands = ::nodeCommands,
             customEdgeCommands = ::edgeCommands,
         ),
@@ -111,7 +115,7 @@ internal class PlantUmlDitaaSubPipeline(
 
     private fun render(ir: GraphIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        out += DrawCommand.FillRect(laid.bounds, Color(0xFFFFFFFF.toInt()), z = -1)
+        out += DrawCommand.FillRect(laid.bounds, colors.canvas, z = -1)
         val handwritten = ir.styleHints.extras[PlantUmlDitaaParser.HANDWRITTEN_KEY] == "true"
         for ((idx, route) in laid.edgeRoutes.withIndex()) drawEdge(ir.edges.getOrNull(idx), route, out, handwritten)
         for (node in ir.nodes) drawNode(node, laid.nodePositions[node.id] ?: continue, out, handwritten)
@@ -124,9 +128,9 @@ internal class PlantUmlDitaaSubPipeline(
 
     private fun nodeCommands(node: Node, rect: Rect): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFFFFDE7.toInt())
-        val stroke = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF8D6E63.toInt())
-        val text = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF3E2723.toInt())
+        val fill = node.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
+        val stroke = node.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
+        val text = node.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
         val rounded = node.payload[PlantUmlDitaaParser.ROUNDED_KEY] == "true"
         val handwritten = handwrittenGraph || node.payload[PlantUmlDitaaParser.HANDWRITTEN_KEY] == "true"
         val corner = if (rounded) 16f else 8f
@@ -247,7 +251,7 @@ internal class PlantUmlDitaaSubPipeline(
         val drawnPoints = if (handwrittenGraph) jitteredPoints(key, pts) else pts
         ops += PathOp.MoveTo(drawnPoints.first())
         for (i in 1 until drawnPoints.size) ops += PathOp.LineTo(drawnPoints[i])
-        val color = edge.style.color?.let { Color(it.argb) } ?: Color(0xFF6D4C41.toInt())
+        val color = edge.style.color?.let { Color(it.argb) } ?: colors.edge
         val stroke = Stroke(width = edge.style.width ?: 1.5f, dash = if (handwrittenGraph) listOf(7f, 2f, 2f, 2f) else edge.style.dash)
         out += DrawCommand.StrokePath(PathCmd(ops), stroke, color, z = 1)
         when (edge.arrow) {

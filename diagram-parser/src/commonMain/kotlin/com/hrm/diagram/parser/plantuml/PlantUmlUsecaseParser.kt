@@ -1,7 +1,6 @@
 package com.hrm.diagram.parser.plantuml
 
 import com.hrm.diagram.core.DiagramApi
-import com.hrm.diagram.core.ir.ArgbColor
 import com.hrm.diagram.core.ir.ArrowEnds
 import com.hrm.diagram.core.ir.Cluster
 import com.hrm.diagram.core.ir.ClusterStyle
@@ -311,7 +310,6 @@ class PlantUmlUsecaseParser {
                 else -> ArrowEnds.None
             },
             style = EdgeStyle(
-                color = relationColor(semantic.kind),
                 width = 1.5f,
                 dash = if (op.contains("..") || op.contains('.')) listOf(6f, 4f) else null,
             ),
@@ -578,7 +576,6 @@ class PlantUmlUsecaseParser {
             kind = EdgeKind.Dashed,
             arrow = ArrowEnds.None,
             style = EdgeStyle(
-                color = ArgbColor(0xFFFFA000.toInt()),
                 width = 1.25f,
                 dash = listOf(4f, 4f),
             ),
@@ -697,12 +694,6 @@ class PlantUmlUsecaseParser {
         }
     }
 
-    private fun relationColor(kind: String?): ArgbColor = when (kind) {
-        INCLUDE_KIND -> ArgbColor(0xFF5E35B1.toInt())
-        EXTEND_KIND -> ArgbColor(0xFF00897B.toInt())
-        else -> ArgbColor(0xFF546E7A.toInt())
-    }
-
     private fun shapeFor(kind: String): NodeShape = when (kind) {
         ACTOR_KIND -> NodeShape.RoundedBox
         NOTE_KIND -> NodeShape.Note
@@ -710,37 +701,12 @@ class PlantUmlUsecaseParser {
     }
 
     private fun styleFor(kind: String): NodeStyle = when (kind) {
-        ACTOR_KIND -> NodeStyle(
-            fill = null,
-            stroke = ArgbColor(0xFF455A64.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF263238.toInt()),
-        )
-        NOTE_KIND -> NodeStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFFFA000.toInt()),
-            strokeWidth = 1.25f,
-            textColor = ArgbColor(0xFF5D4037.toInt()),
-        )
-        else -> NodeStyle(
-            fill = ArgbColor(0xFFE3F2FD.toInt()),
-            stroke = ArgbColor(0xFF1565C0.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF0D47A1.toInt()),
-        )
+        NOTE_KIND -> NodeStyle(strokeWidth = 1.25f)
+        else -> NodeStyle(strokeWidth = 1.5f)
     }
 
     private fun clusterStyleFor(kind: String): ClusterStyle = when (kind) {
-        "rectangle" -> ClusterStyle(
-            fill = ArgbColor(0xFFF9FBE7.toInt()),
-            stroke = ArgbColor(0xFF7CB342.toInt()),
-            strokeWidth = 1.5f,
-        )
-        else -> ClusterStyle(
-            fill = ArgbColor(0xFFF5F5F5.toInt()),
-            stroke = ArgbColor(0xFF78909C.toInt()),
-            strokeWidth = 1.5f,
-        )
+        else -> ClusterStyle(strokeWidth = 1.5f)
     }
 
     private fun hasRelationOperator(line: String): Boolean = findRelationOperator(line) != null

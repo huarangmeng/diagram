@@ -128,7 +128,7 @@ internal class MermaidPieSubPipeline(
         }
 
         // Overall border (optional).
-        out += DrawCommand.StrokeRect(rect = Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), stroke = Stroke.Hairline, color = Color(0x1A000000), corner = 0f, z = 0)
+        out += DrawCommand.StrokeRect(rect = Rect(Point(0f, 0f), Size(laid.bounds.size.width, laid.bounds.size.height)), stroke = Stroke.Hairline, color = Color.argb(26, colors.border.r, colors.border.g, colors.border.b), corner = 0f, z = 0)
         return out.entities()
     }
 

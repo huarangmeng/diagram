@@ -1,5 +1,6 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.draw.FontSpec
 import com.hrm.diagram.core.draw.Stroke
@@ -7,6 +8,7 @@ import com.hrm.diagram.core.draw.TextAnchorX
 import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.SequenceIR
 import com.hrm.diagram.core.ir.SourceLanguage
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -142,6 +144,12 @@ class PlantUmlSequenceIntegrationTest {
         val strokeWidths = one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>().map { it.stroke.width } +
             one.drawCommands.filterIsInstance<DrawCommand.StrokePath>().map { it.stroke.width }
         val shadowRects = one.drawCommands.filterIsInstance<DrawCommand.FillRect>().map { it.color.argb }
+        val shadowTint = Color.argb(
+            56,
+            DiagramTheme.Default.colors.border.r,
+            DiagramTheme.Default.colors.border.g,
+            DiagramTheme.Default.colors.border.b,
+        ).argb
 
         assertTrue(fillColors.contains(0xFFD3D3D3.toInt()), "expected sequence BackgroundColor LightGray")
         assertTrue(fillColors.contains(0xFFFFFFF0.toInt()), "expected actor/note BackgroundColor Ivory")
@@ -162,7 +170,7 @@ class PlantUmlSequenceIntegrationTest {
         assertTrue(strokeWidths.any { it == 2.5f })
         assertTrue(strokeWidths.any { it == 1.75f })
         assertTrue(strokeWidths.any { it == 1.5f })
-        assertTrue(shadowRects.contains(0x26000000))
+        assertTrue(shadowRects.contains(shadowTint))
     }
 
     @Test

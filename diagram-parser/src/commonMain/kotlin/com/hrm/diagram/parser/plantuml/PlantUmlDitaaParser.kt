@@ -96,10 +96,8 @@ class PlantUmlDitaaParser {
                 label = RichLabel.Plain(box.label.ifBlank { box.id.value }),
                 shape = box.shape,
                 style = NodeStyle(
-                    fill = box.fill ?: ArgbColor(0xFFFFFDE7.toInt()),
-                    stroke = ArgbColor(0xFF8D6E63.toInt()),
+                    fill = box.fill,
                     strokeWidth = 1.4f,
-                    textColor = ArgbColor(0xFF3E2723.toInt()),
                 ),
                 payload = buildMap {
                     put(GRID_KEY, "${box.left},${box.top},${box.right},${box.bottom}")
@@ -165,7 +163,7 @@ class PlantUmlDitaaParser {
                         to = edge.to.id,
                         kind = edge.kind,
                         arrow = edge.arrow,
-                        style = EdgeStyle(color = ArgbColor(0xFF6D4C41.toInt()), width = edge.width, dash = edge.dash),
+                        style = EdgeStyle(width = edge.width, dash = edge.dash),
                     )
                 }
             }

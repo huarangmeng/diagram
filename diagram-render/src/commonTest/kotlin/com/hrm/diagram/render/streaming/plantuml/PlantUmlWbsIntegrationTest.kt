@@ -1,10 +1,12 @@
 package com.hrm.diagram.render.streaming.plantuml
 
+import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.Rect
 import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.RichLabel
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.TreeIR
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.parser.plantuml.PlantUmlWbsParser
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
@@ -260,10 +262,16 @@ class PlantUmlWbsIntegrationTest {
         val strokeRects = one.drawCommands.filterIsInstance<DrawCommand.StrokeRect>()
         val strokePaths = one.drawCommands.filterIsInstance<DrawCommand.StrokePath>()
         val fills = one.drawCommands.filterIsInstance<DrawCommand.FillRect>()
+        val shadowTint = Color.argb(
+            56,
+            DiagramTheme.Default.colors.border.r,
+            DiagramTheme.Default.colors.border.g,
+            DiagramTheme.Default.colors.border.b,
+        ).argb
         assertTrue(texts.any { it.text == "Node" && it.font.family == "JetBrains Mono" && it.font.sizeSp == 18f && it.font.weight == 700 && it.font.italic })
         assertTrue(strokeRects.any { it.stroke.width == 3f })
         assertTrue(strokePaths.any { it.stroke.width == 4f })
-        assertTrue(fills.any { it.color.argb == 0x26000000 }, "shadowing should emit deterministic shadow fill")
+        assertTrue(fills.any { it.color.argb == shadowTint }, "shadowing should emit theme shadow fill")
         val child = oneIr.root.children[1].children.single()
         val childRect = assertNotNull(one.laidOut).nodePositions.getValue(child.id)
         assertTrue(childRect.size.width <= 124f, "MaximumWidth should constrain layout width, actual=${childRect.size.width}")

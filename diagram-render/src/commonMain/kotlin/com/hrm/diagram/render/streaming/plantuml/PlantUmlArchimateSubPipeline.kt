@@ -22,6 +22,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.layout.LayoutOptions
 import com.hrm.diagram.core.streaming.IrPatchBatch
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.layout.EdgeRoute
 import com.hrm.diagram.layout.LaidOutDiagram
 import com.hrm.diagram.layout.RouteKind
@@ -31,12 +32,15 @@ import com.hrm.diagram.render.graph.GraphIrRenderer
 import com.hrm.diagram.render.graph.GraphRenderStyle
 import com.hrm.diagram.render.streaming.DiagramSnapshot
 import com.hrm.diagram.render.streaming.kernel.GraphPipelineProfile
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.math.sqrt
 
 internal class PlantUmlArchimateSubPipeline(
     private val textMeasurer: TextMeasurer,
+    theme: DiagramTheme,
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlArchimateParser()
+    private val colors = ThemeResolver.resolvePlantUmlArchimate(theme)
     private val titleFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
     private val stereotypeFont = FontSpec(family = "sans-serif", sizeSp = 10f)
     private val edgeFont = FontSpec(family = "sans-serif", sizeSp = 11f)
@@ -49,7 +53,7 @@ internal class PlantUmlArchimateSubPipeline(
             nodeFont = titleFont,
             edgeFont = edgeFont,
             clusterFont = titleFont,
-            graphBackground = { _, _ -> Color(0xFFFFFFFF.toInt()) },
+            graphBackground = { _, _ -> colors.canvas },
             customNodeCommands = ::nodeCommands,
             customClusterCommands = ::clusterCommands,
             customEdgeCommands = ::edgeCommands,
@@ -176,7 +180,7 @@ internal class PlantUmlArchimateSubPipeline(
     private fun render(ir: GraphIR, laid: LaidOutDiagram): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
         val clusterTitleRects = clusterTitleRects(laid.clusterRects.values)
-        out += DrawCommand.FillRect(laid.bounds, Color(0xFFFFFFFF.toInt()), z = -1)
+        out += DrawCommand.FillRect(laid.bounds, colors.canvas, z = -1)
         for (cluster in ir.clusters) drawCluster(cluster, laid.clusterRects, out)
         for ((idx, route) in laid.edgeRoutes.withIndex()) {
             drawEdge(ir.edges.getOrNull(idx), idx, route, laid.nodePositions.values, clusterTitleRects, out)
@@ -195,8 +199,8 @@ internal class PlantUmlArchimateSubPipeline(
 
     private fun clusterCommands(cluster: Cluster, rect: Rect): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val fill = cluster.style.fill?.let { Color(it.argb) } ?: Color(0xFFF8FAFC.toInt())
-        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: Color(0xFF78909C.toInt())
+        val fill = cluster.style.fill?.let { Color(it.argb) } ?: colors.clusterFill
+        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: colors.clusterStroke
         out += DrawCommand.FillRect(rect, fill, corner = 16f, z = 0)
         out += DrawCommand.StrokeRect(rect, Stroke(width = cluster.style.strokeWidth ?: 1.2f, dash = listOf(8f, 5f)), strokeColor, corner = 16f, z = 1)
         val titleRect = Rect.ltrb(rect.left + 12f, rect.top + 10f, rect.right - 12f, rect.top + 34f)
@@ -204,7 +208,7 @@ internal class PlantUmlArchimateSubPipeline(
             text = clusterTitle(cluster),
             origin = Point(titleRect.left, titleRect.top),
             font = titleFont,
-            color = strokeColor,
+            color = colors.clusterText,
             maxWidth = titleRect.size.width,
             anchorY = TextAnchorY.Top,
             z = 2,
@@ -218,14 +222,14 @@ internal class PlantUmlArchimateSubPipeline(
 
     private fun nodeCommands(node: Node, rect: Rect): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val fill = node.style.fill?.let { Color(it.argb) } ?: Color(0xFFECEFF1.toInt())
-        val stroke = node.style.stroke?.let { Color(it.argb) } ?: Color(0xFF455A64.toInt())
-        val text = node.style.textColor?.let { Color(it.argb) } ?: Color(0xFF263238.toInt())
+        val fill = node.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
+        val stroke = node.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
+        val text = node.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
         val stereotype = node.payload[PlantUmlArchimateParser.STEREOTYPE_KEY].orEmpty()
         out += DrawCommand.FillRect(rect, fill, corner = 12f, z = 3)
         out += DrawCommand.StrokeRect(rect, Stroke(width = node.style.strokeWidth ?: 1.4f), stroke, corner = 12f, z = 4)
         val header = Rect.ltrb(rect.left, rect.top, rect.right, rect.top + 20f)
-        out += DrawCommand.FillRect(header, Color(0x33FFFFFF), corner = 12f, z = 5)
+        out += DrawCommand.FillRect(header, colors.headerOverlay, corner = 12f, z = 5)
         out += DrawCommand.DrawText(
             text = archimateIconCode(node),
             origin = Point(rect.right - 18f, rect.top + 10f),
@@ -241,7 +245,7 @@ internal class PlantUmlArchimateSubPipeline(
                 text = stereotypeTextOf(stereotype),
                 origin = Point(rect.left + NODE_TEXT_LEFT_PADDING, rect.top + NODE_HEADER_TOP_PADDING),
                 font = stereotypeFont,
-                color = Color(0xFF546E7A.toInt()),
+                color = colors.stereotypeText,
                 maxWidth = rect.size.width - NODE_TEXT_LEFT_PADDING - NODE_ICON_RESERVED_WIDTH,
                 anchorY = TextAnchorY.Top,
                 z = 6,
@@ -296,7 +300,7 @@ internal class PlantUmlArchimateSubPipeline(
             else -> for (i in 1 until pts.size) ops += PathOp.LineTo(pts[i])
         }
         val relationType = relationTypes.getOrNull(edgeIndex).orEmpty()
-        val color = edge?.style?.color?.let { Color(it.argb) } ?: Color(0xFF607D8B.toInt())
+        val color = edge?.style?.color?.let { Color(it.argb) } ?: colors.edge
         out += DrawCommand.StrokePath(PathCmd(ops), Stroke(width = edge?.style?.width ?: 1.4f, dash = edge?.style?.dash), color, z = 1)
         drawRelationStart(relationType, pts.first(), pts[1], color, out)
         if (edge?.arrow == ArrowEnds.ToOnly) {
@@ -311,12 +315,12 @@ internal class PlantUmlArchimateSubPipeline(
         if (label.isNotBlank()) {
             val rect = edgeLabelRect(actualEdge, route, nodeRects, clusterTitleRects) ?: return
             val mid = Point((rect.left + rect.right) / 2f, (rect.top + rect.bottom) / 2f)
-            out += DrawCommand.FillRect(rect, Color(0xEEFFFFFF.toInt()), corner = 4f, z = 7)
+            out += DrawCommand.FillRect(rect, colors.edgeLabelBackground, corner = 4f, z = 7)
             out += DrawCommand.DrawText(
                 label,
                 mid,
                 edgeFont,
-                Color(0xFF455A64.toInt()),
+                colors.nodeText,
                 maxWidth = rect.size.width - EDGE_LABEL_PADDING_X * 2f,
                 anchorX = TextAnchorX.Center,
                 anchorY = TextAnchorY.Middle,

@@ -33,6 +33,9 @@ internal class PlantUmlClassSubPipeline(
 ) : PlantUmlSubPipeline {
     private val parser = PlantUmlClassParser()
     private val colors = ThemeResolver.resolvePlantUmlClass(theme)
+    private val shadowTint = PlantUmlTreeRenderSupport.themedShadowTint(theme.colors.border)
+    private var cachedConfigExtras: Map<String, String> = emptyMap()
+    private var cachedConfig: RenderConfig = RenderConfig.from(emptyMap(), colors)
     private val layout = ClassDiagramLayout(textMeasurer)
     private val kernel = PlantUmlFamilyRenderSubPipelineKernel(
         snapshot = parser::snapshot,
@@ -53,43 +56,24 @@ internal class PlantUmlClassSubPipeline(
 
     private fun renderClass(ir: ClassIR, laidOut: LaidOutDiagram): List<com.hrm.diagram.render.cache.DrawEntity> {
         val out = PlantUmlFrameRenderer.sink(model = ir, laidOut = laidOut)
-        val palette = paletteOf(ir)
-        val classStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_CLASS_LINE_THICKNESS_KEY) ?: 1.5f
-        val noteStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_NOTE_LINE_THICKNESS_KEY) ?: 1.5f
-        val packageStrokeWidth = floatExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_LINE_THICKNESS_KEY) ?: 1.5f
+        val config = resolveConfig(ir)
+        val palette = config.palette
+        val classStrokeWidth = config.classStrokeWidth
+        val noteStrokeWidth = config.noteStrokeWidth
+        val packageStrokeWidth = config.packageStrokeWidth
         val solid = Stroke(width = classStrokeWidth)
         val dashed = Stroke(width = classStrokeWidth, dash = listOf(6f, 4f))
-        val headerFont = fontExtra(
-            ir = ir,
-            fontNameKey = PlantUmlClassParser.STYLE_CLASS_FONT_NAME_KEY,
-            fontSizeKey = PlantUmlClassParser.STYLE_CLASS_FONT_SIZE_KEY,
-            base = FontSpec(family = "sans-serif", sizeSp = 13f),
-        )
-        val memberFont = fontExtra(
-            ir = ir,
-            fontNameKey = PlantUmlClassParser.STYLE_CLASS_FONT_NAME_KEY,
-            fontSizeKey = PlantUmlClassParser.STYLE_CLASS_FONT_SIZE_KEY,
-            base = FontSpec(family = "sans-serif", sizeSp = 11f),
-        )
+        val headerFont = config.headerFont
+        val memberFont = config.memberFont
         val edgeLabelFont = FontSpec(
             family = headerFont.family,
             sizeSp = (headerFont.sizeSp - 1f).coerceAtLeast(10f),
         )
-        val namespaceFont = fontExtra(
-            ir = ir,
-            fontNameKey = PlantUmlClassParser.STYLE_PACKAGE_FONT_NAME_KEY,
-            fontSizeKey = PlantUmlClassParser.STYLE_PACKAGE_FONT_SIZE_KEY,
-            base = FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600),
-        )
-        val noteFont = fontExtra(
-            ir = ir,
-            fontNameKey = PlantUmlClassParser.STYLE_NOTE_FONT_NAME_KEY,
-            fontSizeKey = PlantUmlClassParser.STYLE_NOTE_FONT_SIZE_KEY,
-            base = FontSpec(family = "sans-serif", sizeSp = 11f),
-        )
-        val classShadowing = boolExtra(ir, PlantUmlClassParser.STYLE_CLASS_SHADOWING_KEY) == true
-        val noteShadowing = boolExtra(ir, PlantUmlClassParser.STYLE_NOTE_SHADOWING_KEY) == true
-        val packageShadowing = boolExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_SHADOWING_KEY) == true
+        val namespaceFont = config.namespaceFont
+        val noteFont = config.noteFont
+        val classShadowing = config.classShadowing
+        val noteShadowing = config.noteShadowing
+        val packageShadowing = config.packageShadowing
         val sectionPad = 8f
         val rowGap = 2f
 
@@ -99,7 +83,7 @@ internal class PlantUmlClassSubPipeline(
             if (packageShadowing) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 8f,
                     z = 0,
                 )
@@ -113,7 +97,7 @@ internal class PlantUmlClassSubPipeline(
             if (packageShadowing) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(chipRect, 3f, 3f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 10f,
                     z = 1,
                 )
@@ -139,7 +123,7 @@ internal class PlantUmlClassSubPipeline(
 
         for (c in ir.classes) {
             val r = laidOut.nodePositions[c.id] ?: continue
-            val classPalette = paletteFor(c.stereotype, ir)
+            val classPalette = paletteFor(c.stereotype, config)
             val boxFill = classPalette.boxFill
             val boxStroke = classPalette.stroke
             val headerFill = classPalette.headerFill
@@ -155,7 +139,7 @@ internal class PlantUmlClassSubPipeline(
             if (classShadowing) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(r, 4f, 4f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 4f,
                     z = 1,
                 )
@@ -236,7 +220,7 @@ internal class PlantUmlClassSubPipeline(
             if (noteShadowing) {
                 out += DrawCommand.FillRect(
                     rect = PlantUmlTreeRenderSupport.offsetRect(rect, 4f, 4f),
-                    color = PlantUmlTreeRenderSupport.shadowColor(),
+                    color = shadowTint,
                     corner = 4f,
                     z = 5,
                 )
@@ -408,7 +392,7 @@ internal class PlantUmlClassSubPipeline(
     @Suppress("unused")
     private fun unusedRel() = ClassRelation(NodeId("a"), NodeId("b"), ClassRelationKind.Link)
 
-    private fun paletteFor(stereotype: String?, ir: ClassIR): ClassPalette {
+    private fun paletteFor(stereotype: String?, config: RenderConfig): ClassPalette {
         val base = when (stereotype?.lowercase()) {
         "interface" -> ClassPalette(
             boxFill = colors.entity.boxFill,
@@ -435,9 +419,9 @@ internal class PlantUmlClassSubPipeline(
             text = colors.base.text,
         )
         }
-        val fill = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_FILL_KEY)
-        val stroke = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_STROKE_KEY)
-        val text = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_TEXT_KEY)
+        val fill = config.classFill
+        val stroke = config.classStroke
+        val text = config.classText
         return base.copy(
             boxFill = fill ?: base.boxFill,
             headerFill = fill?.let { PlantUmlTreeRenderSupport.darken(it, 0.08f) } ?: base.headerFill,
@@ -446,33 +430,14 @@ internal class PlantUmlClassSubPipeline(
         )
     }
 
-    private fun paletteOf(ir: ClassIR): ClassRenderPalette = ClassRenderPalette(
-        noteFill = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_FILL_KEY) ?: colors.noteFill,
-        noteStroke = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_STROKE_KEY) ?: colors.noteStroke,
-        noteText = colorExtra(ir, PlantUmlClassParser.STYLE_NOTE_TEXT_KEY) ?: colors.noteText,
-        namespaceFill = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY),
-        namespaceChipFill = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY) ?: colors.namespaceChipFill,
-        namespaceStroke = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_STROKE_KEY) ?: colors.namespaceStroke,
-        namespaceText = colorExtra(ir, PlantUmlClassParser.STYLE_PACKAGE_TEXT_KEY) ?: colors.namespaceText,
-        edgeColor = colorExtra(ir, PlantUmlClassParser.STYLE_EDGE_COLOR_KEY) ?: colors.edgeColor,
-        commonTextColor = colorExtra(ir, PlantUmlClassParser.STYLE_CLASS_TEXT_KEY) ?: colors.commonTextColor,
-    )
-
-    private fun colorExtra(ir: ClassIR, key: String): Color? =
-        ir.styleHints.extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)
-
-    private fun floatExtra(ir: ClassIR, key: String): Float? =
-        PlantUmlTreeRenderSupport.parsePlantUmlFloat(ir.styleHints.extras[key])
-
-    private fun boolExtra(ir: ClassIR, key: String): Boolean? =
-        PlantUmlTreeRenderSupport.parsePlantUmlBoolean(ir.styleHints.extras[key])
-
-    private fun fontExtra(ir: ClassIR, fontNameKey: String, fontSizeKey: String, base: FontSpec): FontSpec =
-        PlantUmlTreeRenderSupport.resolveFontSpec(
-            base = base,
-            familyRaw = ir.styleHints.extras[fontNameKey],
-            sizeRaw = ir.styleHints.extras[fontSizeKey],
-        )
+    private fun resolveConfig(ir: ClassIR): RenderConfig {
+        val extras = ir.styleHints.extras
+        if (cachedConfigExtras != extras) {
+            cachedConfigExtras = extras.toMap()
+            cachedConfig = RenderConfig.from(cachedConfigExtras, colors)
+        }
+        return cachedConfig
+    }
 
     private data class ClassPalette(
         val boxFill: Color,
@@ -492,4 +457,73 @@ internal class PlantUmlClassSubPipeline(
         val edgeColor: Color,
         val commonTextColor: Color,
     )
+
+    private data class RenderConfig(
+        val palette: ClassRenderPalette,
+        val classFill: Color?,
+        val classStroke: Color?,
+        val classText: Color?,
+        val classStrokeWidth: Float,
+        val noteStrokeWidth: Float,
+        val packageStrokeWidth: Float,
+        val headerFont: FontSpec,
+        val memberFont: FontSpec,
+        val namespaceFont: FontSpec,
+        val noteFont: FontSpec,
+        val classShadowing: Boolean,
+        val noteShadowing: Boolean,
+        val packageShadowing: Boolean,
+    ) {
+        companion object {
+            fun from(extras: Map<String, String>, colors: com.hrm.diagram.render.theme.ResolvedPlantUmlClassColors): RenderConfig {
+                fun color(key: String): Color? = extras[key]?.let(PlantUmlTreeRenderSupport::parsePlantUmlColor)
+                fun float(key: String): Float? = PlantUmlTreeRenderSupport.parsePlantUmlFloat(extras[key])
+                fun bool(key: String): Boolean = PlantUmlTreeRenderSupport.parsePlantUmlBoolean(extras[key]) == true
+                fun font(fontNameKey: String, fontSizeKey: String, base: FontSpec): FontSpec =
+                    PlantUmlTreeRenderSupport.resolveFontSpec(base, extras[fontNameKey], extras[fontSizeKey])
+                return RenderConfig(
+                    palette = ClassRenderPalette(
+                        noteFill = color(PlantUmlClassParser.STYLE_NOTE_FILL_KEY) ?: colors.noteFill,
+                        noteStroke = color(PlantUmlClassParser.STYLE_NOTE_STROKE_KEY) ?: colors.noteStroke,
+                        noteText = color(PlantUmlClassParser.STYLE_NOTE_TEXT_KEY) ?: colors.noteText,
+                        namespaceFill = color(PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY),
+                        namespaceChipFill = color(PlantUmlClassParser.STYLE_PACKAGE_FILL_KEY) ?: colors.namespaceChipFill,
+                        namespaceStroke = color(PlantUmlClassParser.STYLE_PACKAGE_STROKE_KEY) ?: colors.namespaceStroke,
+                        namespaceText = color(PlantUmlClassParser.STYLE_PACKAGE_TEXT_KEY) ?: colors.namespaceText,
+                        edgeColor = color(PlantUmlClassParser.STYLE_EDGE_COLOR_KEY) ?: colors.edgeColor,
+                        commonTextColor = color(PlantUmlClassParser.STYLE_CLASS_TEXT_KEY) ?: colors.commonTextColor,
+                    ),
+                    classFill = color(PlantUmlClassParser.STYLE_CLASS_FILL_KEY),
+                    classStroke = color(PlantUmlClassParser.STYLE_CLASS_STROKE_KEY),
+                    classText = color(PlantUmlClassParser.STYLE_CLASS_TEXT_KEY),
+                    classStrokeWidth = float(PlantUmlClassParser.STYLE_CLASS_LINE_THICKNESS_KEY) ?: 1.5f,
+                    noteStrokeWidth = float(PlantUmlClassParser.STYLE_NOTE_LINE_THICKNESS_KEY) ?: 1.5f,
+                    packageStrokeWidth = float(PlantUmlClassParser.STYLE_PACKAGE_LINE_THICKNESS_KEY) ?: 1.5f,
+                    headerFont = font(
+                        PlantUmlClassParser.STYLE_CLASS_FONT_NAME_KEY,
+                        PlantUmlClassParser.STYLE_CLASS_FONT_SIZE_KEY,
+                        FontSpec(family = "sans-serif", sizeSp = 13f),
+                    ),
+                    memberFont = font(
+                        PlantUmlClassParser.STYLE_CLASS_FONT_NAME_KEY,
+                        PlantUmlClassParser.STYLE_CLASS_FONT_SIZE_KEY,
+                        FontSpec(family = "sans-serif", sizeSp = 11f),
+                    ),
+                    namespaceFont = font(
+                        PlantUmlClassParser.STYLE_PACKAGE_FONT_NAME_KEY,
+                        PlantUmlClassParser.STYLE_PACKAGE_FONT_SIZE_KEY,
+                        FontSpec(family = "sans-serif", sizeSp = 11f, weight = 600),
+                    ),
+                    noteFont = font(
+                        PlantUmlClassParser.STYLE_NOTE_FONT_NAME_KEY,
+                        PlantUmlClassParser.STYLE_NOTE_FONT_SIZE_KEY,
+                        FontSpec(family = "sans-serif", sizeSp = 11f),
+                    ),
+                    classShadowing = bool(PlantUmlClassParser.STYLE_CLASS_SHADOWING_KEY),
+                    noteShadowing = bool(PlantUmlClassParser.STYLE_NOTE_SHADOWING_KEY),
+                    packageShadowing = bool(PlantUmlClassParser.STYLE_PACKAGE_SHADOWING_KEY),
+                )
+            }
+        }
+    }
 }

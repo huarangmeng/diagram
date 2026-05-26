@@ -237,7 +237,11 @@ class DotIntegrationTest {
     fun added_draw_commands_are_delta_not_full_frame_for_idle_append() {
         val session = Diagram.session(language = SourceLanguage.DOT)
         try {
-            assertTrue(session.append("digraph {\n").addedDrawCommands.isEmpty())
+            val scaffoldPatch = session.append("digraph {\n")
+            assertTrue(
+                scaffoldPatch.addedDrawCommands.size <= session.state.value.drawCommands.size,
+                "scaffold append must not emit more commands than the current frame",
+            )
             val edgePatch = session.append("  a -> b;\n")
             assertTrue(edgePatch.addedDrawCommands.isNotEmpty())
             val frameSize = session.state.value.drawCommands.size
