@@ -45,6 +45,7 @@ internal class MermaidC4SubPipeline(
     theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidC4Parser()
+    private val themeColors = theme.colors
     private val colors = ThemeResolver.resolveGraph(theme)
     private val labelFont = FontSpec(family = "sans-serif", sizeSp = 13f)
     private val clusterFont = FontSpec(family = "sans-serif", sizeSp = 12f, weight = 600)
@@ -208,8 +209,9 @@ internal class MermaidC4SubPipeline(
 
     private fun clusterCommands(cluster: Cluster, rect: Rect, boundaryLinks: Map<NodeId, String>): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val fill = cluster.style.fill?.let { Color(it.argb) } ?: colors.clusterFill
-        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: colors.clusterStroke
+        val semanticColors = semanticClusterColors(parseClusterLabel(cluster).first)
+        val fill = cluster.style.fill?.let { Color(it.argb) } ?: semanticColors.fill
+        val strokeColor = cluster.style.stroke?.let { Color(it.argb) } ?: semanticColors.stroke
         val stroke = Stroke(width = cluster.style.strokeWidth ?: 1.5f, dash = listOf(7f, 5f))
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 12f, z = 1)
         out += DrawCommand.StrokeRect(rect = rect, stroke = stroke, color = strokeColor, corner = 12f, z = 2)
@@ -249,9 +251,10 @@ internal class MermaidC4SubPipeline(
 
     private fun nodeCommands(node: Node, rect: Rect, nodeLinks: Map<NodeId, String>): List<DrawCommand> {
         val out = ArrayList<DrawCommand>()
-        val fill = node.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
+        val semanticColors = semanticNodeColors(node)
+        val fill = node.style.fill?.let { Color(it.argb) } ?: semanticColors.fill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: semanticColors.stroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: semanticColors.text
         val external = node.payload[MermaidC4Parser.EXTERNAL_KEY] == "true"
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f, dash = if (external) listOf(6f, 4f) else null)
 
@@ -291,6 +294,41 @@ internal class MermaidC4SubPipeline(
         nodeLinks[node.id]?.let { out += DrawCommand.Hyperlink(href = it, rect = rect, z = 9) }
         return out
     }
+
+    private fun semanticNodeColors(node: Node): C4SemanticColors {
+        val kind = node.payload[MermaidC4Parser.KIND_KEY].orEmpty()
+        val accent = when {
+            kind.startsWith("Person") -> themeColors.warning
+            "Db" in kind -> themeColors.success
+            "Queue" in kind -> themeColors.accentTertiary
+            kind.startsWith("Component") -> themeColors.accentSecondary
+            else -> themeColors.accent
+        }
+        val fill = accent.withAlpha(0.12f)
+        return C4SemanticColors(
+            fill = fill,
+            stroke = accent,
+            text = readableTextOn(fill),
+        )
+    }
+
+    private fun semanticClusterColors(type: String): C4SemanticColors {
+        val accent = when {
+            type.contains("Enterprise", ignoreCase = true) -> themeColors.warning
+            type.contains("Deployment", ignoreCase = true) || type == "Node" || type == "Node_L" || type == "Node_R" -> themeColors.textSecondary
+            type.contains("Container", ignoreCase = true) -> themeColors.accentSecondary
+            type.contains("System", ignoreCase = true) -> themeColors.accent
+            else -> themeColors.border
+        }
+        val fill = accent.withAlpha(0.10f)
+        return C4SemanticColors(
+            fill = fill,
+            stroke = accent,
+            text = readableTextOn(fill),
+        )
+    }
+
+    private fun readableTextOn(background: Color): Color = if (background.isDark()) themeColors.surface else themeColors.textPrimary
 
     private fun drawCylinder(rect: Rect, fill: Color, strokeColor: Color, stroke: Stroke, out: MutableList<DrawCommand>) {
         out += DrawCommand.FillRect(rect = rect, color = fill, corner = 12f, z = 6)
@@ -641,4 +679,24 @@ internal class MermaidC4SubPipeline(
 
     override fun drawEntitiesFor(snapshot: DiagramSnapshot): List<DrawEntity> = graphPipeline.drawEntities()
 
+}
+
+private data class C4SemanticColors(
+    val fill: Color,
+    val stroke: Color,
+    val text: Color,
+)
+
+private fun Color.withAlpha(alpha: Float): Color {
+    val clamped = alpha.coerceIn(0f, 1f)
+    val a = (clamped * 255f).toInt().coerceIn(0, 255)
+    return Color((argb and 0x00FFFFFF) or (a shl 24))
+}
+
+private fun Color.isDark(): Boolean {
+    val r = (argb shr 16) and 0xFF
+    val g = (argb shr 8) and 0xFF
+    val b = argb and 0xFF
+    val luminance = 0.2126f * r + 0.7152f * g + 0.0722f * b
+    return luminance < 140f
 }

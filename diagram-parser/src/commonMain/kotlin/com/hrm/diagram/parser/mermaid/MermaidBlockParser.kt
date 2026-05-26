@@ -1,6 +1,5 @@
 package com.hrm.diagram.parser.mermaid
 
-import com.hrm.diagram.core.ir.ArgbColor
 import com.hrm.diagram.core.ir.ArrowEnds
 import com.hrm.diagram.core.ir.Cluster
 import com.hrm.diagram.core.ir.ClusterStyle
@@ -202,7 +201,7 @@ class MermaidBlockParser {
                     id = id,
                     label = RichLabel.Plain(item.label.ifBlank { item.id }),
                     shape = item.shape,
-                    style = defaultNodeStyle(item.kind),
+                    style = NodeStyle(strokeWidth = 1.5f),
                     payload = buildMap {
                         put(KIND_KEY, item.kind)
                         put(SPAN_KEY, item.span.toString())
@@ -401,11 +400,7 @@ class MermaidBlockParser {
                     label = RichLabel.Plain(block.title),
                     children = block.childNodeIds.toList(),
                     nestedClusters = buildClusters(block.id),
-                    style = ClusterStyle(
-                        fill = ArgbColor(0xFFF8FBFF.toInt()),
-                        stroke = ArgbColor(0xFF90A4AE.toInt()),
-                        strokeWidth = 1.5f,
-                    ),
+                    style = ClusterStyle(strokeWidth = 1.5f),
                 )
             }
     }
@@ -418,21 +413,6 @@ class MermaidBlockParser {
         for ((id, block) in blocks) {
             put("block.columns.${id.value}", block.columns.toString())
         }
-    }
-
-    private fun defaultNodeStyle(kind: String): NodeStyle = when (kind) {
-        "arrow" -> NodeStyle(
-            fill = ArgbColor(0xFFE8F5E9.toInt()),
-            stroke = ArgbColor(0xFF43A047.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF1B5E20.toInt()),
-        )
-        else -> NodeStyle(
-            fill = ArgbColor(0xFFE3F2FD.toInt()),
-            stroke = ArgbColor(0xFF1E88E5.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF0D47A1.toInt()),
-        )
     }
 
     private fun parseSpan(token: String): Pair<String, Int> {

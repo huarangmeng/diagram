@@ -218,6 +218,135 @@ class StreamingThemePropagationTest {
     }
 
     @Test
+    fun mermaidBlock_uses_theme_semantic_defaults() {
+        val success = Color(0xFF0F9D58.toInt())
+        val textPrimary = Color(0xFF17324D.toInt())
+        val surface = Color(0xFFFFFFFF.toInt())
+        val clusterFill = Color(0xFFF3F7FD.toInt())
+        val clusterStroke = Color(0xFF6C8AA6.toInt())
+        val arrowFill = Color.argb((0.14f * 255f).toInt(), success.r, success.g, success.b)
+        val theme = DiagramTheme.Default.copy(
+            colors = DiagramTheme.Default.colors.copy(
+                success = success,
+                textPrimary = textPrimary,
+                surface = surface,
+            ),
+            graphColors = DiagramTheme.Default.graphColors.copy(
+                clusterFill = clusterFill,
+                clusterStroke = clusterStroke,
+            ),
+        )
+
+        val snapshot = runSession(
+            language = SourceLanguage.MERMAID,
+            theme = theme,
+            source = """
+                block-beta
+                  columns 2
+                  go<["Ship"]>(right) A
+                  block:group:2
+                    B C
+                  end
+            """.trimIndent() + "\n",
+        )
+
+        val fillPaths = snapshot.drawCommands.filterIsInstance<DrawCommand.FillPath>()
+        val fillRects = snapshot.drawCommands.filterIsInstance<DrawCommand.FillRect>()
+        val strokeRects = snapshot.drawCommands.filterIsInstance<DrawCommand.StrokeRect>()
+        val strokePaths = snapshot.drawCommands.filterIsInstance<DrawCommand.StrokePath>()
+        val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        assertTrue(fillPaths.any { it.color.argb == arrowFill.argb })
+        assertTrue(strokePaths.any { it.color.argb == success.argb })
+        assertTrue(fillRects.any { it.color.argb == clusterFill.argb })
+        assertTrue(strokeRects.any { it.color.argb == clusterStroke.argb })
+        assertTrue(texts.any { it.color.argb == surface.argb || it.color.argb == textPrimary.argb })
+    }
+
+    @Test
+    fun mermaidC4_uses_theme_semantic_defaults() {
+        val warning = Color(0xFFB7791F.toInt())
+        val success = Color(0xFF2F855A.toInt())
+        val accent = Color(0xFF1D4ED8.toInt())
+        val accentSecondary = Color(0xFF7C3AED.toInt())
+        val textPrimary = Color(0xFF172554.toInt())
+        val edge = Color(0xFF92400E.toInt())
+        val personFill = Color.argb((0.12f * 255f).toInt(), warning.r, warning.g, warning.b)
+        val dbFill = Color.argb((0.12f * 255f).toInt(), success.r, success.g, success.b)
+        val systemFill = Color.argb((0.12f * 255f).toInt(), accent.r, accent.g, accent.b)
+        val componentFill = Color.argb((0.12f * 255f).toInt(), accentSecondary.r, accentSecondary.g, accentSecondary.b)
+        val boundaryFill = Color.argb((0.10f * 255f).toInt(), warning.r, warning.g, warning.b)
+        val theme = DiagramTheme.Default.copy(
+            colors = DiagramTheme.Default.colors.copy(
+                warning = warning,
+                success = success,
+                accent = accent,
+                accentSecondary = accentSecondary,
+                textPrimary = textPrimary,
+            ),
+            graphColors = DiagramTheme.Default.graphColors.copy(edge = edge),
+        )
+
+        val snapshot = runSession(
+            language = SourceLanguage.MERMAID,
+            theme = theme,
+            source = """
+                C4Container
+                  Person(user, "User", "bank customer")
+                  Enterprise_Boundary(bank, "Bank") {
+                    System(core, "Core Banking", "Handles accounts")
+                    SystemDb(db, "Accounts DB", "Stores accounts")
+                    Component(api, "API", "Ktor", "Backend")
+                  }
+                  Rel(user, core, "Uses")
+            """.trimIndent() + "\n",
+        )
+
+        val fills = snapshot.drawCommands.filterIsInstance<DrawCommand.FillRect>()
+        val strokes = snapshot.drawCommands.filterIsInstance<DrawCommand.StrokeRect>()
+        val paths = snapshot.drawCommands.filterIsInstance<DrawCommand.StrokePath>()
+        assertTrue(fills.any { it.color.argb == personFill.argb })
+        assertTrue(fills.any { it.color.argb == systemFill.argb })
+        assertTrue(fills.any { it.color.argb == dbFill.argb })
+        assertTrue(fills.any { it.color.argb == componentFill.argb })
+        assertTrue(fills.any { it.color.argb == boundaryFill.argb })
+        assertTrue(strokes.any { it.color.argb == warning.argb })
+        assertTrue(strokes.any { it.color.argb == accent.argb })
+        assertTrue(strokes.any { it.color.argb == success.argb })
+        assertTrue(strokes.any { it.color.argb == accentSecondary.argb })
+        assertTrue(paths.any { it.color.argb == edge.argb })
+    }
+
+    @Test
+    fun mermaidKanban_badge_text_is_theme_derived() {
+        val textPrimary = Color(0xFF0F172A.toInt())
+        val surface = Color(0xFFFFFFFF.toInt())
+        val theme = DiagramTheme.Default.copy(
+            colors = DiagramTheme.Default.colors.copy(
+                surface = surface,
+                textPrimary = textPrimary,
+                danger = Color(0xFFFECACA.toInt()),
+                warning = Color(0xFFFDE68A.toInt()),
+                success = Color(0xFFBBF7D0.toInt()),
+                accent = Color(0xFFBFDBFE.toInt()),
+                textSecondary = Color(0xFFCBD5E1.toInt()),
+            ),
+        )
+
+        val snapshot = runSession(
+            language = SourceLanguage.MERMAID,
+            theme = theme,
+            source = """
+                kanban
+                  Ready
+                    id4[Create parsing tests]@{ priority: 'High' }
+            """.trimIndent() + "\n",
+        )
+
+        val texts = snapshot.drawCommands.filterIsInstance<DrawCommand.DrawText>()
+        assertTrue(texts.any { it.text == "High" && it.color.argb == textPrimary.argb })
+    }
+
+    @Test
     fun dot_uses_theme_resolver_defaults() {
         val background = Color(0xFFF4FBFF.toInt())
         val nodeFill = Color(0xFFE9F6FF.toInt())

@@ -74,8 +74,37 @@ class MermaidBlockParserTest {
 
         val ir = assertIs<GraphIR>(parser.snapshot())
         assertEquals(2, ir.nodes.size)
-        assertTrue(ir.nodes.any { it.payload[MermaidBlockParser.KIND_KEY] == "arrow" })
+        val arrow = ir.nodes.first { it.payload[MermaidBlockParser.KIND_KEY] == "arrow" }
+        assertEquals(null, arrow.style.fill)
+        assertEquals(null, arrow.style.stroke)
+        assertEquals(null, arrow.style.textColor)
+        assertEquals(1.5f, arrow.style.strokeWidth)
         assertTrue(parser.diagnosticsSnapshot().isEmpty(), "diagnostics=${parser.diagnosticsSnapshot()}")
+    }
+
+    @Test
+    fun parser_keeps_block_default_colors_out_of_ir() {
+        val parser = feedAll(
+            """
+            block-beta
+              columns 2
+              A B
+              block:group:2
+                C D
+              end
+            """.trimIndent() + "\n",
+        )
+
+        val ir = assertIs<GraphIR>(parser.snapshot())
+        val node = ir.nodes.first { it.id.value == "A" }
+        assertEquals(null, node.style.fill)
+        assertEquals(null, node.style.stroke)
+        assertEquals(null, node.style.textColor)
+        assertEquals(1.5f, node.style.strokeWidth)
+        val cluster = ir.clusters.single()
+        assertEquals(null, cluster.style.fill)
+        assertEquals(null, cluster.style.stroke)
+        assertEquals(1.5f, cluster.style.strokeWidth)
     }
 
     @Test

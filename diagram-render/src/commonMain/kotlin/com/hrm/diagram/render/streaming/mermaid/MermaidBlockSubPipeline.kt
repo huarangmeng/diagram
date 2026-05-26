@@ -43,6 +43,7 @@ internal class MermaidBlockSubPipeline(
     theme: DiagramTheme,
 ) : MermaidSubPipeline {
     private val parser = MermaidBlockParser()
+    private val themeColors = theme.colors
     private val colors = ThemeResolver.resolveGraph(theme)
     private val layout = BlockLayout(textMeasurer)
     private val styleTransform = MermaidStyleTransformState.graph()
@@ -124,9 +125,10 @@ internal class MermaidBlockSubPipeline(
 
     private fun drawNode(node: Node, laidOut: LaidOutDiagram, out: MutableList<DrawCommand>) {
         val rect = laidOut.nodePositions[node.id] ?: return
-        val fill = node.style.fill?.let { Color(it.argb) } ?: colors.nodeFill
-        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: colors.nodeStroke
-        val textColor = node.style.textColor?.let { Color(it.argb) } ?: colors.nodeText
+        val semanticColors = semanticNodeColors(node)
+        val fill = node.style.fill?.let { Color(it.argb) } ?: semanticColors.fill
+        val strokeColor = node.style.stroke?.let { Color(it.argb) } ?: semanticColors.stroke
+        val textColor = node.style.textColor?.let { Color(it.argb) } ?: semanticColors.text
         val stroke = Stroke(width = node.style.strokeWidth ?: 1.5f)
         when (node.shape) {
             is NodeShape.Circle -> {
@@ -218,6 +220,27 @@ internal class MermaidBlockSubPipeline(
             out += DrawCommand.DrawText(text = text, origin = mid, font = edgeLabelFont, color = colors.edgeLabelText, anchorX = TextAnchorX.Center, anchorY = TextAnchorY.Middle, z = 9)
         }
     }
+
+    private fun semanticNodeColors(node: Node): BlockSemanticColors {
+        val kind = node.payload[MermaidBlockParser.KIND_KEY].orEmpty()
+        return when (kind) {
+            "arrow" -> {
+                val fill = themeColors.success.withAlpha(0.14f)
+                BlockSemanticColors(
+                    fill = fill,
+                    stroke = themeColors.success,
+                    text = readableTextOn(fill),
+                )
+            }
+            else -> BlockSemanticColors(
+                fill = colors.nodeFill,
+                stroke = colors.nodeStroke,
+                text = colors.nodeText,
+            )
+        }
+    }
+
+    private fun readableTextOn(background: Color): Color = if (background.isDark()) themeColors.surface else themeColors.textPrimary
 
     private fun drawDiamond(rect: Rect, fill: Color, strokeColor: Color, stroke: Stroke, out: MutableList<DrawCommand>) {
         val cx = (rect.left + rect.right) / 2f
@@ -371,6 +394,26 @@ internal class MermaidBlockSubPipeline(
         kernel.clear()
     }
 
+}
+
+private data class BlockSemanticColors(
+    val fill: Color,
+    val stroke: Color,
+    val text: Color,
+)
+
+private fun Color.withAlpha(alpha: Float): Color {
+    val clamped = alpha.coerceIn(0f, 1f)
+    val a = (clamped * 255f).toInt().coerceIn(0, 255)
+    return Color((argb and 0x00FFFFFF) or (a shl 24))
+}
+
+private fun Color.isDark(): Boolean {
+    val r = (argb shr 16) and 0xFF
+    val g = (argb shr 8) and 0xFF
+    val b = argb and 0xFF
+    val luminance = 0.2126f * r + 0.7152f * g + 0.0722f * b
+    return luminance < 140f
 }
 
 private class BlockLayout(

@@ -97,6 +97,34 @@ class MermaidC4ParserTest {
     }
 
     @Test
+    fun parser_leaves_c4_default_visuals_to_theme() {
+        val parser = feedAll(
+            """
+            C4Context
+              Person(user, "User", "bank customer")
+              Enterprise_Boundary(bank, "Bank") {
+                System(core, "Core Banking", "Handles accounts")
+              }
+              Rel(user, core, "Uses")
+            """.trimIndent() + "\n",
+        )
+
+        val ir = assertIs<GraphIR>(parser.snapshot())
+        val user = ir.nodes.first { it.id.value == "user" }
+        assertEquals(null, user.style.fill)
+        assertEquals(null, user.style.stroke)
+        assertEquals(null, user.style.textColor)
+        assertEquals(1.5f, user.style.strokeWidth)
+        val boundary = ir.clusters.single()
+        assertEquals(null, boundary.style.fill)
+        assertEquals(null, boundary.style.stroke)
+        assertEquals(1.5f, boundary.style.strokeWidth)
+        assertEquals(null, ir.edges.single().style.color)
+        assertEquals(1.5f, ir.edges.single().style.width)
+        assertTrue(parser.diagnosticsSnapshot().isEmpty(), "diagnostics=${parser.diagnosticsSnapshot()}")
+    }
+
+    @Test
     fun parses_links_tags_and_legend_entries() {
         val parser = feedAll(
             """

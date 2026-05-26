@@ -2,6 +2,7 @@ package com.hrm.diagram.render.theme
 
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.theme.DiagramTheme
+import kotlin.math.pow
 
 internal object ThemeResolver {
     fun resolveJourney(theme: DiagramTheme): ResolvedJourneyColors {
@@ -24,22 +25,32 @@ internal object ThemeResolver {
     }
 
     fun resolveKanban(theme: DiagramTheme): ResolvedKanbanColors =
-        ResolvedKanbanColors(
-            background = theme.colors.canvas,
-            columnFill = theme.colors.surfaceAlt,
-            columnStroke = theme.colors.border,
-            headerFill = theme.colors.accent.withAlpha(0.14f),
-            cardFill = theme.colors.surface,
-            cardStroke = theme.colors.border,
-            text = theme.colors.textPrimary,
-            metaText = theme.colors.textSecondary,
-            priorityVeryHigh = theme.colors.danger,
-            priorityHigh = theme.colors.warning,
-            priorityLow = theme.colors.success,
-            priorityVeryLow = theme.colors.accent,
-            priorityDefault = theme.colors.textSecondary,
-            badgeText = Color.White,
-        )
+        theme.colors.let { palette ->
+            val priorityVeryHigh = palette.danger
+            val priorityHigh = palette.warning
+            val priorityLow = palette.success
+            val priorityVeryLow = palette.accent
+            val priorityDefault = palette.textSecondary
+            ResolvedKanbanColors(
+                background = palette.canvas,
+                columnFill = palette.surfaceAlt,
+                columnStroke = palette.border,
+                headerFill = palette.accent.withAlpha(0.14f),
+                cardFill = palette.surface,
+                cardStroke = palette.border,
+                text = palette.textPrimary,
+                metaText = palette.textSecondary,
+                priorityVeryHigh = priorityVeryHigh,
+                priorityHigh = priorityHigh,
+                priorityLow = priorityLow,
+                priorityVeryLow = priorityVeryLow,
+                priorityDefault = priorityDefault,
+                badgeText = readableTextForBadges(
+                    candidates = listOf(palette.surface, palette.textPrimary),
+                    backgrounds = listOf(priorityVeryHigh, priorityHigh, priorityLow, priorityVeryLow, priorityDefault),
+                ),
+            )
+        }
 
     fun resolveSankey(theme: DiagramTheme): ResolvedSankeyColors =
         ResolvedSankeyColors(
@@ -888,4 +899,36 @@ private fun Color.withAlpha(alpha: Float): Color {
     val clamped = alpha.coerceIn(0f, 1f)
     val a = (clamped * 255f).toInt().coerceIn(0, 255)
     return Color((argb and 0x00FFFFFF) or (a shl 24))
+}
+
+private fun readableTextForBadges(candidates: List<Color>, backgrounds: List<Color>): Color =
+    candidates
+        .distinctBy { it.argb }
+        .maxByOrNull { candidate ->
+            backgrounds.minOf { background -> contrastRatio(candidate, background) }
+        }
+        ?: Color(0xFF000000.toInt())
+
+private fun contrastRatio(foreground: Color, background: Color): Double {
+    val l1 = relativeLuminance(foreground)
+    val l2 = relativeLuminance(background)
+    val lighter = maxOf(l1, l2)
+    val darker = minOf(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
+private fun relativeLuminance(color: Color): Double {
+    fun channel(value: Int): Double {
+        val srgb = value / 255.0
+        return if (srgb <= 0.03928) {
+            srgb / 12.92
+        } else {
+            ((srgb + 0.055) / 1.055).pow(2.4)
+        }
+    }
+
+    val r = channel((color.argb shr 16) and 0xFF)
+    val g = channel((color.argb shr 8) and 0xFF)
+    val b = channel(color.argb and 0xFF)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }

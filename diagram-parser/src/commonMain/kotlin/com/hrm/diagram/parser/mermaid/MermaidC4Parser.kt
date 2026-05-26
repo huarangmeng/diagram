@@ -226,9 +226,9 @@ class MermaidC4Parser {
                 kind = "element",
                 name = tag,
                 text = style?.legendText ?: tag,
-                fill = style?.fill ?: ArgbColor(0xFFE3F2FD.toInt()),
-                stroke = style?.stroke ?: ArgbColor(0xFF1E88E5.toInt()),
-                textColor = style?.textColor ?: ArgbColor(0xFF0D47A1.toInt()),
+                fill = style?.fill,
+                stroke = style?.stroke,
+                textColor = style?.textColor,
             )
         }
         for (tag in usedRelTags) {
@@ -237,8 +237,8 @@ class MermaidC4Parser {
                 kind = "relationship",
                 name = tag,
                 text = style?.legendText ?: tag,
-                stroke = style?.lineColor ?: ArgbColor(0xFF546E7A.toInt()),
-                textColor = style?.textColor ?: ArgbColor(0xFF263238.toInt()),
+                stroke = style?.lineColor,
+                textColor = style?.textColor,
             )
         }
         return out
@@ -319,7 +319,6 @@ class MermaidC4Parser {
         val label = positional.getOrNull(1)?.let(::unquote).orEmpty().ifBlank { alias }
         val (technology, description) = elementMeta(call.name, positional, named)
         val stereotype = stereotypeOf(call.name)
-        val style = defaultNodeStyle(call.name)
         val parent = boundaryStack.lastOrNull()
         val tags = parseTags(named["tags"])
         val link = named["link"]?.takeIf { it.isNotBlank() }
@@ -327,7 +326,7 @@ class MermaidC4Parser {
             id = id,
             label = RichLabel.Plain(buildElementLabel(stereotype, label, technology, description)),
             shape = shapeOf(call.name),
-            style = style,
+            style = NodeStyle(strokeWidth = 1.5f),
             ports = defaultPorts(),
             payload = buildMap {
                 put(KIND_KEY, call.name)
@@ -489,10 +488,7 @@ class MermaidC4Parser {
             arrow = pending.arrow,
             fromPort = pending.fromPort,
             toPort = pending.toPort,
-            style = EdgeStyle(
-                color = ArgbColor(0xFF546E7A.toInt()),
-                width = 1.5f,
-            ),
+            style = EdgeStyle(width = 1.5f),
         )
         baseEdges += edge
         out += IrPatch.AddEdge(edge)
@@ -510,7 +506,7 @@ class MermaidC4Parser {
             .filter { it.parent == parent }
             .map { boundary ->
                 val styleOverride = mergedElementTagStyle(boundaryTags[boundary.id].orEmpty())
-                val baseStyle = defaultClusterStyle(boundary.type)
+                val baseStyle = ClusterStyle(strokeWidth = 1.5f)
                 Cluster(
                     id = boundary.id,
                     label = encodeBoundaryLabel(boundary.type, boundary.title),
@@ -754,57 +750,6 @@ class MermaidC4Parser {
     }
 
     private fun isExternal(name: String): Boolean = name.endsWith("_Ext")
-
-    private fun defaultNodeStyle(name: String): NodeStyle = when {
-        name.startsWith("Person") -> NodeStyle(
-            fill = ArgbColor(0xFFFFF8E1.toInt()),
-            stroke = ArgbColor(0xFFFB8C00.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF6D4C41.toInt()),
-        )
-        "Db" in name -> NodeStyle(
-            fill = ArgbColor(0xFFE8F5E9.toInt()),
-            stroke = ArgbColor(0xFF43A047.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF1B5E20.toInt()),
-        )
-        "Queue" in name -> NodeStyle(
-            fill = ArgbColor(0xFFF3E5F5.toInt()),
-            stroke = ArgbColor(0xFF8E24AA.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF4A148C.toInt()),
-        )
-        name.startsWith("Component") -> NodeStyle(
-            fill = ArgbColor(0xFFEDE7F6.toInt()),
-            stroke = ArgbColor(0xFF5E35B1.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF311B92.toInt()),
-        )
-        else -> NodeStyle(
-            fill = ArgbColor(0xFFE3F2FD.toInt()),
-            stroke = ArgbColor(0xFF1E88E5.toInt()),
-            strokeWidth = 1.5f,
-            textColor = ArgbColor(0xFF0D47A1.toInt()),
-        )
-    }
-
-    private fun defaultClusterStyle(type: String): ClusterStyle = when {
-        type.contains("Enterprise", ignoreCase = true) -> ClusterStyle(
-            fill = ArgbColor(0xFFFFFBF0.toInt()),
-            stroke = ArgbColor(0xFFF9A825.toInt()),
-            strokeWidth = 1.5f,
-        )
-        type.contains("Deployment", ignoreCase = true) || type == "Node" || type == "Node_L" || type == "Node_R" -> ClusterStyle(
-            fill = ArgbColor(0xFFF3F6FB.toInt()),
-            stroke = ArgbColor(0xFF78909C.toInt()),
-            strokeWidth = 1.5f,
-        )
-        else -> ClusterStyle(
-            fill = ArgbColor(0xFFF8FBFF.toInt()),
-            stroke = ArgbColor(0xFF90A4AE.toInt()),
-            strokeWidth = 1.5f,
-        )
-    }
 
     private fun relationPorts(name: String): Pair<PortId?, PortId?> = when (name) {
         "Rel_U", "Rel_Up" -> PortId("T") to PortId("B")
