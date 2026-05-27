@@ -3,6 +3,7 @@ package com.hrm.diagram.render.compose
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,7 @@ import kotlin.math.sin
  * DiagramCanvas(snapshot, viewportState = viewportState, panZoomEnabled = true)
  * ```
  */
+@Stable
 internal class DiagramViewportState(
     initialZoom: Float = 1f,
     initialPan: Offset = Offset.Zero,

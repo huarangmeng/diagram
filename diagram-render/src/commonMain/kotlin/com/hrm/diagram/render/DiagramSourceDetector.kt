@@ -1,5 +1,6 @@
 package com.hrm.diagram.render
 
+import androidx.compose.runtime.Immutable
 import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.SourceLanguage
 
@@ -15,6 +16,7 @@ import com.hrm.diagram.core.ir.SourceLanguage
  * ```
  */
 @DiagramApi
+@Immutable
 data class DiagramSourceDetection(
     val status: DiagramSourceStatus,
     val language: SourceLanguage?,
@@ -34,6 +36,7 @@ data class DiagramSourceDetection(
  * Three-state source detection for containers that see text before `DiagramView` is created.
  */
 @DiagramApi
+@Immutable
 enum class DiagramSourceStatus {
     DIAGRAM,
     PENDING,

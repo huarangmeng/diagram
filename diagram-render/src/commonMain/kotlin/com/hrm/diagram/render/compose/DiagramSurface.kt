@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,6 +23,7 @@ import kotlin.math.max
  * - [Viewport] is for full preview panes and editors that should consume the whole canvas.
  */
 @DiagramApi
+@Immutable
 enum class DiagramPresentationMode {
     Auto,
     Embedded,
@@ -105,6 +107,7 @@ internal fun DiagramSurface(
     }
 }
 
+@Immutable
 internal data class DiagramPresentationLayout(
     val width: Float,
     val height: Float,
