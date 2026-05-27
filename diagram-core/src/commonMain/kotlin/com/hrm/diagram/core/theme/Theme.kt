@@ -148,9 +148,9 @@ data class DiagramTheme(
             diagnostic = Color(0xFFF85149.toInt()),
         )
         private val DefaultTypography = Typography(
-            bodyFont  = FontSpec(family = "sans-serif", sizeSp = 14f),
+            bodyFont = FontSpec(family = "sans-serif", sizeSp = 14f),
             titleFont = FontSpec(family = "sans-serif", sizeSp = 18f, weight = 600),
-            monoFont  = FontSpec(family = "monospace", sizeSp = 13f),
+            monoFont = FontSpec(family = "monospace", sizeSp = 13f),
         )
 
         private fun build(colors: ThemeColors): DiagramTheme = DiagramTheme(

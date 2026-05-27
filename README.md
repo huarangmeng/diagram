@@ -114,18 +114,22 @@ println(snapshot.diagnostics)
 
 ### Compose Preview
 
-`DiagramView(...)` accepts only source text at the app boundary. It wires Compose text measurement into the layout pipeline, detects Mermaid / PlantUML / DOT, and maintains the incremental snapshot internally.
+`DiagramView(...)` accepts source text plus an optional `DiagramTheme` at the app boundary. It wires Compose text measurement into the layout pipeline, detects Mermaid / PlantUML / DOT, and maintains the incremental snapshot internally.
 
 ```kotlin
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.compose.DiagramView
+import com.hrm.diagram.render.theme.material3
 
 @Composable
 fun MermaidPreview(source: String) {
+    val theme = DiagramTheme.material3()
     DiagramView(
         source = source,
+        theme = theme,
         modifier = Modifier.fillMaxSize(),
         zoomEnabled = true,
     )

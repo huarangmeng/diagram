@@ -114,18 +114,22 @@ println(snapshot.diagnostics)
 
 ### Compose 预览
 
-`DiagramView(...)` 在应用边界只接收源码字符串。它会把 Compose 文本测量接进布局链路，自动识别 Mermaid / PlantUML / DOT，并在内部维护增量 snapshot。
+`DiagramView(...)` 在应用边界接收源码字符串，并支持可选传入 `DiagramTheme`。它会把 Compose 文本测量接进布局链路，自动识别 Mermaid / PlantUML / DOT，并在内部维护增量 snapshot。
 
 ```kotlin
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.compose.DiagramView
+import com.hrm.diagram.render.theme.material3
 
 @Composable
 fun MermaidPreview(source: String) {
+    val theme = DiagramTheme.material3()
     DiagramView(
         source = source,
+        theme = theme,
         modifier = Modifier.fillMaxSize(),
         zoomEnabled = true,
     )

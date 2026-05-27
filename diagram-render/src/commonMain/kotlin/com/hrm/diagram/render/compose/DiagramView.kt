@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.text.TextMeasurer
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.Diagram
 import com.hrm.diagram.render.streaming.DiagramSession
 import com.hrm.diagram.render.streaming.DiagramSnapshot
@@ -31,11 +32,12 @@ import kotlinx.coroutines.delay
 @DiagramApi
 fun DiagramView(
     source: String,
+    theme: DiagramTheme = DiagramTheme.Default,
     modifier: Modifier = Modifier,
     zoomEnabled: Boolean = false,
     presentationMode: DiagramPresentationMode = DiagramPresentationMode.Auto,
 ) {
-    val state = rememberDiagramRenderState(source = source)
+    val state = rememberDiagramRenderState(source = source, theme = theme)
     DiagramSurface(
         state = state,
         modifier = modifier,
@@ -48,6 +50,7 @@ fun DiagramView(
 @DiagramApi
 fun rememberDiagramRenderState(
     source: String,
+    theme: DiagramTheme = DiagramTheme.Default,
     languageHint: SourceLanguage? = null,
 ): DiagramRenderState {
     val language = remember(source, languageHint) { languageHint ?: detectSourceLanguage(source) }
@@ -65,8 +68,8 @@ fun rememberDiagramRenderState(
         }
     }
 
-    LaunchedEffect(source, language, textMeasurer) {
-        val session = holder.sessionFor(language, source, textMeasurer)
+    LaunchedEffect(source, language, textMeasurer, theme) {
+        val session = holder.sessionFor(language, source, textMeasurer, theme)
         val appendedFrom = holder.source.length
         if (source.length > appendedFrom) {
             session.append(source.substring(appendedFrom))
@@ -94,17 +97,20 @@ private class DiagramViewSessionHolder {
     var source: String = ""
     private var language: SourceLanguage? = null
     private var textMeasurer: TextMeasurer? = null
+    private var theme: DiagramTheme? = null
     private var session: DiagramSession? = null
 
     fun sessionFor(
         nextLanguage: SourceLanguage,
         nextSource: String,
         nextTextMeasurer: TextMeasurer,
+        nextTheme: DiagramTheme,
     ): DiagramSession {
         val current = session
         val canReuse = current != null &&
             language == nextLanguage &&
             textMeasurer === nextTextMeasurer &&
+            theme == nextTheme &&
             nextSource.startsWith(source)
         if (canReuse) return current
 
@@ -112,13 +118,15 @@ private class DiagramViewSessionHolder {
         source = ""
         language = nextLanguage
         textMeasurer = nextTextMeasurer
-        return Diagram.session(language = nextLanguage, textMeasurer = nextTextMeasurer)
+        theme = nextTheme
+        return Diagram.session(language = nextLanguage, theme = nextTheme, textMeasurer = nextTextMeasurer)
             .also { session = it }
     }
 
     fun close() {
         session?.close()
         session = null
+        theme = null
     }
 }
 

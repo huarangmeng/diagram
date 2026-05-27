@@ -1,6 +1,8 @@
 package com.hrm.diagram.render.theme
 
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.toArgb
 import com.hrm.diagram.core.draw.Color
 import com.hrm.diagram.core.draw.Stroke
@@ -15,8 +17,6 @@ import com.hrm.diagram.core.theme.SequenceColors
 import com.hrm.diagram.core.theme.ThemeColors
 import com.hrm.diagram.core.theme.TimeSeriesColors
 import com.hrm.diagram.core.theme.TreeColors
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
 
 fun DiagramTheme.Companion.material3(
     colorScheme: ColorScheme,
