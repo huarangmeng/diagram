@@ -55,6 +55,7 @@ import com.hrm.diagram.gallery.DemoSamples
 import com.hrm.diagram.gallery.SourceLang
 import com.hrm.diagram.render.Diagram
 import com.hrm.diagram.render.compose.DiagramView
+import com.hrm.diagram.render.compose.DiagramPresentationMode
 import com.hrm.diagram.render.export.prepareExport
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -273,6 +274,7 @@ private fun PreviewPane(
                             source = previewSource,
                             modifier = Modifier.fillMaxSize().padding(16.dp),
                             zoomEnabled = true,
+                            presentationMode = DiagramPresentationMode.Viewport,
                         )
                     }
                     HorizontalDivider()

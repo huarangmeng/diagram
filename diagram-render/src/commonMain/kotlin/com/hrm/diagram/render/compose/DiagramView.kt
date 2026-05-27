@@ -3,8 +3,10 @@ package com.hrm.diagram.render.compose
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.hrm.diagram.core.DiagramApi
 import com.hrm.diagram.core.ir.SourceLanguage
@@ -22,7 +24,7 @@ import kotlinx.coroutines.delay
  *
  * Minimal usage:
  * ```kotlin
- * DiagramView(source = mermaidText, modifier = Modifier.fillMaxSize())
+ * DiagramView(source = mermaidText, modifier = Modifier.fillMaxWidth())
  * ```
  */
 @Composable
@@ -31,16 +33,36 @@ fun DiagramView(
     source: String,
     modifier: Modifier = Modifier,
     zoomEnabled: Boolean = false,
+    presentationMode: DiagramPresentationMode = DiagramPresentationMode.Auto,
 ) {
-    val language = detectSourceLanguage(source)
+    val state = rememberDiagramRenderState(source = source)
+    DiagramSurface(
+        state = state,
+        modifier = modifier,
+        zoomEnabled = zoomEnabled,
+        presentationMode = presentationMode,
+    )
+}
+
+@Composable
+@DiagramApi
+fun rememberDiagramRenderState(
+    source: String,
+    languageHint: SourceLanguage? = null,
+): DiagramRenderState {
+    val language = remember(source, languageHint) { languageHint ?: detectSourceLanguage(source) }
     val textMeasurer = rememberDiagramTextMeasurer()
     val holder = remember { DiagramViewSessionHolder() }
-    val snapshotState = remember {
-        mutableStateOf(DiagramSnapshot.empty(language))
-    }
+    val state = remember { DiagramRenderState(DiagramSnapshot.empty(language)) }
 
     DisposableEffect(holder) {
         onDispose { holder.close() }
+    }
+
+    LaunchedEffect(language) {
+        if (state.snapshot.sourceLanguage != language && source.isEmpty()) {
+            state.snapshot = DiagramSnapshot.empty(language)
+        }
     }
 
     LaunchedEffect(source, language, textMeasurer) {
@@ -48,33 +70,24 @@ fun DiagramView(
         val appendedFrom = holder.source.length
         if (source.length > appendedFrom) {
             session.append(source.substring(appendedFrom))
-            snapshotState.value = session.state.value
+            state.snapshot = session.state.value
+        } else if (source.length < appendedFrom) {
+            state.snapshot = session.state.value
         }
         holder.source = source
         delay(FINISH_DEBOUNCE_MS)
-        snapshotState.value = session.finish()
+        state.snapshot = session.finish()
     }
 
-    DiagramSnapshotView(
-        snapshot = snapshotState.value,
-        modifier = modifier,
-        zoomEnabled = zoomEnabled,
-    )
+    return state
 }
 
-@Composable
-internal fun DiagramSnapshotView(
-    snapshot: DiagramSnapshot,
-    modifier: Modifier = Modifier,
-    zoomEnabled: Boolean = false,
+@DiagramApi
+class DiagramRenderState internal constructor(
+    initialSnapshot: DiagramSnapshot,
 ) {
-    val viewportState = rememberDiagramViewportState()
-    DiagramCanvas(
-        snapshot = snapshot,
-        modifier = modifier,
-        viewportState = viewportState,
-        panZoomEnabled = zoomEnabled,
-    )
+    var snapshot: DiagramSnapshot by mutableStateOf(initialSnapshot)
+        internal set
 }
 
 private class DiagramViewSessionHolder {
