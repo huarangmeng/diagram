@@ -28,6 +28,13 @@ import kotlinx.coroutines.delay
  * ```kotlin
  * DiagramView(source = mermaidText, modifier = Modifier.fillMaxWidth())
  * ```
+ *
+ * @param languageHint Optional explicit source language. Pass this when the caller already
+ * knows the fenced language and wants to avoid detection churn while the source is still
+ * streaming or incomplete.
+ * @param sessionKey Optional stable identity for the internal streaming session. Provide a
+ * caller-owned block identity when the same `DiagramView` instance should keep reusing its
+ * incremental session across source appends, and change the key when a fresh session is required.
  */
 @Composable
 @DiagramApi
@@ -37,8 +44,15 @@ fun DiagramView(
     modifier: Modifier = Modifier,
     zoomEnabled: Boolean = false,
     presentationMode: DiagramPresentationMode = DiagramPresentationMode.Auto,
+    languageHint: SourceLanguage? = null,
+    sessionKey: Any? = null,
 ) {
-    val state = rememberDiagramRenderState(source = source, theme = theme)
+    val state = rememberDiagramRenderState(
+        source = source,
+        theme = theme,
+        languageHint = languageHint,
+        sessionKey = sessionKey,
+    )
     DiagramSurface(
         state = state,
         modifier = modifier,
@@ -53,8 +67,12 @@ fun rememberDiagramRenderState(
     source: String,
     theme: DiagramTheme = DiagramTheme.Default,
     languageHint: SourceLanguage? = null,
+    sessionKey: Any? = null,
 ): DiagramRenderState {
-    val language = remember(source, languageHint) { languageHint ?: detectSourceLanguage(source) }
+    val languageDetectionSource = if (languageHint == null) source else ""
+    val language = remember(languageHint, languageDetectionSource) {
+        languageHint ?: detectSourceLanguage(source)
+    }
     val textMeasurer = rememberDiagramTextMeasurer()
     val holder = remember { DiagramViewSessionHolder() }
     val state = remember { DiagramRenderState(DiagramSnapshot.empty(language)) }
@@ -69,8 +87,8 @@ fun rememberDiagramRenderState(
         }
     }
 
-    LaunchedEffect(source, language, textMeasurer, theme) {
-        val session = holder.sessionFor(language, source, textMeasurer, theme)
+    LaunchedEffect(source, language, textMeasurer, theme, sessionKey) {
+        val session = holder.sessionFor(sessionKey, language, source, textMeasurer, theme)
         val appendedFrom = holder.source.length
         if (source.length > appendedFrom) {
             session.append(source.substring(appendedFrom))
@@ -97,12 +115,14 @@ class DiagramRenderState internal constructor(
 
 private class DiagramViewSessionHolder {
     var source: String = ""
+    private var sessionKey: Any? = null
     private var language: SourceLanguage? = null
     private var textMeasurer: TextMeasurer? = null
     private var theme: DiagramTheme? = null
     private var session: DiagramSession? = null
 
     fun sessionFor(
+        nextSessionKey: Any?,
         nextLanguage: SourceLanguage,
         nextSource: String,
         nextTextMeasurer: TextMeasurer,
@@ -110,6 +130,7 @@ private class DiagramViewSessionHolder {
     ): DiagramSession {
         val current = session
         val canReuse = current != null &&
+            sessionKey == nextSessionKey &&
             language == nextLanguage &&
             textMeasurer === nextTextMeasurer &&
             theme == nextTheme &&
@@ -118,6 +139,7 @@ private class DiagramViewSessionHolder {
 
         close()
         source = ""
+        sessionKey = nextSessionKey
         language = nextLanguage
         textMeasurer = nextTextMeasurer
         theme = nextTheme
@@ -128,6 +150,7 @@ private class DiagramViewSessionHolder {
     fun close() {
         session?.close()
         session = null
+        sessionKey = null
         theme = null
     }
 }
