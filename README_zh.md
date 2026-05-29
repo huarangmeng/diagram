@@ -56,7 +56,7 @@
 
 ```toml
 [versions]
-diagram = "0.1.0"
+diagram = "1.0.4"
 
 [libraries]
 diagram-render = { module = "io.github.huarangmeng:diagram-render", version.ref = "diagram" }
@@ -72,9 +72,9 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation("io.github.huarangmeng:diagram-core:0.1.0")
-    implementation("io.github.huarangmeng:diagram-layout:0.1.0")
-    implementation("io.github.huarangmeng:diagram-parser:0.1.0")
+    implementation("io.github.huarangmeng:diagram-core:1.0.4")
+    implementation("io.github.huarangmeng:diagram-layout:1.0.4")
+    implementation("io.github.huarangmeng:diagram-parser:1.0.4")
 }
 ```
 
