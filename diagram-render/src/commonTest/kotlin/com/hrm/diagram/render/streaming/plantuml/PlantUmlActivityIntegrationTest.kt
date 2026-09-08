@@ -15,6 +15,31 @@ import kotlin.test.assertTrue
 
 class PlantUmlActivityIntegrationTest {
     @Test
+    fun invalid_closers_recover_and_render_consistently_across_chunks() {
+        val cases = listOf("endif", "endwhile", "repeat while (condition)", "end fork")
+            .map { "$it\n:Load data;" } + listOf(
+            "while (condition)\n:Load data;\nendif\n:Next;\nendwhile",
+            "repeat\n:Load data;\nrepeat while invalid\n:Next;\nrepeat while (condition)",
+        )
+        for (body in cases) {
+            val source = "@startuml\nstart\n$body\nstop\n@enduml\n"
+            val one = run(source, source.length)
+            assertIs<ActivityIR>(one.ir)
+            assertEquals(setOf("PLANTUML-E007"), one.diagnostics.map { it.code }.toSet(), body)
+            assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Load data" })
+            if (":Next;" in body) {
+                assertTrue(one.drawCommands.filterIsInstance<DrawCommand.DrawText>().any { it.text == "Next" })
+            }
+            for (chunkSize in listOf(1, 2, 7)) {
+                val chunked = run(source, chunkSize)
+                assertEquals(one.ir, chunked.ir, "$body / chunkSize=$chunkSize")
+                assertEquals(one.diagnostics, chunked.diagnostics)
+                assertEquals(one.drawCommands, chunked.drawCommands)
+            }
+        }
+    }
+
+    @Test
     fun activity_diagram_renders_and_is_streaming_consistent() {
         val src =
             """

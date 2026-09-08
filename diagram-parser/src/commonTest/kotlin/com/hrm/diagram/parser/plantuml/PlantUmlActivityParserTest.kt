@@ -9,6 +9,49 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class PlantUmlActivityParserTest {
+    @Test
+    fun unmatched_closers_preserve_root_and_following_actions() {
+        for (closer in listOf("endif", "endwhile", "repeat while (condition)", "end fork")) {
+            val parser = parse("start\n$closer\n:Load data;\nstop\n")
+            assertEquals(
+                listOf(ActivityBlock.Action(RichLabel.Plain("Load data"))),
+                visibleBlocks(parser.snapshot()),
+                closer,
+            )
+            assertEquals(listOf("PLANTUML-E007"), parser.diagnosticsSnapshot().map { it.code }, closer)
+        }
+    }
+
+    @Test
+    fun mismatched_closers_preserve_every_active_frame() {
+        val blocks = listOf(
+            "if (condition) then (yes)" to "endif",
+            "while (condition)" to "endwhile",
+            "repeat" to "repeat while (condition)",
+            "fork" to "end fork",
+        )
+        for ((opener, closer) in blocks) {
+            for ((_, wrongCloser) in blocks.filter { it.second != closer }) {
+                val valid = "$opener\n:Load;\n:Next;\n$closer\n:After;\n"
+                val parser = parse("$opener\n:Load;\n$wrongCloser\n:Next;\n$closer\n:After;\n")
+                assertEquals(parse(valid).snapshot(), parser.snapshot(), "$opener / $wrongCloser")
+                assertEquals(listOf("PLANTUML-E007"), parser.diagnosticsSnapshot().map { it.code })
+            }
+        }
+    }
+
+    @Test
+    fun invalid_repeat_condition_preserves_body_until_valid_close() {
+        val parser = parse("repeat\n:Load;\nrepeat while invalid\n:Next;\nrepeat while (condition)\n")
+        val block = assertIs<ActivityBlock.While>(visibleBlocks(parser.snapshot()).single())
+        assertEquals(RichLabel.Plain("${PlantUmlActivityParser.REPEAT_PREFIX}condition"), block.cond)
+        assertEquals(
+            listOf("Load", "Next").map { ActivityBlock.Action(RichLabel.Plain(it)) },
+            block.body,
+        )
+        assertEquals(listOf("PLANTUML-E007"), parser.diagnosticsSnapshot().map { it.code })
+    }
+
     private fun parse(src: String, chunkSize: Int? = null): PlantUmlActivityParser {
         val parser = PlantUmlActivityParser()
         if (chunkSize == null) {
