@@ -4,7 +4,9 @@ import com.hrm.diagram.core.draw.DrawCommand
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.StructIR
 import com.hrm.diagram.core.ir.StructNode
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.Diagram
+import com.hrm.diagram.render.theme.ThemeResolver
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -112,8 +114,9 @@ class PlantUmlStructIntegrationTest {
         val texts = one.drawCommands.filterIsInstance<DrawCommand.DrawText>()
         assertTrue(texts.any { it.text == "A # quoted value" || it.text == "title: A # quoted value" })
         assertTrue(texts.any { it.text == "[-] flags: {3}" })
-        assertTrue(texts.any { it.text == "enabled: true" && it.color.argb == 0xFF8250DF.toInt() })
-        assertTrue(texts.any { it.text == "count: 3" && it.color.argb == 0xFF0550AE.toInt() })
+        val resolvedColors = ThemeResolver.resolvePlantUmlStruct(DiagramTheme.Default)
+        assertTrue(texts.any { it.text == "enabled: true" && it.color == resolvedColors.booleanText })
+        assertTrue(texts.any { it.text == "count: 3" && it.color == resolvedColors.numberText })
         assertTrue(texts.any { it.text == "[-] tags: [2]" })
     }
 

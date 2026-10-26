@@ -8,6 +8,7 @@ import com.hrm.diagram.core.draw.TextAnchorY
 import com.hrm.diagram.core.ir.NodeId
 import com.hrm.diagram.core.ir.SourceLanguage
 import com.hrm.diagram.core.ir.TimeSeriesIR
+import com.hrm.diagram.core.theme.DiagramTheme
 import com.hrm.diagram.render.Diagram
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -173,8 +174,8 @@ class MermaidGanttIntegrationTest {
         assertTrue(markerLabel.bottom + 4f <= axisLabelTop, "marker label should be in the top annotation lane above axis labels: label=$markerLabel axisLabelTop=$axisLabelTop axis=$axis")
         assertTrue(axisTexts.isNotEmpty(), "weekly axis labels should be visible")
         assertTrue(axisTexts.all { it.maxWidth == null }, "axis labels are pre-measured by layout and must not wrap in render")
-        assertTrue(0xFFF3F6F8.toInt() in fillColors, "section bands should be rendered")
-        assertTrue(0xFFFAFBFC.toInt() in fillColors, "alternating task row bands should be rendered")
+        val expectedSectionBand = requireNotNull(DiagramTheme.Default.timeSeriesColors.alternateRowBackground).argb
+        assertTrue(expectedSectionBand in fillColors, "section bands should be rendered with the current theme color")
         assertEquals("https://example.com/api", apiLink.href)
     }
 

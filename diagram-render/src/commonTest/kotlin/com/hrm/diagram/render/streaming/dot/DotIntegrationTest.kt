@@ -230,7 +230,7 @@ class DotIntegrationTest {
         assertEquals(0xFF336699.toInt(), rich.color.argb)
         assertTrue(edge.font.italic)
         assertEquals(700, head.font.weight)
-        assertEquals(0xFFE53935.toInt(), head.color.argb)
+        assertEquals(0xFFFF0000.toInt(), head.color.argb)
     }
 
     @Test
