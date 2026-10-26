@@ -187,10 +187,16 @@ suspend fun LaidOutDiagram.toJpeg(
 - `ExportScale.Width` / `Height` 只做**等比缩放**，不允许导出阶段拉伸或重新布局。
 - `ExportBackground.Auto` 继承 `RenderedDiagram.background`；`Transparent` 仅对 SVG / PNG 保证透明语义。
 - `JPEG` 遇到透明背景时必须降为不透明纯色背景，并附带 `EXPORT-W001`。
-- PNG / JPEG 导出是 `suspend`：JVM/Android/iOS 可同步实现，JS / Wasm 允许走异步 `canvas/blob/arrayBuffer`。
+- PNG / JPEG 导出是 `suspend`：JVM/Android/iOS/macOS 可同步实现，JS / Wasm 允许走异步 `canvas/blob/arrayBuffer`。
 - 导出阶段**禁止重新测量文本**；所有文本几何必须复用布局 / 渲染阶段写入的测量结果。
 
 ## 5. 兼容性承诺
 - 所有 `public` 类型加 `@DiagramApi` 注解（自定义），未加注解的视为内部。
 - 1.x 阶段：minor 版本不破坏 `@DiagramApi` 签名；新增字段需有默认值。
 - 实验性 API 用 `@DiagramExperimental` 标记，需 opt-in。
+
+### macOS Native 消费
+
+四个 SDK 模块提供 `macosArm64` 变体；Compose 1.10.3 的消费项目需在 `gradle.properties` 设置 `org.jetbrains.compose.experimental.macos.enabled=true`。不支持 macOS x64 或 Windows/Linux Native。
+PNG/JPEG 使用 CoreGraphics、CoreText、ImageIO，不依赖 JVM AWT/ImageIO 或 UIKit。导出尺寸由共享计划决定，与屏幕 Retina 倍率无关；文本只按原 `maxWidth` 与 origin/anchor 原生排字；`measuredBounds` 可能来自估算测量，不能作为硬换行或截字边界。导出不修改布局几何或调用共享 `TextMeasurer`。字体不存在所请求的 bold/italic face 时保留原基础字体。
+`DrawIcon` 无图像载荷时沿用 SVG 的灰色虚线占位并返回诊断；`Hyperlink` 是无视觉内容的交互区域，不在位图中画额外矩形。

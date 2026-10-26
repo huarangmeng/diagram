@@ -1,0 +1,144 @@
+name: macOS Native
+
+on:
+  pull_request:
+  push:
+    branches: [master, 'feat/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-contracts:
+    name: macOS Native 新增导出契约
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+          architecture: aarch64
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run new raster and production-pipeline contracts
+        run: |
+          ./gradlew :diagram-core:macosArm64Test --tests '*RasterExportMacosTest*' --max-workers=2
+          ./gradlew :diagram-render:macosArm64Test --tests '*MacosPipelineRasterTest*' --max-workers=2
+          python3 -I - <<'PYTEST'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for module, name, minimum in (("core", "RasterExportMacosTest", 8),
+                                       ("render", "MacosPipelineRasterTest", 2)):
+              reports = [ET.parse(path).getroot() for path in
+                         Path(f"diagram-{module}/build/test-results/macosArm64Test").glob("TEST-*.xml")]
+              executed = sum(int(report.get("tests", 0)) for report in reports
+                             if name in report.get("name", ""))
+              if executed < minimum or any(int(report.get(key, 0)) for report in reports
+                                           for key in ("failures", "errors", "skipped")):
+                  raise SystemExit(f"Native contract failed or did not run: {name}")
+              print(f"{name}: {executed} native tests passed")
+          PYTEST
+      - name: Save new Native contract reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-native-contract-reports
+          path: |
+            diagram-*/build/test-results/macosArm64Test/**
+            diagram-*/build/reports/tests/macosArm64Test/**
+          if-no-files-found: error
+
+  macos-arm64:
+    name: arm64 Native tests and publication metadata
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+          architecture: aarch64
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run all four SDK Native test suites
+        run: |
+          ./gradlew :diagram-core:macosArm64Test :diagram-layout:macosArm64Test \
+            :diagram-parser:macosArm64Test :diagram-render:macosArm64Test \
+            --max-workers=2 --no-configuration-cache
+          python3 -I - <<'PYTEST'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for module in ("core", "layout", "parser", "render"):
+              reports = [ET.parse(path).getroot() for path in
+                         Path(f"diagram-{module}/build/test-results/macosArm64Test").glob("TEST-*.xml")]
+              if not reports or sum(int(report.get("tests", 0)) for report in reports) == 0:
+                  raise SystemExit(f"No native tests executed: diagram-{module}")
+              if any(int(report.get(key, 0)) for report in reports for key in ("failures", "errors", "skipped")):
+                  raise SystemExit(f"Native tests failed or were skipped: diagram-{module}")
+              required = {"core": "RasterExportMacosTest", "render": "MacosPipelineRasterTest"}
+              if module in required and not any(required[module] in report.get("name", "") and
+                                                int(report.get("tests", 0)) > 0 for report in reports):
+                  raise SystemExit(f"Missing native test: {required[module]}")
+          PYTEST
+      - name: Validate publication metadata without publishing or signing
+        if: always()
+        run: |
+          ./gradlew \
+            :diagram-core:generateMetadataFileForMacosArm64Publication \
+            :diagram-layout:generateMetadataFileForMacosArm64Publication \
+            :diagram-parser:generateMetadataFileForMacosArm64Publication \
+            :diagram-render:generateMetadataFileForMacosArm64Publication \
+            :diagram-core:generatePomFileForMacosArm64Publication \
+            :diagram-layout:generatePomFileForMacosArm64Publication \
+            :diagram-parser:generatePomFileForMacosArm64Publication \
+            :diagram-render:generatePomFileForMacosArm64Publication \
+            :diagram-core:generateMetadataFileForKotlinMultiplatformPublication \
+            :diagram-layout:generateMetadataFileForKotlinMultiplatformPublication \
+            :diagram-parser:generateMetadataFileForKotlinMultiplatformPublication \
+            :diagram-render:generateMetadataFileForKotlinMultiplatformPublication \
+            --max-workers=2 --no-configuration-cache
+          python3 -I - <<'PY'
+          import json
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          ns = {'m': 'http://maven.apache.org/POM/4.0.0'}
+          for module in ('core', 'layout', 'parser', 'render'):
+              artifact = f'diagram-{module}-macosarm64'
+              base = Path(f'diagram-{module}/build/publications')
+              pom = ET.parse(base / 'macosArm64/pom-default.xml')
+              assert pom.findtext('m:artifactId', namespaces=ns) == artifact
+              dependencies = {node.findtext('m:artifactId', namespaces=ns) for node in pom.findall('m:dependencies/m:dependency', ns)}
+              if module in ('layout', 'parser'):
+                  assert 'diagram-core-macosarm64' in dependencies
+              if module == 'render':
+                  assert {'diagram-core-macosarm64', 'diagram-layout-macosarm64', 'diagram-parser-macosarm64'} <= dependencies
+              root = json.loads((base / 'kotlinMultiplatform/module.json').read_text())
+              variants = [v for v in root['variants'] if v.get('attributes', {}).get('org.jetbrains.kotlin.native.target') == 'macos_arm64']
+              assert variants, f'{module}: missing macos_arm64 root variant'
+              assert all(v['available-at']['module'] == artifact for v in variants)
+              target = json.loads((base / 'macosArm64/module.json').read_text())
+              assert target['component']['module'] == f'diagram-{module}'
+              files = [f for v in target['variants'] for f in v.get('files', [])]
+              assert any(f['url'].startswith(artifact + '-') and f['url'].endswith('.klib') and f['size'] > 0 for f in files)
+          PY
+      - name: Save Native test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64-test-reports
+          path: |
+            diagram-*/build/test-results/macosArm64Test/**
+            diagram-*/build/reports/tests/macosArm64Test/**
+          if-no-files-found: error

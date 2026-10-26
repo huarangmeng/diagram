@@ -6,7 +6,7 @@
 [![Android API](https://img.shields.io/badge/Android%20API-23%2B-brightgreen.svg)](https://android-arsenal.com/api?level=23)
 [![Syntax](https://img.shields.io/badge/Syntax-Mermaid%20%7C%20PlantUML%20%7C%20DOT-orange.svg)](./docs/syntax-compat/)
 
-A Kotlin Multiplatform diagram rendering SDK with self-hosted parsing, layout, and rendering for Mermaid, PlantUML, and Graphviz DOT. The project targets Android, iOS, Desktop (JVM), and Web (JS/Wasm), with streaming incremental rendering as a first-class use case.
+A Kotlin Multiplatform diagram rendering SDK with self-hosted parsing, layout, and rendering for Mermaid, PlantUML, and Graphviz DOT. The project targets Android, iOS, Desktop (JVM), macOS Native (arm64), and Web (JS/Wasm), with streaming incremental rendering as a first-class use case.
 
 [中文版本](./README_zh.md)
 
@@ -139,7 +139,7 @@ fun MermaidPreview(source: String) {
 ## Export Status
 
 - **SVG**: The shared draw-command export path is already part of the architecture and public contracts.
-- **PNG/JPEG**: Export contracts exist in the core API, while the full multi-platform export pipeline is still being completed as part of the release roadmap.
+- **PNG/JPEG**: Platform exporters consume the shared draw commands. macOS Native (`macosArm64`) uses CoreGraphics/CoreText/ImageIO; real Native pixel tests remain pending CI validation.
 
 ## Run Locally
 
@@ -165,3 +165,7 @@ fun MermaidPreview(source: String) {
 - [Plan and Phase Status](./docs/plan.md)
 - [Testing Strategy](./docs/testing.md)
 - [Contributing Guide](./docs/contributing.md)
+
+### macOS Native SDK
+
+The four SDK modules expose `macosArm64` without changing the demo UI. Consumers using Compose 1.10.3 must set `org.jetbrains.compose.experimental.macos.enabled=true` in `gradle.properties`. Native test/publication-metadata validation runs in `macos-native.yml`; Windows klib compilation is not Mac runtime verification. No macOS x64 or Windows/Linux Native target is added. See [testing](./docs/testing.md).

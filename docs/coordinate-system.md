@@ -17,3 +17,9 @@
 ## 4. 文本测量
 - 所有文本必须在 **布局阶段** 通过共享的 `TextMeasurer`（commonMain 抽象）测量，结果写入 IR 的几何字段。
 - 渲染/导出阶段**禁止**重新测量；如发现需要，说明布局阶段漏测，应回头修。
+
+## 5. macOS Native 栅格化
+- CoreGraphics 位图 context 的默认 Y 轴与契约相反：根变换只翻转一次，再应用导出缩放和负 bounds 平移。
+- Group 按 translate → clockwise rotate → scale 应用；Clip 跟随当前变换，所有子状态成对 save/restore。
+- CoreText 绘制时局部翻回字形坐标，不翻转图表内容；baseline 使用显式 origin，排字宽度只受原 maxWidth 约束，估算测量矩形不得裁掉字形。
+- 位图以 sRGB 和显式像素尺寸创建，不读取 NSScreen backingScaleFactor；PNG 保留 alpha，JPEG 背景由共享计划转为不透明。

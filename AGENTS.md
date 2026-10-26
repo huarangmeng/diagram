@@ -10,7 +10,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 
 不做：可视化拖拽编辑器、双向编辑、协同。
 
-目标平台：Android / iOS / Desktop(JVM) / Web(JS, Wasm)。
+目标平台：Android / iOS / Desktop(JVM) / macOS Native（arm64）/ Web(JS, Wasm)。
 
 ---
 

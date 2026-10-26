@@ -25,6 +25,8 @@ kotlin {
     }
 
     jvm { }
+    macosArm64()
+
     listOf(
         iosArm64(),
         iosSimulatorArm64()

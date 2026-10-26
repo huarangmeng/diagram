@@ -6,7 +6,7 @@
 [![Android API](https://img.shields.io/badge/Android%20API-23%2B-brightgreen.svg)](https://android-arsenal.com/api?level=23)
 [![Syntax](https://img.shields.io/badge/Syntax-Mermaid%20%7C%20PlantUML%20%7C%20DOT-orange.svg)](./docs/syntax-compat/)
 
-一个基于 Kotlin Multiplatform 与 Compose Multiplatform 的跨平台图表渲染 SDK，面向 Mermaid、PlantUML 和 Graphviz DOT 提供自研解析、自研布局与统一渲染能力。项目覆盖 Android、iOS、Desktop (JVM) 与 Web (JS/Wasm)，并把流式增量渲染作为一等公民用例。
+一个基于 Kotlin Multiplatform 与 Compose Multiplatform 的跨平台图表渲染 SDK，面向 Mermaid、PlantUML 和 Graphviz DOT 提供自研解析、自研布局与统一渲染能力。项目覆盖 Android、iOS、Desktop (JVM)、macOS Native（arm64）与 Web (JS/Wasm)，并把流式增量渲染作为一等公民用例。
 
 [English Version](./README.md)
 
@@ -139,7 +139,7 @@ fun MermaidPreview(source: String) {
 ## 导出状态
 
 - **SVG**：共享 draw-command 导出链路已经进入架构与公开契约。
-- **PNG/JPEG**：核心 API 契约已经存在，完整的多平台导出实现仍在按发布路线继续收口。
+- **PNG/JPEG**：平台导出器消费共享指令。macOS Native（`macosArm64`）采用 CoreGraphics/CoreText/ImageIO；真实 Native 像素测试仍待 CI 验证。
 
 ## 本地运行
 
@@ -165,3 +165,7 @@ fun MermaidPreview(source: String) {
 - [阶段计划与进度](./docs/plan.md)
 - [测试策略](./docs/testing.md)
 - [贡献指南](./docs/contributing.md)
+
+### macOS Native SDK
+
+四个 SDK 模块提供 `macosArm64`，不修改示例 UI。使用 Compose 1.10.3 的消费方须在 `gradle.properties` 设置 `org.jetbrains.compose.experimental.macos.enabled=true`。`macos-native.yml` 验证 Native 测试及发布元数据；Windows klib 编译不能替代 Mac 运行验收。不增加 macOS x64 或 Windows/Linux Native。详见[测试策略](./docs/testing.md)。

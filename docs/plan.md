@@ -5,7 +5,7 @@
 构建一个 Kotlin Multiplatform + Compose Multiplatform 的图表渲染框架，
 **严格兼容** Mermaid（`.mmd`）、PlantUML（`.puml`）、Graphviz DOT（`.dot`）三大语法；
 **自研解析 + 自研布局算法**，使用 Compose Canvas 渲染，并支持导出 PNG / SVG。
-目标平台：Android / iOS / Desktop(JVM) / Web(JS, Wasm)。
+目标平台：Android / iOS / Desktop(JVM) / macOS Native（arm64）/ Web(JS, Wasm)。
 
 不在范围：可视化拖拽编辑器、双向编辑、协同。
 
@@ -297,6 +297,8 @@ suspend fun LaidOutDiagram.toJpeg(
 - iOS：`CoreGraphics` (`CGContext`) + 平台图片编码 API。
 - JS / Wasm：`OffscreenCanvas` / browser canvas + `blob/arrayBuffer`。
 
+- macOS Native（仅 `macosArm64`）：`CoreGraphics` 位图、`CoreText` 原生排字、`ImageIO` PNG/JPEG 编码；core 保持无 Compose 依赖。
+
 ### 导出不变式
 
 - `ExportScale.Width` / `Height` 只做**等比缩放**，不允许导出阶段重新布局或拉伸。
@@ -393,6 +395,12 @@ API 收口事项：
 - ✅ PNG / JPEG `expect/actual` 已覆盖 JVM / Android / iOS / JS / Wasm，并完成定向回归验证。
 - ✅ `LaidOutDiagram.prepareExport(theme)` 已覆盖 `GraphIR`、`PieIR`、`TreeIR`、`SequenceIR`、`TimeSeriesIR`。
 - ✅ 四个 SDK 模块均已接入 `publishToMavenCentral(true)`，`README` / `README_zh` 已切换到 Maven Central 发布用法。
+
+### macOS arm64 平台扩展（验收待完成）
+
+四个 SDK 模块声明 `macosArm64()`，沿用现有解析、布局、Compose 门面与导出 API；不增加 macOS x64、Windows/Linux Native 或示例应用 UI。
+CoreGraphics / CoreText / ImageIO 导出后端及 macOS 像素测试已加入。Windows 的 Native klib 交叉编译和四模块发布元数据检查已通过，但这不证明 Mac 链接或运行通过。
+`.github/workflows/macos-native.yml` 在 Apple Silicon runner 上执行四模块 Native 测试并检查 POM、root `available-at` 与目标 klib；不签名或发布。真实 Native 像素结果仍待 CI 验证，因此本扩展未标为完成；无 SQL 执行面时不更新 SQL todo 状态。
 
 ---
 
