@@ -331,6 +331,8 @@ suspend fun LaidOutDiagram.toJpeg(
 - `:diagram-render` 的 `Diagram.session(...)`、Compose 侧 `DiagramView(source = ...)`（内部维护 session / snapshot，底层保留 `DiagramCanvas`）；
 - `composeApp` 的多语法 demo gallery 骨架；当前已扩展为 70 个内置预览样例（Mermaid 32 / PlantUML 33 / DOT 5），并新增 gallery smoke test 确保所有样例走真实渲染链路且无 ERROR 诊断。
 
+- [x] `toolchain-1.1.0`：统一 Kotlin 2.4.21、Compose 1.12.2、Gradle 9.7.0、AGP 9.3.1 与 compileSdk 37，保留 `release-1.0.6` 旧工具链分支，本地 `allTests` 共 5834 项测试、Android 构建、iOS 真机目标编译、Wasm 生产打包与发布元数据检查均已通过。
+
 ### Phase 1 — Mermaid 主力图（Sugiyama 体系） ✅ 已完成
 flowchart → sequenceDiagram → classDiagram → stateDiagram → erDiagram。
 需要：行驱动 lexer、Sugiyama 布局、时间轴布局、贝塞尔/折线路由、Compose 渲染基础交互。

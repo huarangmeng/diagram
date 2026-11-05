@@ -57,4 +57,4 @@ Apple Silicon 上执行，不以 Windows 的 klib 编译或非空图片代替：
 `RasterExportMacosTest` 独立解码最终文件，检查左上坐标、非零 bounds、等比缩放、透明及半透明 PNG、z 顺序、嵌套 transform/clip、圆角、路径曲线、dash/cap/join、全部箭头端点、文本基线/多行/字体样式、无 measuredBounds 的历史文本入口，以及 JPEG 不透明背景和品质对应的实际像素误差。
 `MacosPipelineRasterTest` 经三种语言真实 streaming parser → layout → snapshot → PNG 链路检查文字区域的可见像素；默认 pipeline 的四汉字标题及两行中文还须匹配移除估算矩形的全部像素，并验证独立 CoreText 完整字符串范围、行数及每个字形。字体降级回归必须观察真实单 face 字体的 traits API 返回 null，不能 mock 或跳过。CI 额外核对四模块目标 POM、root `available-at` 和 klib 载荷，不操作 Maven 发布或签名。
 
-Windows 可用 `-Pkotlin.native.enableKlibsCrossCompilation=true` 编译四模块 `compileTestKotlinMacosArm64`，只能证明主代码/测试代码及平台 API 类型可编译，不能证明 macOS 链接、字体、坐标翻转或编码结果。当前真实 Native 测试尚未运行。
+Windows 可用 `-Pkotlin.native.enableKlibsCrossCompilation=true` 编译四模块 `compileTestKotlinMacosArm64`，只能证明主代码/测试代码及平台 API 类型可编译，不能证明 macOS 链接、字体、坐标翻转或编码结果。本地 Apple Silicon 已通过四模块 `macosArm64Test`，包含 `RasterExportMacosTest` 的 8 项像素测试与 `MacosPipelineRasterTest` 的 2 项生产流水线测试；CI 验收仍以 `macos-native.yml` 的执行结果为准。

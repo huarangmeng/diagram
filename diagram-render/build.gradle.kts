@@ -36,8 +36,17 @@ kotlin {
             isStatic = true
         }
     }
-    js { browser(); nodejs() }
-    @OptIn(ExperimentalWasmDsl::class) wasmJs { browser() }
+    // Compose browser tests need executable binaries to bundle the Skiko runtime.
+    js {
+        browser()
+        nodejs()
+        binaries.executable()
+    }
+    @OptIn(ExperimentalWasmDsl::class)
+    wasmJs {
+        browser()
+        binaries.executable()
+    }
 
     sourceSets {
         commonMain.dependencies {

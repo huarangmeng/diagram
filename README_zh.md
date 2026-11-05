@@ -1,7 +1,7 @@
 # Diagram
 
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.20-blue.svg)](https://kotlinlang.org)
-[![Compose Multiplatform](https://img.shields.io/badge/Compose%20Multiplatform-1.10.3-brightgreen.svg)](https://www.jetbrains.com/lp/compose-multiplatform/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-blue.svg)](https://kotlinlang.org)
+[![Compose Multiplatform](https://img.shields.io/badge/Compose%20Multiplatform-1.12.2-brightgreen.svg)](https://www.jetbrains.com/lp/compose-multiplatform/)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.huarangmeng/diagram-render.svg?color=orange&label=Maven%20Central)](https://central.sonatype.com/search?q=io.github.huarangmeng%3Adiagram-render)
 [![Android API](https://img.shields.io/badge/Android%20API-23%2B-brightgreen.svg)](https://android-arsenal.com/api?level=23)
 [![Syntax](https://img.shields.io/badge/Syntax-Mermaid%20%7C%20PlantUML%20%7C%20DOT-orange.svg)](./docs/syntax-compat/)
@@ -52,11 +52,15 @@
 
 ## 引入方式
 
+从 1.1.0 起，主线使用 Kotlin 2.4.21 和 Compose Multiplatform 1.12.2 构建，Android 使用方需要 compileSdk 37 或更高版本。
+
+暂时无法升级工具链的项目可以继续使用 **1.0.6**，该版本使用 Kotlin **2.3.20**、Compose Multiplatform **1.10.3** 和 Android compileSdk **36** 构建。将所有 Diagram 模块的依赖版本统一固定为 `1.0.6` 即可；旧版源码与发布流程保留在 [`release-1.0.6`](https://github.com/huarangmeng/diagram/tree/release-1.0.6) 分支。
+
 直接引入 `diagram-render` 即可使用完整的解析、布局和 Compose 渲染能力。
 
 ```toml
 [versions]
-diagram = "1.0.4"
+diagram = "<version>"
 
 [libraries]
 diagram-render = { module = "io.github.huarangmeng:diagram-render", version.ref = "diagram" }
@@ -68,13 +72,15 @@ dependencies {
 }
 ```
 
+将 `<version>` 替换为已发布版本，所有 Diagram 模块使用相同版本号。
+
 如果只需要部分能力，也可以按模块拆开依赖。
 
 ```kotlin
 dependencies {
-    implementation("io.github.huarangmeng:diagram-core:1.0.4")
-    implementation("io.github.huarangmeng:diagram-layout:1.0.4")
-    implementation("io.github.huarangmeng:diagram-parser:1.0.4")
+    implementation("io.github.huarangmeng:diagram-core:<version>")
+    implementation("io.github.huarangmeng:diagram-layout:<version>")
+    implementation("io.github.huarangmeng:diagram-parser:<version>")
 }
 ```
 
@@ -168,4 +174,4 @@ fun MermaidPreview(source: String) {
 
 ### macOS Native SDK
 
-四个 SDK 模块提供 `macosArm64`，不修改示例 UI。使用 Compose 1.10.3 的消费方须在 `gradle.properties` 设置 `org.jetbrains.compose.experimental.macos.enabled=true`。`macos-native.yml` 验证 Native 测试及发布元数据；Windows klib 编译不能替代 Mac 运行验收。不增加 macOS x64 或 Windows/Linux Native。详见[测试策略](./docs/testing.md)。
+四个 SDK 模块提供 `macosArm64`，不修改示例 UI。使用 Compose 1.12.2 的消费方须在 `gradle.properties` 设置 `org.jetbrains.compose.experimental.macos.enabled=true`。`macos-native.yml` 验证 Native 测试及发布元数据；Windows klib 编译不能替代 Mac 运行验收。不增加 macOS x64 或 Windows/Linux Native。详见[测试策略](./docs/testing.md)。

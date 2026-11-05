@@ -1,7 +1,7 @@
 # Diagram
 
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.20-blue.svg)](https://kotlinlang.org)
-[![Compose Multiplatform](https://img.shields.io/badge/Compose%20Multiplatform-1.10.3-brightgreen.svg)](https://www.jetbrains.com/lp/compose-multiplatform/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.4.21-blue.svg)](https://kotlinlang.org)
+[![Compose Multiplatform](https://img.shields.io/badge/Compose%20Multiplatform-1.12.2-brightgreen.svg)](https://www.jetbrains.com/lp/compose-multiplatform/)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.huarangmeng/diagram-render.svg?color=orange&label=Maven%20Central)](https://central.sonatype.com/search?q=io.github.huarangmeng%3Adiagram-render)
 [![Android API](https://img.shields.io/badge/Android%20API-23%2B-brightgreen.svg)](https://android-arsenal.com/api?level=23)
 [![Syntax](https://img.shields.io/badge/Syntax-Mermaid%20%7C%20PlantUML%20%7C%20DOT-orange.svg)](./docs/syntax-compat/)
@@ -52,11 +52,15 @@ Detailed compatibility notes live in [Mermaid](./docs/syntax-compat/mermaid.md),
 
 ## Installation
 
+Starting with 1.1.0, mainline is built with Kotlin 2.4.21 and Compose Multiplatform 1.12.2. Android consumers need compileSdk 37 or later.
+
+Projects that cannot upgrade their toolchain can continue using **1.0.6**, built with Kotlin **2.3.20**, Compose Multiplatform **1.10.3**, and Android compileSdk **36**. Pin all Diagram modules to `1.0.6`; legacy sources and the publishing workflow are preserved on [`release-1.0.6`](https://github.com/huarangmeng/diagram/tree/release-1.0.6).
+
 Add `diagram-render` if you want the full parsing, layout, and Compose rendering stack.
 
 ```toml
 [versions]
-diagram = "1.0.4"
+diagram = "<version>"
 
 [libraries]
 diagram-render = { module = "io.github.huarangmeng:diagram-render", version.ref = "diagram" }
@@ -68,13 +72,15 @@ dependencies {
 }
 ```
 
+Replace `<version>` with a published release, using the same version for all Diagram modules.
+
 Use lower-level modules directly only when you need a subset of the stack.
 
 ```kotlin
 dependencies {
-    implementation("io.github.huarangmeng:diagram-core:1.0.4")
-    implementation("io.github.huarangmeng:diagram-layout:1.0.4")
-    implementation("io.github.huarangmeng:diagram-parser:1.0.4")
+    implementation("io.github.huarangmeng:diagram-core:<version>")
+    implementation("io.github.huarangmeng:diagram-layout:<version>")
+    implementation("io.github.huarangmeng:diagram-parser:<version>")
 }
 ```
 
@@ -168,4 +174,4 @@ fun MermaidPreview(source: String) {
 
 ### macOS Native SDK
 
-The four SDK modules expose `macosArm64` without changing the demo UI. Consumers using Compose 1.10.3 must set `org.jetbrains.compose.experimental.macos.enabled=true` in `gradle.properties`. Native test/publication-metadata validation runs in `macos-native.yml`; Windows klib compilation is not Mac runtime verification. No macOS x64 or Windows/Linux Native target is added. See [testing](./docs/testing.md).
+The four SDK modules expose `macosArm64` without changing the demo UI. Consumers using Compose 1.12.2 must set `org.jetbrains.compose.experimental.macos.enabled=true` in `gradle.properties`. Native test/publication-metadata validation runs in `macos-native.yml`; Windows klib compilation is not Mac runtime verification. No macOS x64 or Windows/Linux Native target is added. See [testing](./docs/testing.md).
