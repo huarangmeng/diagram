@@ -25,7 +25,7 @@ import com.hrm.diagram.core.streaming.Token
  * header     := KEYWORD_HEADER DIRECTION
  * statement  := nodeDecl | edge
  * nodeDecl   := IDENT LABEL?
- * edge       := IDENT LABEL? ARROW_SOLID IDENT LABEL?
+ * edge       := IDENT LABEL? (ARROW_SOLID EDGE_LABEL? IDENT LABEL?)+
  * ```
  *
  * Streaming model: callers feed *complete logical lines* of tokens via [acceptLine]; the parser
@@ -73,16 +73,18 @@ class MermaidFlowchartParser {
         // Body line.
         when (val parsed = parseStatement(line)) {
             is StmtParse.NodeDecl -> registerNode(parsed.id, parsed.label, parsed.shape, patches)
-            is StmtParse.EdgeDecl -> {
-                registerNode(parsed.from, parsed.fromLabel, parsed.fromShape, patches)
-                registerNode(parsed.to, parsed.toLabel, parsed.toShape, patches)
-                val e = Edge(
-                    from = parsed.from,
-                    to = parsed.to,
-                    label = parsed.edgeLabel?.let { RichLabel.Plain(it) },
-                )
-                edges += e
-                patches += IrPatch.AddEdge(e)
+            is StmtParse.EdgeChain -> {
+                parsed.edges.forEach { edgeDecl ->
+                    registerNode(edgeDecl.from, edgeDecl.fromLabel, edgeDecl.fromShape, patches)
+                    registerNode(edgeDecl.to, edgeDecl.toLabel, edgeDecl.toShape, patches)
+                    val e = Edge(
+                        from = edgeDecl.from,
+                        to = edgeDecl.to,
+                        label = edgeDecl.edgeLabel?.let { RichLabel.Plain(it) },
+                    )
+                    edges += e
+                    patches += IrPatch.AddEdge(e)
+                }
             }
             is StmtParse.Error -> {
                 val diag = Diagnostic(Severity.ERROR, parsed.message, "MMD-E001")
@@ -160,7 +162,7 @@ class MermaidFlowchartParser {
         if (first.kind != MermaidTokenKind.IDENT) {
             return StmtParse.Error("Statement must start with an identifier (got ${MermaidTokenKind.nameOf(first.kind)} '${first.text}')")
         }
-        val fromId = NodeId(first.text.toString())
+        var fromId = NodeId(first.text.toString())
         var i = 1
         var fromLabel: String? = null
         var fromShape: NodeShape = NodeShape.Box
@@ -172,31 +174,49 @@ class MermaidFlowchartParser {
         if (i >= toks.size) {
             return StmtParse.NodeDecl(fromId, fromLabel, fromShape)
         }
-        if (toks[i].kind != MermaidTokenKind.ARROW_SOLID) {
-            return StmtParse.Error("Expected '-->' after '${first.text}', got '${toks[i].text}'")
-        }
-        i++
-        var edgeLabel: String? = null
-        if (i < toks.size && toks[i].kind == MermaidTokenKind.EDGE_LABEL) {
-            edgeLabel = toks[i].text.toString()
+
+        val chain = mutableListOf<StmtParse.EdgeDecl>()
+        while (i < toks.size) {
+            if (toks[i].kind != MermaidTokenKind.ARROW_SOLID) {
+                val message = if (chain.isEmpty()) {
+                    "Expected '-->' after '${fromId.value}', got '${toks[i].text}'"
+                } else {
+                    "Trailing token '${toks[i].text}' after edge"
+                }
+                return StmtParse.Error(message)
+            }
             i++
-        }
-        if (i >= toks.size || toks[i].kind != MermaidTokenKind.IDENT) {
-            return StmtParse.Error("Expected target identifier after '-->'")
-        }
-        val toId = NodeId(toks[i].text.toString())
-        i++
-        var toLabel: String? = null
-        var toShape: NodeShape = NodeShape.Box
-        if (i < toks.size && isShapeLabel(toks[i].kind)) {
-            toLabel = toks[i].text.toString()
-            toShape = shapeFor(toks[i].kind)
+            var edgeLabel: String? = null
+            if (i < toks.size && toks[i].kind == MermaidTokenKind.EDGE_LABEL) {
+                edgeLabel = toks[i].text.toString()
+                i++
+            }
+            if (i >= toks.size || toks[i].kind != MermaidTokenKind.IDENT) {
+                return StmtParse.Error("Expected target identifier after '-->'")
+            }
+            val toId = NodeId(toks[i].text.toString())
             i++
+            var toLabel: String? = null
+            var toShape: NodeShape = NodeShape.Box
+            if (i < toks.size && isShapeLabel(toks[i].kind)) {
+                toLabel = toks[i].text.toString()
+                toShape = shapeFor(toks[i].kind)
+                i++
+            }
+            chain += StmtParse.EdgeDecl(
+                from = fromId,
+                fromLabel = fromLabel,
+                fromShape = fromShape,
+                to = toId,
+                toLabel = toLabel,
+                toShape = toShape,
+                edgeLabel = edgeLabel,
+            )
+            fromId = toId
+            fromLabel = toLabel
+            fromShape = toShape
         }
-        if (i < toks.size) {
-            return StmtParse.Error("Trailing token '${toks[i].text}' after edge")
-        }
-        return StmtParse.EdgeDecl(fromId, fromLabel, fromShape, toId, toLabel, toShape, edgeLabel)
+        return StmtParse.EdgeChain(chain)
     }
 
     private companion object {
@@ -223,7 +243,8 @@ class MermaidFlowchartParser {
             val toLabel: String?,
             val toShape: NodeShape,
             val edgeLabel: String?,
-        ) : StmtParse
+        )
+        data class EdgeChain(val edges: List<EdgeDecl>) : StmtParse
         data class Error(val message: String) : StmtParse
     }
 }

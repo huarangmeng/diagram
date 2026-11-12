@@ -6,7 +6,7 @@
 
 | 图类型 | 状态 | 关键修饰符 / 子语法 | Phase | 备注 |
 |---|---|---|---|---|
-| flowchart | ✅ | direction, shapes(`[]`/`()`/`{}`/`[//]` 等), 边类型(`-->`/`---`/`-.->`/`==>`)、subgraph、classDef、style、linkStyle、click | 1 | |
+| flowchart | ✅ | direction, shapes(`[]`/`()`/`{}`/`[//]` 等), 边类型(`-->`/`---`/`-.->`/`==>`)、edge chain、subgraph、classDef、style、linkStyle、click | 1 | |
 | sequenceDiagram | ✅ | participant/actor、自激活、`->>` 系列、note、loop/alt/opt/par/critical/break、autonumber | 1 | |
 | classDiagram | ✅ | 关系(`<|--`/`*--`/`o--`/`-->`/`..>`/`..|>`)、可见性、泛型、接口、注解、namespace | 1 | |
 | stateDiagram-v2 | ✅ | composite、并行、history、`[*]`、note、direction | 1 | |
