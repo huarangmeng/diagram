@@ -222,4 +222,31 @@ class MermaidFlowchartParserTest {
         assertEquals(listOf("init", "ok", "fail"), edges.map { (it.label as RichLabel.Plain).text })
         assertTrue(p.diagnosticsSnapshot().isEmpty(), "no diagnostics expected")
     }
+
+    @Test
+    fun chained_edges_share_the_intermediate_node() {
+        val p = parseAll(
+            """
+            flowchart LR
+            A[Open Login] --> B[Enter Credentials]
+            B --> C{Valid?}
+            C -->|No| E[Error] --> B
+            """.trimIndent() + "\n",
+        )
+
+        assertTrue(p.diagnosticsSnapshot().isEmpty(), "no diagnostics expected")
+        assertEquals(
+            listOf(
+                NodeId("A") to NodeId("B"),
+                NodeId("B") to NodeId("C"),
+                NodeId("C") to NodeId("E"),
+                NodeId("E") to NodeId("B"),
+            ),
+            p.snapshot().edges.map { it.from to it.to },
+        )
+        assertEquals(
+            RichLabel.Plain("Error"),
+            p.snapshot().nodes.first { it.id == NodeId("E") }.label,
+        )
+    }
 }
