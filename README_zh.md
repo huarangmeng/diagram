@@ -145,7 +145,7 @@ fun MermaidPreview(source: String) {
 ## 导出状态
 
 - **SVG**：共享 draw-command 导出链路已经进入架构与公开契约。
-- **PNG/JPEG**：平台导出器消费共享指令。macOS Native（`macosArm64`）采用 CoreGraphics/CoreText/ImageIO；真实 Native 像素测试仍待 CI 验证。
+- **PNG/JPEG**：平台导出器消费共享指令。macOS Native（`macosArm64`）采用 CoreGraphics/CoreText/ImageIO；Native 像素验证需要 Apple Silicon，详见[测试策略](./docs/testing.md)。
 
 ## 本地运行
 
@@ -160,6 +160,7 @@ fun MermaidPreview(source: String) {
 ### 测试
 
 ```bash
+./gradlew jvmTest
 ./gradlew allTests
 ```
 
@@ -174,4 +175,4 @@ fun MermaidPreview(source: String) {
 
 ### macOS Native SDK
 
-四个 SDK 模块提供 `macosArm64`，不修改示例 UI。使用 Compose 1.12.2 的消费方须在 `gradle.properties` 设置 `org.jetbrains.compose.experimental.macos.enabled=true`。`macos-native.yml` 验证 Native 测试及发布元数据；Windows klib 编译不能替代 Mac 运行验收。不增加 macOS x64 或 Windows/Linux Native。详见[测试策略](./docs/testing.md)。
+四个 SDK 模块提供 `macosArm64`，不修改示例 UI。使用 Compose 1.12.2 的消费方须在 `gradle.properties` 设置 `org.jetbrains.compose.experimental.macos.enabled=true`。Native 验证改为在 Apple Silicon 上手动执行；Windows klib 编译不能替代 Mac 运行验收。不增加 macOS x64 或 Windows/Linux Native。详见[测试策略](./docs/testing.md)。

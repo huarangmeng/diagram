@@ -397,12 +397,13 @@ API 收口事项：
 - ✅ PNG / JPEG `expect/actual` 已覆盖 JVM / Android / iOS / JS / Wasm，并完成定向回归验证。
 - ✅ `LaidOutDiagram.prepareExport(theme)` 已覆盖 `GraphIR`、`PieIR`、`TreeIR`、`SequenceIR`、`TimeSeriesIR`。
 - ✅ 四个 SDK 模块均已接入 `publishToMavenCentral(true)`，`README` / `README_zh` 已切换到 Maven Central 发布用法。
+- [x] `ci-release-tags`：对齐 Markdown 的 master push / PR 测试触发时机，改跑全模块 JVM 测试并移除 macOS 测试工作流；GitHub Release 发布时从 `release-X.Y.Z` tag 解析四模块统一版本。`./gradlew jvmTest --rerun-tasks` 实跑六模块 770 项，零失败、零跳过；13 组 tag 校验及默认快照 / 指定预发布版本下四模块 root/JVM POM 与内部依赖版本检查均通过。当前无 SQL 执行面，不更新 SQL todo 状态。
 
 ### macOS arm64 平台扩展（验收待完成）
 
 四个 SDK 模块声明 `macosArm64()`，沿用现有解析、布局、Compose 门面与导出 API；不增加 macOS x64、Windows/Linux Native 或示例应用 UI。
 CoreGraphics / CoreText / ImageIO 导出后端及 macOS 像素测试已加入。Windows 的 Native klib 交叉编译和四模块发布元数据检查已通过，但这不证明 Mac 链接或运行通过。
-`.github/workflows/macos-native.yml` 在 Apple Silicon runner 上执行四模块 Native 测试并检查 POM、root `available-at` 与目标 klib；不签名或发布。真实 Native 像素结果仍待 CI 验证，因此本扩展未标为完成；无 SQL 执行面时不更新 SQL todo 状态。
+macOS Native 测试与发布元数据检查工作流已移除，后续验收需按 `docs/testing.md` 在 Apple Silicon 手动执行；本扩展的验收状态保持待完成。无 SQL 执行面时不更新 SQL todo 状态。
 
 ---
 

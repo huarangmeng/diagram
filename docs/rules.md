@@ -135,7 +135,7 @@
 - 同一源位置在重复 chunk 推进中必须得到同一 NodeId（布局复用前提）。
 
 ### E3 🟠 跨平台必跑
-- `./gradlew allTests` 必须通过；CI 上跑 JVM + JS + Wasm + Android unit + iOSSimulator。
+- 日常 CI 执行 `./gradlew jvmTest`，所有 JVM 测试必须通过；跨平台变更另跑相关平台测试或 `./gradlew allTests`。macOS Native 验证按 `docs/testing.md` 手动执行。
 
 ---
 

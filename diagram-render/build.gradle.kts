@@ -71,7 +71,7 @@ mavenPublishing {
 
     signAllPublications()
 
-    coordinates("io.github.huarangmeng", "diagram-render", rootProject.property("VERSION").toString())
+    coordinates("io.github.huarangmeng", "diagram-render", rootProject.version.toString())
 
     pom {
         name.set("Diagram Render")

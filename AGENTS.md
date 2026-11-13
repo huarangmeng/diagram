@@ -101,7 +101,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 
 ## 5. 命令速查
 
-> 当前仓库已具备多模块构建与测试任务；仓库级 `./gradlew allTests` 已可作为基线回归命令。
+> 仓库级 `./gradlew jvmTest` 是日常 CI 与本地基线回归命令；`allTests` 用于额外跨平台验证。
 
 ```bash
 # 构建
@@ -110,6 +110,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 ./gradlew :composeApp:wasmJsBrowserDevelopmentRun  # Web (Wasm)
 
 # 测试（commonTest 跨平台跑）
+./gradlew jvmTest
 ./gradlew allTests
 ./gradlew :composeApp:jvmTest
 # 定向测试用具体平台任务；聚合 allTests 不支持 --tests
@@ -117,6 +118,14 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 
 # iOS：用 Xcode 打开 iosApp/
 ```
+
+### CI 与发布
+
+- `.github/workflows/test.yml` 与 Markdown 仓库使用相同触发时机：push 到 `master`、目标为 `master` 的 PR（`opened` / `synchronize` / `reopened` / `ready_for_review`）及手动触发。
+- CI 在 Ubuntu / JDK 21 上执行根级 `./gradlew jvmTest`，覆盖所有模块的 JVM 测试，并在成功或失败时上传报告。macOS Native 测试与元数据检查工作流已移除；手动 Native 验证见 `docs/testing.md`。
+- 在待发布提交上创建 GitHub Release，tag 使用 `release-X.Y.Z`；预发布支持 `-alpha` / `-beta` / `-rc`，可带数字，例如 `release-1.1.1-rc.1`。
+- `.github/workflows/publish.yml` 由 `release.published` 触发，从 tag 解析版本并以 `-PVERSION` 传给四个 Maven 模块。本地默认 `0.0.0-SNAPSHOT`，不再维护固定 `VERSION`。
+- 发布继续使用 macOS runner 构建 Apple 平台产物。重试优先重跑失败的 workflow，也可用 `gh workflow run publish.yml --ref release-X.Y.Z`；手动发布同样要求有效 release tag。
 
 ---
 
@@ -143,7 +152,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 2. 读 `docs/plan.md` 找到任务对应的 Phase / todo。
 3. 检查 SQL 中 `todos` 表对应 todo 的 `status` 与 `todo_deps`，确认前置已 `done`。
 4. 把要动手的 todo 设为 `in_progress`。
-5. 实现 → 写测试 → 跑 `./gradlew allTests`。
+5. 实现 → 按需写测试 → 跑 `./gradlew jvmTest`；跨平台变更另跑相关平台测试或 `allTests`。
 6. 完成后把 todo 设为 `done`，必要时新增 `docs/` 下的设计文档并更新本索引。
 7. 不要修改"关键决策"表里的内容；要改先和用户确认。
 

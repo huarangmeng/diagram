@@ -9,3 +9,5 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform) apply false
     alias(libs.plugins.mavenPublish) apply false
 }
+
+version = providers.gradleProperty("VERSION").getOrElse("0.0.0-SNAPSHOT")

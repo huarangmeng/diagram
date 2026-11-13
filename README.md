@@ -145,7 +145,7 @@ fun MermaidPreview(source: String) {
 ## Export Status
 
 - **SVG**: The shared draw-command export path is already part of the architecture and public contracts.
-- **PNG/JPEG**: Platform exporters consume the shared draw commands. macOS Native (`macosArm64`) uses CoreGraphics/CoreText/ImageIO; real Native pixel tests remain pending CI validation.
+- **PNG/JPEG**: Platform exporters consume the shared draw commands. macOS Native (`macosArm64`) uses CoreGraphics/CoreText/ImageIO; Native pixel validation requires Apple Silicon. See [testing](./docs/testing.md).
 
 ## Run Locally
 
@@ -160,6 +160,7 @@ fun MermaidPreview(source: String) {
 ### Tests
 
 ```bash
+./gradlew jvmTest
 ./gradlew allTests
 ```
 
@@ -174,4 +175,4 @@ fun MermaidPreview(source: String) {
 
 ### macOS Native SDK
 
-The four SDK modules expose `macosArm64` without changing the demo UI. Consumers using Compose 1.12.2 must set `org.jetbrains.compose.experimental.macos.enabled=true` in `gradle.properties`. Native test/publication-metadata validation runs in `macos-native.yml`; Windows klib compilation is not Mac runtime verification. No macOS x64 or Windows/Linux Native target is added. See [testing](./docs/testing.md).
+The four SDK modules expose `macosArm64` without changing the demo UI. Consumers using Compose 1.12.2 must set `org.jetbrains.compose.experimental.macos.enabled=true` in `gradle.properties`. Native validation is performed manually on Apple Silicon; Windows klib compilation is not Mac runtime verification. No macOS x64 or Windows/Linux Native target is added. See [testing](./docs/testing.md).
