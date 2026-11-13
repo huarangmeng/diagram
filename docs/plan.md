@@ -20,7 +20,7 @@
 > - **Append-only IR**：稳定 `NodeId`，patch 流而非全量替换。
 > - **Pinned + Append Layout**：已布局节点坐标钉住，新增节点局部追加。
 > - **DrawCommand 增量 + 视口剔除 + 测量缓存**：60fps 万节点。
-> - **性能预算**：每次 append < 16 ms；finish < 50 ms；内存 O(源长度)。
+> - **性能目标**：每次 append < 16 ms；finish < 50 ms；共享 CI 使用 `docs/testing.md` 中的宽松工作负载容差；内存 O(源长度)。
 >
 > 详见 `docs/streaming.md`。Phase 1 起每个语法/布局/渲染 PR 都要给出 streaming 切片测试。
 
@@ -398,6 +398,7 @@ API 收口事项：
 - ✅ `LaidOutDiagram.prepareExport(theme)` 已覆盖 `GraphIR`、`PieIR`、`TreeIR`、`SequenceIR`、`TimeSeriesIR`。
 - ✅ 四个 SDK 模块均已接入 `publishToMavenCentral(true)`，`README` / `README_zh` 已切换到 Maven Central 发布用法。
 - [x] `ci-release-tags`：对齐 Markdown 的 master push / PR 测试触发时机，改跑全模块 JVM 测试并移除 macOS 测试工作流；GitHub Release 发布时从 `release-X.Y.Z` tag 解析四模块统一版本。`./gradlew jvmTest --rerun-tasks` 实跑六模块 770 项，零失败、零跳过；13 组 tag 校验及默认快照 / 指定预发布版本下四模块 root/JVM POM 与内部依赖版本检查均通过。当前无 SQL 执行面，不更新 SQL todo 状态。
+- [x] `ci-performance-tolerance`：CI run 43386502392 的完整会话 p95 为 582ms，超过旧 250ms 门槛；按用户要求将 append / 完整会话门槛放宽至 250ms / 1000ms，增加完整会话预热及采样，并修正工作负载与单次 API 时延的混淆。`./gradlew jvmTest --rerun-tasks` 实跑六模块 770 项，零失败、零跳过。当前无 SQL 执行面，不更新 SQL todo 状态。
 
 ### macOS arm64 平台扩展（验收待完成）
 

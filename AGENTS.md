@@ -27,7 +27,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 6. **未经 ADR 改动公开 API / IR / DrawCommand**：`docs/api.md`、`docs/ir.md`、`docs/draw-command.md` 是契约文档，破坏性变更必须先在 `docs/adr/` 立 ADR。
 7. **跳过黄金语料 / 快照测试**：每个图类型实现必须配 `commonTest` 黄金语料；修 bug 必须先加复现样例。
 8. **改"关键决策"表**（§2）：决策由用户拍板，agent 不得自行推翻。
-9. **破坏增量契约**：任何新 lexer / parser / IR / layout / render 必须满足 `docs/streaming.md` 规约（resumable lexer + 行/块增量 parser + IrPatch + pinned layout + 增量 DrawCommand）；不允许实现"只能一次性吃全文"的算法。性能预算见 `docs/rules.md §F2`。
+9. **破坏增量契约**：任何新 lexer / parser / IR / layout / render 必须满足 `docs/streaming.md` 规约（resumable lexer + 行/块增量 parser + IrPatch + pinned layout + 增量 DrawCommand）；不允许实现"只能一次性吃全文"的算法。性能目标与 CI 容差见 `docs/rules.md §F2`。
 
 ### MUST
 1. 接到任务先读本文件 → `docs/plan.md` 找到对应 Phase / todo → 检查 SQL `todos` / `todo_deps` → 设 `in_progress` → 实现 → 跑测 → 设 `done`。
@@ -123,6 +123,7 @@ KMP + Compose Multiplatform 的图表渲染框架，**严格兼容** Mermaid / P
 
 - `.github/workflows/test.yml` 与 Markdown 仓库使用相同触发时机：push 到 `master`、目标为 `master` 的 PR（`opened` / `synchronize` / `reopened` / `ready_for_review`）及手动触发。
 - CI 在 Ubuntu / JDK 21 上执行根级 `./gradlew jvmTest`，覆盖所有模块的 JVM 测试，并在成功或失败时上传报告。macOS Native 测试与元数据检查工作流已移除；手动 Native 验证见 `docs/testing.md`。
+- 性能测试使用宽松的工作负载门槛容忍共享 runner 波动：append 工作负载 p95 < 250ms，完整会话 p95 < 1000ms；测量范围、预热及采样见 `docs/testing.md`，不要把工作负载总耗时当成单次 API 时延。
 - 在待发布提交上创建 GitHub Release，tag 使用 `release-X.Y.Z`；预发布支持 `-alpha` / `-beta` / `-rc`，可带数字，例如 `release-1.1.1-rc.1`。
 - `.github/workflows/publish.yml` 由 `release.published` 触发，从 tag 解析版本并以 `-PVERSION` 传给四个 Maven 模块。本地默认 `0.0.0-SNAPSHOT`，不再维护固定 `VERSION`。
 - 发布继续使用 macOS runner 构建 Apple 平台产物。重试优先重跑失败的 workflow，也可用 `gh workflow run publish.yml --ref release-X.Y.Z`；手动发布同样要求有效 release tag。

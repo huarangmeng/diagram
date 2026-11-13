@@ -122,13 +122,12 @@
 **理由**：LLM 流式是核心用例（见 `docs/streaming.md` §1），任何破坏增量性的实现都会让首屏 / 续帧时延失控。
 **检查**：每个图类型 PR 必须配套 `streaming` 切片测试（详见 E1 + `docs/streaming.md` §6）。
 
-### F2 🔴 性能预算不可破
-- `session.append(<= 100 char)` 端到端 < 16ms（60fps 不掉帧）。
-- `session.finish()` < 50ms。
+### F2 性能目标与 CI 容差
+- 优化目标：`session.append(<= 100 char)` 端到端 < 16ms（60fps 不掉帧），`session.finish()` < 50ms；需在稳定环境测量单次调用。
 - 内存占用 O(已接收源长度)，禁止保留全量 token 流。
 - 万节点视口渲染 60fps（基于 quadtree culling）。
 
-**检查**：`:diagram-core:jvmTest` JMH bench + `:diagram-render` Macrobenchmark；CI 红线。
+**检查**：日常 `:diagram-bench:jvmTest` 仅对工作负载 p95 使用宽松门槛（append < 250ms、完整会话 < 1000ms），并保留全部测量统计；完整会话计时包含所有 append、finish 与生命周期管理，不能套用单次 finish 的 50ms 目标。共享 runner 的正常波动应由 CI 容差吸收，详见 `docs/testing.md`。内存与增量复杂度约束继续有效。
 
 ### F3 🟠 NodeId 稳定派生
 - 显式 ID（源文本声明）优先；匿名节点统一用 `"$anon@<sourceOffset>"` 派生。

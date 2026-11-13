@@ -65,3 +65,15 @@ Windows 可用 `-Pkotlin.native.enableKlibsCrossCompilation=true` 编译四模�
 `.github/workflows/test.yml` 对 push 到 `master`、目标为 `master` 的 PR（`opened`、`synchronize`、`reopened`、`ready_for_review`）及手动触发生效，与 Markdown 仓库一致。
 `JVM Tests` 在 Ubuntu / JDK 21 上执行 `./gradlew jvmTest`，包含 SDK、benchmark 与 demo 模块的 JVM 测试；无论成功或失败都上传 `build/reports/tests/jvmTest` 与 `build/test-results/jvmTest`。
 本工作流只执行 JVM 测试；其他平台验证按需使用上面的命令。
+
+## 8. 性能测试容差
+
+共享 CI runner 的调度、JIT 与 GC 会影响耗时，因此 `BudgetGuardTest` 使用宽松门槛，只拦截明显退化：
+
+| 工作负载 | 计时范围 | p95 硬门槛 | 预热 / 测量次数 |
+|---|---|---|---|
+| append | 会话创建、半源预填充、一次 append 与 close | < 250ms（原 80ms） | 30 / 100 |
+| 完整会话 | 200 节点图的会话创建、全部 16 字符分块 append、finish 与 close | < 1000ms（原 250ms） | 10 / 30（原 3 / 15） |
+
+两项测试都继续输出 min / mean / p50 / p95 / p99 / max，结果随 JVM 测试报告上传。完整会话耗时不等于单次 `finish()` 时延；`docs/streaming.md` 的 16ms / 50ms 是单次 API 的优化目标，不直接作为共享 CI 工作负载门槛。
+可用 `./gradlew :diagram-bench:runBench` 单独查看测量数据。

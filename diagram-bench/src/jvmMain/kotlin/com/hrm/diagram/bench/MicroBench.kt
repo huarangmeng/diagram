@@ -8,7 +8,7 @@ import kotlin.math.min
  *
  * Usage: pre-warm JIT with [warmupIterations] runs, then time [measurementIterations] runs and
  * compute basic latency stats. We deliberately avoid JMH so that:
- * - `:diagram-bench:jvmTest` can fail-on-budget in normal CI in <1 s.
+ * - `:diagram-bench:jvmTest` checks relaxed workload budgets in normal CI.
  * - Ad-hoc runs (`./gradlew :diagram-bench:runBench`) print percentiles without extra plugins.
  *
  * Returns nanoseconds. Perform repeated work inside [block] to keep per-call noise low.

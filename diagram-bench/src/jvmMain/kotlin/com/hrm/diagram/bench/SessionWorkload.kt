@@ -8,15 +8,13 @@ import kotlinx.coroutines.runBlocking
  * Synthetic streaming workload that mirrors the LLM emit pattern: a long source emitted in
  * many small chunks, then a single `finish()`.
  *
- * The numbers asserted by [BudgetGuardTest] (and printed by [SessionBenchMain]) correspond to
- * the streaming budget in `docs/streaming.md` §4:
- *
- *   - per `append(chunk)`  : p95 < 16 ms  (one frame)
- *   - per full `finish()`  : p95 < 50 ms  (perceived "done" latency)
+ * Timings include the whole workload: setup/prefill plus append, or every chunked append plus
+ * finish/close. They are not isolated API-call latencies. `docs/testing.md` documents the relaxed
+ * CI guards; the single-call performance targets remain in `docs/streaming.md` §4.
  */
 internal object SessionWorkload {
 
-    /** ~4 KB of mermaid-flavoured source — chunked into [chunkSize] pieces. */
+    /** A 200-node Mermaid graph, emitted in [CHUNK_SIZE]-character chunks. */
     val SOURCE: String = buildString {
         appendLine("flowchart TD")
         repeat(200) { i ->
